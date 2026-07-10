@@ -21,6 +21,7 @@
 #include <Wire.h>
 #include <RTClib.h>
 #include <ArduinoJson.h>
+#include <WiFi.h>
 
 // ============================================================
 // Pin definitions
@@ -72,9 +73,10 @@ bool lastIn[MAX_SLOTS + 1] = {};
 // ============================================================
 // System state
 // ============================================================
-bool enrolling = false;
-bool rtcValid = false;
-uint32_t rtcFallbackOffset = 0; // for software clock fallback
+bool enrolling  = false;
+bool activated  = false;   // Set by CrowPanel via DEVICE_ACTIVATED command
+bool rtcValid   = false;
+uint32_t rtcFallbackOffset = 0;
 
 // PING/PONG test state
 unsigned long lastPingMs = 0;
@@ -257,6 +259,98 @@ void handleCmd(String cmd) {
     sendDoc(doc);
     Serial.println(ok ? "[DEL] Slot " + String(slot) + " erased"
                       : "[DEL] Failed");
+
+  } else if (cmd.startsWith("{")) {
+    // ── JSON command from CrowPanel ──────────────────────────
+    StaticJsonDocument<256> jcmd;
+    if (deserializeJson(jcmd, cmd) != DeserializationError::Ok) {
+      Serial.println("[CMD] Bad JSON: " + cmd);
+      return;
+    }
+    const char *action = jcmd["cmd"] | "";
+
+    if (strcmp(action, "WIFI_SCAN") == 0) {
+      Serial.println("[WIFI] Scanning networks...");
+
+      // Must be in STA mode to scan
+      WiFi.disconnect(true);
+      WiFi.mode(WIFI_STA);
+      delay(100);
+
+      int found = WiFi.scanNetworks(false, true); // blocking, show hidden
+      Serial.printf("[WIFI] scanNetworks() returned: %d\n", found);
+
+      StaticJsonDocument<1024> resp;   // 1024 to hold long SSID lists
+      resp["type"] = "WIFI_SCAN_RESULT";
+
+      if (found <= 0) {
+        // -1 = scan running (shouldn't happen in blocking mode)
+        // -2 = scan failed — retry once
+        if (found == -2) {
+          Serial.println("[WIFI] Scan failed, retrying...");
+          delay(500);
+          found = WiFi.scanNetworks(false, true);
+          Serial.printf("[WIFI] Retry returned: %d\n", found);
+        }
+        if (found <= 0) {
+          resp["ssids"] = "";
+          sendDoc(resp);
+          WiFi.scanDelete();
+          return;
+        }
+      }
+
+      Serial.printf("[WIFI] %d networks found\n", found);
+      String ssidList = "";
+      for (int i = 0; i < found; i++) {
+        if (i > 0) ssidList += ",";
+        ssidList += WiFi.SSID(i);
+      }
+      WiFi.scanDelete();
+
+      resp["ssids"] = ssidList;
+      sendDoc(resp);
+
+    } else if (strcmp(action, "WIFI_CONNECT") == 0) {
+      const char *ssid = jcmd["ssid"] | "";
+      const char *pass = jcmd["pass"] | "";
+      Serial.printf("[WIFI] Connecting to SSID: %s\n", ssid);
+
+      // Robust connection sequence for ESP32
+      WiFi.mode(WIFI_STA);
+      WiFi.disconnect(true); // Erase old credentials & disconnect
+      delay(100);            // Give the radio time to settle
+      WiFi.begin(ssid, pass);
+
+      unsigned long t = millis();
+      bool connected = false;
+      while (millis() - t < 15000) {   // 15 s timeout
+        if (WiFi.status() == WL_CONNECTED) { connected = true; break; }
+        delay(500);
+        Serial.print(".");
+      }
+      Serial.println();
+
+      StaticJsonDocument<128> resp;
+      resp["type"]      = "WIFI_STATUS";
+      resp["connected"] = connected;
+      if (connected) {
+        resp["ip"] = WiFi.localIP().toString();
+        Serial.println("[WIFI] Connected! IP: " + WiFi.localIP().toString());
+      } else {
+        Serial.println("[WIFI] Connection failed.");
+      }
+      sendDoc(resp);
+
+    } else if (strcmp(action, "DEVICE_ACTIVATED") == 0) {
+      activated = true;
+      Serial.println("[SYSTEM] CrowPanel signaled DEVICE_ACTIVATED. Fingerprint scanner enabled.");
+
+    } else if (strcmp(action, "FACTORY_RESET") == 0) {
+      activated = false;
+      Serial.println("[SYSTEM] Factory reset received. Fingerprint scanner disabled.");
+      send("{\"type\":\"FACTORY_RESET_ACK\"}");
+    }
   }
 }
 
@@ -295,7 +389,8 @@ void setup() {
     Serial.println("[AS608] NOT FOUND - check wiring!");
   }
 
-  // CrowPanel UART2
+  // CrowPanel UART2 - Large RX buffer so PONG/messages aren't dropped during blocking WiFi scans
+  cpSerial.setRxBufferSize(2048);
   cpSerial.begin(115200, SERIAL_8N1, PIN_CP_RX, PIN_CP_TX);
   Serial.println("[UART2] CrowPanel link ready");
 
@@ -363,8 +458,8 @@ void loop() {
     }
   }
 
-  // Fingerprint detection (poll sensor directly to avoid T-OUT spam)
-  if (!enrolling) {
+  // Fingerprint detection — only when activated and not enrolling
+  if (activated && !enrolling) {
     if (finger.getImage() == FINGERPRINT_OK) {
       send("{\"type\":\"PLACE_FINGER\"}");
       doMatch();

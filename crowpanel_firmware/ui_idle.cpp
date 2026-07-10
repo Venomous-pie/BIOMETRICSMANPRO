@@ -1,5 +1,7 @@
 #include "ui_idle.h"
 #include "ui_manager.h"
+#include "data_manager.h"
+#include "comm_manager.h"
 
 static lv_obj_t *scr_idle   = NULL;
 static lv_obj_t *lbl_time   = NULL;
@@ -31,6 +33,13 @@ static void btn_time_out_cb(lv_event_t * e) {
 
 static void btn_enroll_main_cb(lv_event_t * e) {
   lv_scr_load_anim(scr_emp_list, LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
+}
+
+static void btn_factory_reset_cb(lv_event_t * e) {
+  // Tell WROOM to disable fingerprint scanner
+  CommManager::sendCommand("{\"cmd\":\"FACTORY_RESET\"}");
+  // Clear flags on the CrowPanel side
+  DataManager::factoryReset();
 }
 
 void buildIdleScreen() {
@@ -116,6 +125,18 @@ void buildIdleScreen() {
   UIManager::styleLabel(lbl_out, COLOR_TEXT, &lv_font_montserrat_24, LV_TEXT_ALIGN_CENTER);
   lv_obj_center(lbl_out);
 
+  // Factory Reset button (top-left corner)
+  lv_obj_t *btn_factory = lv_btn_create(scr_idle);
+  lv_obj_set_size(btn_factory, 140, 36);
+  lv_obj_align(btn_factory, LV_ALIGN_BOTTOM_LEFT, 20, -20);
+  lv_obj_set_style_bg_color(btn_factory, UIManager::rgb(COLOR_DANGER), 0);
+  lv_obj_set_style_radius(btn_factory, 6, 0);
+  lv_obj_add_event_cb(btn_factory, btn_factory_reset_cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_t *lbl_factory = lv_label_create(btn_factory);
+  lv_label_set_text(lbl_factory, LV_SYMBOL_TRASH " Factory Reset");
+  UIManager::styleLabel(lbl_factory, COLOR_TEXT, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
+  lv_obj_center(lbl_factory);
+
   // Enroll button
   lv_obj_t * btn_enroll = lv_btn_create(scr_idle);
   lv_obj_align(btn_enroll, LV_ALIGN_BOTTOM_RIGHT, -20, -20);
@@ -135,6 +156,8 @@ void uiShowIdle() {
   lv_obj_set_style_bg_color(btn_time_in, UIManager::rgb(COLOR_DIM), 0);
   lv_obj_set_style_bg_color(btn_time_out, UIManager::rgb(COLOR_DIM), 0);
   lv_scr_load_anim(scr_idle, LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
+  // Signal WROOM that device is activated — enable fingerprint scanning
+  CommManager::sendCommand("{\"cmd\":\"DEVICE_ACTIVATED\"}");
 }
 
 void uiUpdateClock(const char *ts) {

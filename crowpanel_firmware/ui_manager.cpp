@@ -47,3 +47,7 @@ void UIManager::buildAllScreens() {
     buildEnrollScreen();
     buildEmpListScreen();
 }
+
+void uiFactoryResetComplete() {
+    uiShowWifiSetup();
+}

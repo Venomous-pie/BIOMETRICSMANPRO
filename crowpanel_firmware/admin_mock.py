@@ -11,8 +11,11 @@ def print_slow(text, delay=0.03):
     print()
 
 def generate_activation_code():
-    # The firmware currently accepts any 12-character uppercase alpha string
-    return ''.join(random.choices(string.ascii_uppercase, k=12))
+    # Format as XXXX-XXXX-XXXX
+    s1 = ''.join(random.choices(string.ascii_uppercase, k=4))
+    s2 = ''.join(random.choices(string.ascii_uppercase, k=4))
+    s3 = ''.join(random.choices(string.ascii_uppercase, k=4))
+    return f"{s1}-{s2}-{s3}"
 
 def main():
     print("========================================")
@@ -20,10 +23,10 @@ def main():
     print("========================================")
     print()
     
-    hw_code = input("Enter the 8-character Hardware Code shown on the device: ").strip()
+    hw_code = input("Enter the 9-character Hardware Code (XXXX-XXXX) shown on the device: ").strip()
     
-    if len(hw_code) != 8:
-        print("Error: Hardware code must be exactly 8 characters.")
+    if len(hw_code) != 9:
+        print("Error: Hardware code must be exactly 9 characters.")
         return
         
     print_slow("\nVerifying hardware code against company registry...", 0.05)
@@ -46,7 +49,7 @@ def main():
         print(f"Hardware Code   : {hw_code}")
         print(f"ACTIVATION CODE : {activation_code}")
         print("========================================")
-        print("\nPlease type this 12-character code into the device to unlock its features.")
+        print("\nPlease type this 14-character code into the device to unlock its features.")
     else:
         print("Authorization cancelled.")
 

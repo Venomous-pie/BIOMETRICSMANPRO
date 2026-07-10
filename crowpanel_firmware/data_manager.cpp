@@ -6,6 +6,8 @@ int DataManager::empCount = 0;
 bool DataManager::_isWifiConfigured = false;
 bool DataManager::_isActivated = false;
 String DataManager::_hwCode = "";
+int DataManager::_failedAttempts = 0;
+unsigned long DataManager::_lockoutStartTime = 0;
 
 void DataManager::begin() {
     if (!LittleFS.begin(true)) {
@@ -13,10 +15,10 @@ void DataManager::begin() {
         return;
     }
     
-    // Generate Hardware Code from MAC (8 chars)
+    // Generate Hardware Code from MAC (XXXX-XXXX format)
     uint32_t mac32 = (uint32_t)ESP.getEfuseMac();
-    char hw[9];
-    snprintf(hw, sizeof(hw), "%08X", mac32);
+    char hw[10];
+    snprintf(hw, sizeof(hw), "%04X-%04X", (mac32 >> 16) & 0xFFFF, mac32 & 0xFFFF);
     _hwCode = String(hw);
     
     createInitialFilesIfMissing();
@@ -106,16 +108,49 @@ void DataManager::setWifiConfigured(bool state) {
 bool DataManager::isActivated() { return _isActivated; }
 String DataManager::getHardwareCode() { return _hwCode; }
 
-bool DataManager::activate(const String& code) {
-    // Basic mock logic: 12 uppercase characters
-    // E.g., any 12 char uppercase string is valid for mock
-    if (code.length() == 12) {
-        for (int i = 0; i < 12; i++) {
-            if (code[i] < 'A' || code[i] > 'Z') return false; // Must be uppercase alpha
+bool DataManager::isLockedOut() {
+    if (_lockoutStartTime > 0) {
+        if (millis() - _lockoutStartTime >= 600000) { // 10 minutes passed
+            _lockoutStartTime = 0;
+            _failedAttempts = 0;
+            return false;
         }
-        _isActivated = true;
-        saveConfig();
         return true;
     }
     return false;
+}
+
+int DataManager::getFailedAttempts() { return _failedAttempts; }
+unsigned long DataManager::getLockoutStartTime() { return _lockoutStartTime; }
+
+bool DataManager::activate(const String& code) {
+    if (isLockedOut()) return false;
+
+    // Basic mock logic: 12 uppercase characters
+    bool valid = true;
+    if (code.length() != 12) valid = false;
+    for (int i = 0; i < 12; i++) {
+        if (code[i] < 'A' || code[i] > 'Z') valid = false; // Must be uppercase alpha
+    }
+    
+    if (valid) {
+        _isActivated = true;
+        _failedAttempts = 0;
+        saveConfig();
+        return true;
+    } else {
+        _failedAttempts++;
+        if (_failedAttempts >= 5) {
+            _lockoutStartTime = millis();
+            // In a real system, the server would invalidate the old code here.
+        }
+        return false;
+    }
+}
+
+void DataManager::factoryReset() {
+    _isActivated      = false;
+    _isWifiConfigured = false;
+    saveConfig();
+    Serial.println("[FS] Factory reset: config cleared.");
 }

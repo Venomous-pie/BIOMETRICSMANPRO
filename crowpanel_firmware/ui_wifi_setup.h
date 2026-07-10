@@ -6,5 +6,6 @@
 void buildWifiSetupScreen();
 void uiShowWifiSetup();
 void uiWifiUpdateStatus(bool connected);
+void uiWifiUpdateScanResult(const char* ssids);
 
 #endif // UI_WIFI_SETUP_H

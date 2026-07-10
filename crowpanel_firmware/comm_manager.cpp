@@ -13,6 +13,7 @@ extern void uiShowEnrollStep(int step, const char* msg);
 extern void uiShowEnrollResult(bool ok, const char* name);
 extern void uiWifiUpdateStatus(bool connected);
 extern void uiWifiUpdateScanResult(const char* ssids);
+extern void uiFactoryResetComplete();
 
 extern HardwareSerial WroomSerial;
 
@@ -55,7 +56,7 @@ void CommManager::sendCommand(const String& cmd) {
 void CommManager::dispatchJson(const String& line) {
     StaticJsonDocument<1024> doc;
     if (deserializeJson(doc, line) != DeserializationError::Ok) {
-        return;
+        return;  // Silently ignore malformed packets
     }
 
     const char *type = doc["type"];
@@ -76,6 +77,8 @@ void CommManager::dispatchJson(const String& line) {
     } else if (strcmp(type, "WIFI_SCAN_RESULT") == 0) {
         const char* ssids = doc["ssids"] | "";
         uiWifiUpdateScanResult(ssids);
+    } else if (strcmp(type, "FACTORY_RESET_ACK") == 0) {
+        uiFactoryResetComplete();
     } else {
         if (!DataManager::isActivated()) {
             if (Serial) Serial.println("[UART] Ignored event (device not activated): " + String(type));

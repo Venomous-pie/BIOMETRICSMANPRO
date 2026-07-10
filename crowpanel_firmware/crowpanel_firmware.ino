@@ -160,7 +160,8 @@ void setup() {
   // Init UI Manager (Builds screens and loads activation or idle)
   UIManager::begin();
 
-  // WROOM UART
+  // WROOM UART - Increase RX buffer to prevent dropping long JSON packets while LVGL is blocking
+  WroomSerial.setRxBufferSize(2048);
   WroomSerial.begin(115200, SERIAL_8N1, WROOM_RX, WROOM_TX);
   CommManager::begin();
 }

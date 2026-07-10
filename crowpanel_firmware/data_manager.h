@@ -24,6 +24,11 @@ public:
     static void setActivated(bool state);
     static String getHardwareCode();
     static bool activate(const String& code);
+    static void factoryReset();
+
+    static int getFailedAttempts();
+    static unsigned long getLockoutStartTime();
+    static bool isLockedOut();
 
 private:
     static void createInitialFilesIfMissing();
@@ -36,6 +41,8 @@ private:
     static bool _isWifiConfigured;
     static bool _isActivated;
     static String _hwCode;
+    static int _failedAttempts;
+    static unsigned long _lockoutStartTime;
 };
 
 #endif // DATA_MANAGER_H
