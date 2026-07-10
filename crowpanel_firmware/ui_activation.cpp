@@ -63,17 +63,25 @@ static void btn_change_wifi_cb(lv_event_t * e) {
     uiShowWifiSetup();
 }
 
-static void btn_back_to_hw_cb(lv_event_t * e) {
-    // Hide Enter Code view, show Hardware Code view
-    lv_obj_add_flag(view_enter_code, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(btn_activate, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_flag(kb_code, LV_OBJ_FLAG_HIDDEN);
-    
-    lv_obj_clear_flag(view_hw_code, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_clear_flag(btn_have_code, LV_OBJ_FLAG_HIDDEN);
+static void btn_back_cb(lv_event_t * e) {
+    // Context-aware: if we're on Step 3 (enter code), go back to Step 2 (hw code)
+    // If we're already on Step 2 (hw code), go back to WiFi setup
+    if (!lv_obj_has_flag(view_enter_code, LV_OBJ_FLAG_HIDDEN)) {
+        // Currently on Step 3 — go back to Step 2
+        lv_obj_add_flag(view_enter_code, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(btn_activate, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(kb_code, LV_OBJ_FLAG_HIDDEN);
 
-    lv_label_set_text(lbl_title, "Register this Device");
-    lv_label_set_text(lbl_step, ". . Step 2 of 3");
+        lv_obj_clear_flag(view_hw_code, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(btn_have_code, LV_OBJ_FLAG_HIDDEN);
+
+        lv_label_set_text(lbl_title, "Register this Device");
+        lv_label_set_text(lbl_step, ". . Step 2 of 3");
+    } else {
+        // Currently on Step 2 — go back to WiFi setup
+        if (lockout_timer) { lv_timer_del(lockout_timer); lockout_timer = NULL; }
+        uiShowWifiSetup();
+    }
 }
 
 static void btn_have_code_cb(lv_event_t * e) {
@@ -156,6 +164,7 @@ void buildActivationScreen() {
     scr_activation = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(scr_activation, UIManager::rgb(COLOR_WIFI_BG), 0);
     lv_obj_set_style_bg_opa(scr_activation, LV_OPA_COVER, 0);
+    lv_obj_clear_flag(scr_activation, LV_OBJ_FLAG_SCROLLABLE);
 
     // ── Title ──
     lbl_title = lv_label_create(scr_activation);
@@ -174,7 +183,7 @@ void buildActivationScreen() {
     lv_obj_align(btn_back, LV_ALIGN_TOP_LEFT, 20, 22);
     lv_obj_set_style_bg_color(btn_back, UIManager::rgb(COLOR_GREEN_MAIN), 0);
     lv_obj_set_style_radius(btn_back, 8, 0);
-    lv_obj_add_event_cb(btn_back, btn_back_to_hw_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(btn_back, btn_back_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *lbl_back = lv_label_create(btn_back);
     lv_label_set_text(lbl_back, LV_SYMBOL_LEFT " Back");
     UIManager::styleLabel(lbl_back, 0xFFFFFF, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
@@ -215,9 +224,12 @@ void buildActivationScreen() {
     lv_obj_align(view_hw_code, LV_ALIGN_TOP_MID, 0, 90);
     lv_obj_set_style_bg_opa(view_hw_code, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(view_hw_code, 0, 0);
+    lv_obj_clear_flag(view_hw_code, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *lbl_inst1 = lv_label_create(view_hw_code);
-    lv_label_set_text(lbl_inst1, "Go to manpro.app/register and enter the Device Code below, then click \"Next\" to enter your Activation code.");
+    lv_label_set_text(lbl_inst1, "Go to manpro.app/register and enter the Device Code below,\nthen click \"Next\" to enter your Activation code.");
+    lv_label_set_long_mode(lbl_inst1, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(lbl_inst1, 660);
     UIManager::styleLabel(lbl_inst1, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
     lv_obj_align(lbl_inst1, LV_ALIGN_TOP_MID, 0, 0);
 
@@ -260,36 +272,43 @@ void buildActivationScreen() {
     lv_obj_align(view_enter_code, LV_ALIGN_TOP_MID, 0, 90);
     lv_obj_set_style_bg_opa(view_enter_code, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(view_enter_code, 0, 0);
+    lv_obj_clear_flag(view_enter_code, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(view_enter_code, LV_OBJ_FLAG_HIDDEN);
 
     lv_obj_t *lbl_inst2 = lv_label_create(view_enter_code);
     lv_label_set_text(lbl_inst2, "Enter the Activation Code provided by the ManPro portal");
-    UIManager::styleLabel(lbl_inst2, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
-    lv_obj_align(lbl_inst2, LV_ALIGN_TOP_LEFT, 20, 0);
+    UIManager::styleLabel(lbl_inst2, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
+    lv_obj_align(lbl_inst2, LV_ALIGN_TOP_MID, 0, 0);
 
-    lv_obj_t *lbl_fmt = lv_label_create(view_enter_code);
-    lv_label_set_text(lbl_fmt, "Format: X X X X - X X X X - X X X X");
-    UIManager::styleLabel(lbl_fmt, 0x999999, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
-    lv_obj_align(lbl_fmt, LV_ALIGN_TOP_MID, 0, 60);
+
 
     // 3 Text Boxes Layout
     lv_obj_t *box_container = lv_obj_create(view_enter_code);
-    lv_obj_set_size(box_container, 400, 60);
-    lv_obj_align(box_container, LV_ALIGN_TOP_MID, 0, 90);
+    lv_obj_set_size(box_container, 550, 85);
+    lv_obj_align(box_container, LV_ALIGN_TOP_MID, 0, 60);
     lv_obj_set_style_bg_opa(box_container, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(box_container, 0, 0);
+    lv_obj_set_style_pad_all(box_container, 0, 0);
     lv_obj_clear_flag(box_container, LV_OBJ_FLAG_SCROLLABLE);
 
     auto style_ta = [](lv_obj_t *ta) {
         lv_textarea_set_one_line(ta, true);
         lv_textarea_set_max_length(ta, 4);
-        lv_obj_set_size(ta, 100, 50);
+        lv_textarea_set_placeholder_text(ta, "XXXX");
+        lv_obj_set_size(ta, 165, 75);
+        lv_obj_clear_flag(ta, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_set_style_bg_color(ta, UIManager::rgb(COLOR_GREEN_LIGHT), 0);
         lv_obj_set_style_border_color(ta, UIManager::rgb(COLOR_GREEN_MAIN), 0);
-        lv_obj_set_style_border_width(ta, 1, 0);
+        lv_obj_set_style_border_width(ta, 2, 0);
         lv_obj_set_style_text_color(ta, UIManager::rgb(COLOR_GREEN_MAIN), 0);
         lv_obj_set_style_text_align(ta, LV_TEXT_ALIGN_CENTER, 0);
-        lv_obj_set_style_text_font(ta, &lv_font_montserrat_24, 0);
+        
+        // Force the padding to be equal on left and right to ensure the placeholder centers perfectly
+        lv_obj_set_style_pad_left(ta, 0, 0);
+        lv_obj_set_style_pad_right(ta, 0, 0);
+        lv_obj_set_style_pad_top(ta, 20, 0);
+        
+        lv_obj_set_style_text_font(ta, &lv_font_montserrat_28, 0);
         lv_obj_add_event_cb(ta, ta_event_cb, LV_EVENT_ALL, NULL);
     };
 
@@ -297,19 +316,25 @@ void buildActivationScreen() {
     style_ta(ta_code1);
     lv_obj_align(ta_code1, LV_ALIGN_LEFT_MID, 0, 0);
 
-    lv_obj_t *lbl_dash1 = lv_label_create(box_container);
-    lv_label_set_text(lbl_dash1, "-");
-    UIManager::styleLabel(lbl_dash1, COLOR_GREEN_MAIN, &lv_font_montserrat_28, LV_TEXT_ALIGN_CENTER);
-    lv_obj_align(lbl_dash1, LV_ALIGN_LEFT_MID, 115, 0);
+    lv_obj_t *dash1 = lv_obj_create(box_container);
+    lv_obj_set_size(dash1, 15, 4);
+    lv_obj_set_style_bg_color(dash1, UIManager::rgb(COLOR_GREEN_MAIN), 0);
+    lv_obj_set_style_border_width(dash1, 0, 0);
+    lv_obj_set_style_radius(dash1, 2, 0);
+    lv_obj_clear_flag(dash1, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_align(dash1, LV_ALIGN_LEFT_MID, 171, 0);
 
     ta_code2 = lv_textarea_create(box_container);
     style_ta(ta_code2);
     lv_obj_align(ta_code2, LV_ALIGN_CENTER, 0, 0);
 
-    lv_obj_t *lbl_dash2 = lv_label_create(box_container);
-    lv_label_set_text(lbl_dash2, "-");
-    UIManager::styleLabel(lbl_dash2, COLOR_GREEN_MAIN, &lv_font_montserrat_28, LV_TEXT_ALIGN_CENTER);
-    lv_obj_align(lbl_dash2, LV_ALIGN_RIGHT_MID, -115, 0);
+    lv_obj_t *dash2 = lv_obj_create(box_container);
+    lv_obj_set_size(dash2, 15, 4);
+    lv_obj_set_style_bg_color(dash2, UIManager::rgb(COLOR_GREEN_MAIN), 0);
+    lv_obj_set_style_border_width(dash2, 0, 0);
+    lv_obj_set_style_radius(dash2, 2, 0);
+    lv_obj_clear_flag(dash2, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_align(dash2, LV_ALIGN_RIGHT_MID, -171, 0);
 
     ta_code3 = lv_textarea_create(box_container);
     style_ta(ta_code3);
@@ -349,8 +374,14 @@ void uiShowActivation() {
         lockout_timer = lv_timer_create(lockout_timer_cb, 1000, NULL);
     }
 
-    // Reset view to default (show hardware code view, hide enter code view)
-    btn_back_to_hw_cb(NULL);
+    // Reset to Step 2 (hardware code view)
+    lv_obj_add_flag(view_enter_code, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(btn_activate, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(kb_code, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(view_hw_code, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(btn_have_code, LV_OBJ_FLAG_HIDDEN);
+    lv_label_set_text(lbl_title, "Register this Device");
+    lv_label_set_text(lbl_step, ". . Step 2 of 3");
     
     lv_textarea_set_text(ta_code1, "");
     lv_textarea_set_text(ta_code2, "");
