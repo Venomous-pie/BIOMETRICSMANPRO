@@ -1,0 +1,123 @@
+#pragma once
+#define LGFX_USE_V1
+#include <LovyanGFX.hpp>
+#include <lgfx/v1/platforms/esp32s3/Bus_RGB.hpp>
+#include <lgfx/v1/platforms/esp32s3/Panel_RGB.hpp>
+
+#define TOUCH_GT911_SCL 20
+#define TOUCH_GT911_SDA 19
+#define TOUCH_GT911_INT -1
+#define TOUCH_GT911_RST -1
+#define LCD_BACKLIGHT_PIN 2
+
+class LGFX : public lgfx::LGFX_Device {
+public:
+  lgfx::Bus_RGB     _bus_instance;
+  lgfx::Panel_RGB   _panel_instance;
+  lgfx::Touch_GT911 _touch_instance;
+  lgfx::Light_PWM    _light_instance;
+
+  LGFX(void) {
+    {
+      auto cfg = _bus_instance.config();
+      cfg.panel = &_panel_instance;
+
+      cfg.pin_d0  = GPIO_NUM_8;  // B0
+      cfg.pin_d1  = GPIO_NUM_3;  // B1
+      cfg.pin_d2  = GPIO_NUM_46; // B2
+      cfg.pin_d3  = GPIO_NUM_9;  // B3
+      cfg.pin_d4  = GPIO_NUM_1;  // B4
+      cfg.pin_d5  = GPIO_NUM_5;  // G0
+      cfg.pin_d6  = GPIO_NUM_6;  // G1
+      cfg.pin_d7  = GPIO_NUM_7;  // G2
+      cfg.pin_d8  = GPIO_NUM_15; // G3
+      cfg.pin_d9  = GPIO_NUM_16; // G4
+      cfg.pin_d10 = GPIO_NUM_4;  // G5
+      cfg.pin_d11 = GPIO_NUM_45; // R0
+      cfg.pin_d12 = GPIO_NUM_48; // R1
+      cfg.pin_d13 = GPIO_NUM_47; // R2
+      cfg.pin_d14 = GPIO_NUM_21; // R3
+      cfg.pin_d15 = GPIO_NUM_14; // R4
+
+      cfg.pin_henable = GPIO_NUM_40;
+      cfg.pin_vsync   = GPIO_NUM_41;
+      cfg.pin_hsync   = GPIO_NUM_39;
+      cfg.pin_pclk    = GPIO_NUM_0;
+
+      // Lowered from 24MHz -> 16MHz to prevent PSRAM bus starvation.
+      // This fixes the "CRT TV" boot effect and stabilizes the panel.
+      cfg.freq_write  = 16000000;
+
+      cfg.hsync_polarity    = 0;
+      cfg.hsync_front_porch = 8;
+      cfg.hsync_pulse_width = 4;
+      cfg.hsync_back_porch  = 43;
+      cfg.vsync_polarity    = 0;
+      cfg.vsync_front_porch = 8;
+      cfg.vsync_pulse_width = 4;
+      cfg.vsync_back_porch  = 12;
+      cfg.pclk_active_neg   = 1;
+      cfg.de_idle_high      = 0;
+      cfg.pclk_idle_high    = 0;
+
+      _bus_instance.config(cfg);
+    }
+    {
+      auto cfg = _panel_instance.config();
+      cfg.memory_width  = 800;
+      cfg.memory_height = 480;
+      cfg.panel_width   = 800;
+      cfg.panel_height  = 480;
+      cfg.offset_x = 0;
+      cfg.offset_y = 0;
+      _panel_instance.config(cfg);
+    }
+    {
+      // ============================================================
+      // SMOOTHNESS CONFIGURATION
+      // ============================================================
+      // use_psram = 1  → single PSRAM framebuffer (baseline, may have tearing)
+      // use_psram = 2  → double PSRAM framebuffer (~1.5MB PSRAM, zero tearing)
+      //                  CPU draws into back-buffer while EDMA scans front-buffer.
+      //                  Buffers swap only on completed frame → no mid-scan tears.
+      //
+      // NOTE: bounce_buffer_size_px (eliminates PSRAM bus contention entirely)
+      //   requires LovyanGFX >= 1.1.8. To enable after updating:
+      //   cfg.bounce_buffer_size_px = 8000;  // 800 * 10 lines of fast SRAM relay
+      // ============================================================
+      auto cfg = _panel_instance.config_detail();
+      cfg.use_psram = 1;  // Single buffer avoids overwhelming the PSRAM bus
+      _panel_instance.config_detail(cfg);
+    }
+    {
+      auto cfg = _touch_instance.config();
+      cfg.x_min = 0;
+      cfg.x_max = 799;
+      cfg.y_min = 0;
+      cfg.y_max = 479;
+      cfg.pin_int  = TOUCH_GT911_INT;
+      cfg.pin_rst  = TOUCH_GT911_RST;
+      cfg.bus_shared = true;
+      cfg.offset_rotation = 0;
+      cfg.i2c_port = 0;
+      cfg.i2c_addr = 0x5D;
+      cfg.pin_sda  = TOUCH_GT911_SDA;
+      cfg.pin_scl  = TOUCH_GT911_SCL;
+      cfg.freq = 400000;
+      _touch_instance.config(cfg);
+      _panel_instance.setTouch(&_touch_instance);
+    }
+    {
+      auto cfg = _light_instance.config();
+      cfg.pin_bl = LCD_BACKLIGHT_PIN;
+      cfg.invert = false;
+      cfg.freq   = 44100;
+      cfg.pwm_channel = 7;
+      _light_instance.config(cfg);
+      // _panel_instance.setLight(&_light_instance); // BYPASSED FOR MANUAL CONTROL
+    }
+
+    _panel_instance.setBus(&_bus_instance);
+    setPanel(&_panel_instance);
+  }
+};
