@@ -1,5 +1,9 @@
 #include "ui_manager.h"
 #include "data_manager.h"
+#include "ui_wifi_setup.h"
+#include "ui_enroll.h"
+#include "ui_result.h"
+#include "ui_main_menu.h"
 
 // External screen builders
 extern void buildActivationScreen();
@@ -8,11 +12,13 @@ extern void buildResultScreen();
 extern void buildEnrollScreen();
 extern void buildEmpListScreen();
 extern void buildWifiSetupScreen();
+extern void buildMainMenuScreen();
 
 // External screen show functions
 extern void uiShowIdle();
 extern void uiShowActivation();
 extern void uiShowWifiSetup();
+extern void uiShowMainMenu();
 
 void UIManager::begin() {
     buildAllScreens();
@@ -46,8 +52,25 @@ void UIManager::buildAllScreens() {
     buildResultScreen();
     buildEnrollScreen();
     buildEmpListScreen();
+    buildMainMenuScreen();
 }
 
 void uiFactoryResetComplete() {
     uiShowWifiSetup();
+}
+
+void UIManager::showIdle() {
+    uiShowIdle();
+}
+
+void UIManager::showActivation() {
+    uiShowActivation();
+}
+
+void UIManager::showWifiSetup() {
+    uiShowWifiSetup();
+}
+
+void UIManager::showMainMenu() {
+    uiShowMainMenu();
 }
