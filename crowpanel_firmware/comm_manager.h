@@ -12,6 +12,7 @@ public:
 private:
     static void dispatchJson(const String& line);
     static String uartBuf;
+    static String serialBuf;
 };
 
 #endif // COMM_MANAGER_H

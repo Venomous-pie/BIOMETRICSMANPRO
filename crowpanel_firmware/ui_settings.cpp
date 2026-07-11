@@ -1,7 +1,7 @@
 #include "ui_settings.h"
 #include "ui_manager.h"
 
-static lv_obj_t *scr_settings = NULL;
+lv_obj_t *scr_settings = NULL;
 
 extern const lv_img_dsc_t icon_settings;
 extern const lv_img_dsc_t icon_schedule; // using schedule as clock icon placeholder

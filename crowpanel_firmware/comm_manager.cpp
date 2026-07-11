@@ -19,6 +19,7 @@ extern void uiFactoryResetComplete();
 extern HardwareSerial WroomSerial;
 
 String CommManager::uartBuf = "";
+String CommManager::serialBuf = "";
 
 void CommManager::begin() {
     Serial.println("[UART] Initializing WROOM UART...");
@@ -28,6 +29,7 @@ void CommManager::begin() {
 }
 
 void CommManager::process() {
+    // NON-BLOCKING: read WROOM UART char-by-char to avoid missing PONG replies
     while (WroomSerial.available()) {
         char c = WroomSerial.read();
         if (c == '\n') {
@@ -39,12 +41,20 @@ void CommManager::process() {
         }
     }
 
-    if (Serial && Serial.available()) {
-        String cmd = Serial.readStringUntil('\n');
-        cmd.trim();
-        if (cmd.length() > 0) {
-            WroomSerial.println(cmd);
-            if (Serial) Serial.println("[FWD->WROOM] " + cmd);
+    // NON-BLOCKING: USB Serial forwarder (char-by-char so we never stall the loop)
+    if (Serial) {
+        while (Serial.available()) {
+            char c = Serial.read();
+            if (c == '\n') {
+                serialBuf.trim();
+                if (serialBuf.length() > 0) {
+                    WroomSerial.println(serialBuf);
+                    Serial.println("[FWD->WROOM] " + serialBuf);
+                }
+                serialBuf = "";
+            } else if (c != '\r') {
+                serialBuf += c;
+            }
         }
     }
 }
@@ -70,7 +80,7 @@ void CommManager::dispatchJson(const String& line) {
     if (strcmp(type, "TIME") == 0) {
         uiUpdateClock(doc["ts"] | "");
     } else if (strcmp(type, "PING") == 0) {
-        WroomSerial.println("PONG");
+        WroomSerial.println("{\"type\":\"PONG\"}");
         if (Serial) Serial.println("[PING] Got PING from WROOM -> sent PONG");
     } else if (strcmp(type, "WIFI_STATUS") == 0) {
         bool connected = doc["connected"] | false;

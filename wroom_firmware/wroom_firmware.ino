@@ -5,7 +5,7 @@
  * Board    : ESP32-WROOM-32
  * AS608    : UART1  RX=GPIO16, TX=GPIO17, TOUCH=GPIO34
  * DS3231   : I2C    SDA=GPIO21, SCL=GPIO22
- * CrowPanel: UART2  TX=GPIO33 --> CP IO44, RX=GPIO32 <-- CP IO43
+ * CrowPanel: UART2  TX=GPIO33 --> CP IO38, RX=GPIO32 <-- CP IO43
  *
  * Libraries (install via Arduino Library Manager):
  *   - Adafruit Fingerprint Sensor Library  (Adafruit)
@@ -234,12 +234,18 @@ void handleCmd(String cmd) {
   cmd.trim();
   if (cmd.length() == 0) return;
 
-  // Handle PONG reply from CrowPanel
-  if (cmd == "PONG") {
-    pongCount++;
-    pongReceived = true;
-    Serial.printf("[PING] PONG received from CrowPanel! (ping=%u pong=%u)\n", pingCount, pongCount);
-    return;
+  // Handle PONG reply from CrowPanel (sent as JSON: {"type":"PONG"})
+  if (cmd.startsWith("{")) {
+    StaticJsonDocument<64> pdoc;
+    if (deserializeJson(pdoc, cmd) == DeserializationError::Ok) {
+      const char* t = pdoc["type"] | "";
+      if (strcmp(t, "PONG") == 0) {
+        pongCount++;
+        pongReceived = true;
+        Serial.printf("[PING] PONG received from CrowPanel! (ping=%u pong=%u)\n", pingCount, pongCount);
+        return;
+      }
+    }
   }
 
   Serial.println("[CMD] " + cmd);
@@ -336,18 +342,36 @@ void handleCmd(String cmd) {
     } else if (strcmp(action, "WIFI_CONNECT") == 0) {
       const char *ssid = jcmd["ssid"] | "";
       const char *pass = jcmd["pass"] | "";
-      Serial.printf("[WIFI] Connecting to SSID: %s\n", ssid);
+      Serial.printf("[WIFI] Connecting to SSID: '%s' (len %d), PASS: '%s' (len %d)\n", ssid, strlen(ssid), pass, strlen(pass));
 
       // Robust connection sequence for ESP32
+      WiFi.disconnect(false, true); // Keep radio on, but ERASE saved AP credentials (clears BSSID lock)
+      delay(500);            
       WiFi.mode(WIFI_STA);
-      WiFi.disconnect(true); // Erase old credentials & disconnect
-      delay(100);            // Give the radio time to settle
+      delay(100);
       WiFi.begin(ssid, pass);
 
       unsigned long t = millis();
       bool connected = false;
+      int lastStatus = -1;
+      
       while (millis() - t < 15000) {   // 15 s timeout
-        if (WiFi.status() == WL_CONNECTED) { connected = true; break; }
+        int status = WiFi.status();
+        if (status != lastStatus) {
+            lastStatus = status;
+            Serial.printf("[WIFI] Status changed: %d\n", status);
+        }
+        if (status == WL_CONNECTED) { connected = true; break; }
+        
+        // If router aggressively rejects us (e.g. WPA3 transition or Fast Roaming), re-attempt immediately
+        if (status == WL_CONNECT_FAILED || status == WL_NO_SSID_AVAIL) {
+            Serial.println("[WIFI] Re-attempting begin()...");
+            WiFi.disconnect(false, true);
+            delay(100);
+            WiFi.begin(ssid, pass);
+            lastStatus = -1; // force status print again
+        }
+        
         delay(500);
         Serial.print(".");
       }

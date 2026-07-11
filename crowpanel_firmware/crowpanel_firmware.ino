@@ -3,7 +3,7 @@
  * Biometrics Employee Time-In/Time-Out System - Display Node
  *
  * Board   : ESP32-S3 CrowPanel 5.0" (800x480)
- * UART    : IO44 (RX from WROOM GPIO33), IO43 (TX to WROOM GPIO32)
+ * UART    : IO38 (RX from WROOM GPIO33), IO43 (TX to WROOM GPIO32)
  *
  * Libraries (install via Arduino Library Manager):
  *   - LVGL 8.x/9.x
@@ -89,8 +89,8 @@ void my_touch_read(lv_indev_drv_t *indev_drv, lv_indev_data_t *data) {
 // UART to WROOM
 // ============================================================
 HardwareSerial WroomSerial(1);
-#define WROOM_RX 38
-#define WROOM_TX 43
+#define WROOM_RX 38   // IO38: UART RX from WROOM GPIO33
+#define WROOM_TX 43   // IO43: UART TX to WROOM GPIO32
 
 // ============================================================
 // Setup
