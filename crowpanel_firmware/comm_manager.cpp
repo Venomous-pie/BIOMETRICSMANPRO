@@ -76,6 +76,27 @@ void CommManager::dispatchJson(const String& line) {
         bool connected = doc["connected"] | false;
         uiWifiUpdateStatus(connected);
         uiIdleUpdateWifi(connected);
+
+        // ── Auto-reconnect on boot ──
+        // If the WROOM reports it is disconnected and we have saved credentials,
+        // immediately attempt to reconnect. We use a one-shot flag so we don't
+        // spam reconnect attempts; the user can always reconnect manually from
+        // the WiFi setup screen, which will reset the flag for the next boot.
+        static bool autoReconnectAttempted = false;
+        if (!connected && !autoReconnectAttempted && DataManager::hasSavedWifi()) {
+            autoReconnectAttempted = true;
+            String savedSsid = DataManager::getWifiSsid();
+            String savedPass = DataManager::getWifiPass();
+            Serial.printf("[WiFi] Auto-reconnecting to saved SSID: %s\n", savedSsid.c_str());
+            StaticJsonDocument<256> req;
+            req["cmd"]  = "WIFI_CONNECT";
+            req["ssid"] = savedSsid;
+            req["pass"] = savedPass;
+            String out;
+            serializeJson(req, out);
+            sendCommand(out);
+        }
+
     } else if (strcmp(type, "WIFI_SCAN_RESULT") == 0) {
         const char* ssids = doc["ssids"] | "";
         uiWifiUpdateScanResult(ssids);

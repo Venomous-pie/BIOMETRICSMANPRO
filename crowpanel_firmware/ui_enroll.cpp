@@ -124,6 +124,7 @@ static void search_ta_event_cb(lv_event_t * e) {
 
 
 void buildEmpListScreen() {
+  if (scr_emp_list != NULL) return;  // Already built, skip
   scr_emp_list = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(scr_emp_list, UIManager::rgb(0xFFFFFF), 0);
   lv_obj_set_style_bg_opa(scr_emp_list, LV_OPA_COVER, 0);
@@ -240,6 +241,7 @@ void buildEmpListScreen() {
 }
 
 void buildEnrollScreen() {
+  if (scr_enroll != NULL) return;  // Already built, skip
   scr_enroll = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(scr_enroll, UIManager::rgb(COLOR_BG), 0);
   lv_obj_set_style_bg_opa(scr_enroll, LV_OPA_COVER, 0);
@@ -276,6 +278,7 @@ void buildEnrollScreen() {
 }
 
 void uiShowEnrollStart(const char *name) {
+  if (scr_enroll == NULL) buildEnrollScreen();  // Lazy build on first use
   if (returnTimer) { lv_timer_del(returnTimer); returnTimer = NULL; }
   
   lv_obj_set_style_bg_color(scr_enroll, UIManager::rgb(COLOR_BG), 0);

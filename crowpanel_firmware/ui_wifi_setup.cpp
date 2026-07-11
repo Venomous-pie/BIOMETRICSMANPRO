@@ -47,6 +47,15 @@ static void ta_event_cb(lv_event_t *e) {
         lv_keyboard_set_textarea(kb_wifi, ta);
         lv_obj_clear_flag(kb_wifi, LV_OBJ_FLAG_HIDDEN);
     }
+    // When user manually edits the SSID field to something different from
+    // the saved SSID, treat it as intentionally switching networks.
+    if (code == LV_EVENT_VALUE_CHANGED && ta == ta_ssid) {
+        const char *typed = lv_textarea_get_text(ta_ssid);
+        if (DataManager::hasSavedWifi() &&
+            String(typed) != DataManager::getWifiSsid()) {
+            DataManager::clearWifiCredentials();
+        }
+    }
 }
 
 // ── show password button ──────────────────────────────────────────────────
@@ -71,7 +80,14 @@ static void network_row_cb(lv_event_t *e) {
         lv_obj_t *lbl = lv_obj_get_child(row, 0);
         if (lbl) {
             const char *name = lv_label_get_text(lbl);
+            // If user is selecting a different SSID than what was saved,
+            // clear the stored credentials so we don't silently reconnect old ones.
+            if (DataManager::hasSavedWifi() &&
+                String(name) != DataManager::getWifiSsid()) {
+                DataManager::clearWifiCredentials();
+            }
             lv_textarea_set_text(ta_ssid, name);
+            lv_textarea_set_text(ta_pass, "");  // clear password for fresh entry
         }
         setErr("Network selected. Enter password and tap Connect.", true);
     }
@@ -144,6 +160,14 @@ void uiWifiUpdateStatus(bool connected) {
     if (connected) {
         lv_label_set_text(lbl_status, LV_SYMBOL_WIFI " Online");
         setErr("Connected! Tap 'Continue to registration'.", true);
+        // Persist credentials so we can auto-reconnect on next boot
+        if (ta_ssid && ta_pass) {
+            const char *ssid = lv_textarea_get_text(ta_ssid);
+            const char *pass = lv_textarea_get_text(ta_pass);
+            if (ssid && strlen(ssid) > 0) {
+                DataManager::saveWifiCredentials(String(ssid), String(pass));
+            }
+        }
     } else {
         lv_label_set_text(lbl_status, LV_SYMBOL_WIFI " Offline");
         setErr("Connection failed. Check SSID / password.", false);
@@ -214,21 +238,13 @@ void buildWifiSetupScreen() {
     lv_obj_set_style_bg_color(scr_wifi, UIManager::rgb(COLOR_WIFI_BG), 0);
     lv_obj_set_style_bg_opa(scr_wifi, LV_OPA_COVER, 0);
 
-    // ── Title ──
-    lv_obj_t *lbl_title = lv_label_create(scr_wifi);
-    lv_label_set_text(lbl_title, LV_SYMBOL_WIFI " WiFi set-up");
-    UIManager::styleLabel(lbl_title, COLOR_TEXT_MAIN, &lv_font_montserrat_28, LV_TEXT_ALIGN_CENTER);
-    lv_obj_align(lbl_title, LV_ALIGN_TOP_MID, 0, 22);
-
-    lv_obj_t *lbl_step = lv_label_create(scr_wifi);
-    lv_label_set_text(lbl_step, ". . . Step 1 of 3");
-    UIManager::styleLabel(lbl_step, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
-    lv_obj_align_to(lbl_step, lbl_title, LV_ALIGN_OUT_BOTTOM_MID, 0, 4);
+    // ── Title & Header ──
+    UIManager::buildHeader(scr_wifi, LV_SYMBOL_WIFI " WiFi set-up", ". . . Step 1 of 3", NULL, false);
 
     // ── Status Pill ──
     lv_obj_t *pill = lv_obj_create(scr_wifi);
     lv_obj_set_size(pill, 170, 38);
-    lv_obj_align(pill, LV_ALIGN_TOP_RIGHT, -20, 22);
+    lv_obj_align(pill, LV_ALIGN_TOP_RIGHT, -20, 17);
     lv_obj_set_style_bg_color(pill, UIManager::rgb(COLOR_GREEN_LIGHT), 0);
     lv_obj_set_style_radius(pill, 19, 0);
     lv_obj_set_style_border_width(pill, 0, 0);
@@ -252,16 +268,6 @@ void buildWifiSetupScreen() {
     UIManager::styleLabel(lbl_battery, 0xFFFFFF, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
     lv_obj_center(lbl_battery);
 
-    // ── Back Button ──
-    lv_obj_t *btn_back = lv_btn_create(scr_wifi);
-    lv_obj_set_size(btn_back, 56, 38);
-    lv_obj_align(btn_back, LV_ALIGN_TOP_LEFT, 20, 22);
-    lv_obj_set_style_bg_color(btn_back, UIManager::rgb(COLOR_GREEN_MAIN), 0);
-    lv_obj_set_style_radius(btn_back, 8, 0);
-    lv_obj_t *lbl_back = lv_label_create(btn_back);
-    lv_label_set_text(lbl_back, LV_SYMBOL_LEFT);
-    lv_obj_center(lbl_back);
-
     // ── Subtitle ──
     lv_obj_t *lbl_sub = lv_label_create(scr_wifi);
     lv_label_set_text(lbl_sub, "Connect the WiFi before registering this device");
@@ -280,6 +286,10 @@ void buildWifiSetupScreen() {
     lv_obj_align(ta_ssid, LV_ALIGN_TOP_LEFT, 30, 155);
     lv_obj_add_event_cb(ta_ssid, ta_event_cb, LV_EVENT_ALL, NULL);
     lv_obj_set_style_border_color(ta_ssid, UIManager::rgb(COLOR_STROKE), 0);
+    // Pre-fill with saved SSID for convenience
+    if (DataManager::hasSavedWifi()) {
+        lv_textarea_set_text(ta_ssid, DataManager::getWifiSsid().c_str());
+    }
 
     // ── Password Input ──
     lv_obj_t *lbl_pass_title = lv_label_create(scr_wifi);

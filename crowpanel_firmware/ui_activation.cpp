@@ -168,33 +168,13 @@ void buildActivationScreen() {
     lv_obj_set_style_bg_opa(scr_activation, LV_OPA_COVER, 0);
     lv_obj_clear_flag(scr_activation, LV_OBJ_FLAG_SCROLLABLE);
 
-    // ── Title ──
-    lbl_title = lv_label_create(scr_activation);
-    lv_label_set_text(lbl_title, "Register this Device");
-    UIManager::styleLabel(lbl_title, COLOR_TEXT_MAIN, &lv_font_montserrat_28, LV_TEXT_ALIGN_CENTER);
-    lv_obj_align(lbl_title, LV_ALIGN_TOP_MID, 0, 22);
-
-    lbl_step = lv_label_create(scr_activation);
-    lv_label_set_text(lbl_step, ". . Step 2 of 3");
-    UIManager::styleLabel(lbl_step, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
-    lv_obj_align_to(lbl_step, lbl_title, LV_ALIGN_OUT_BOTTOM_MID, 0, 4);
-
-    // ── Back Button ──
-    lv_obj_t *btn_back = lv_btn_create(scr_activation);
-    lv_obj_set_size(btn_back, 100, 40);
-    lv_obj_align(btn_back, LV_ALIGN_TOP_LEFT, 20, 22);
-    lv_obj_set_style_bg_color(btn_back, UIManager::rgb(COLOR_GREEN_MAIN), 0);
-    lv_obj_set_style_radius(btn_back, 8, 0);
-    lv_obj_add_event_cb(btn_back, btn_back_cb, LV_EVENT_CLICKED, NULL);
-    lv_obj_t *lbl_back = lv_label_create(btn_back);
-    lv_label_set_text(lbl_back, LV_SYMBOL_LEFT " Back");
-    UIManager::styleLabel(lbl_back, 0xFFFFFF, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
-    lv_obj_center(lbl_back);
+    // ── Title & Header ──
+    UIManager::buildHeader(scr_activation, "Register this Device", ". . Step 2 of 3", btn_back_cb, false);
 
     // ── Status Pill ──
     lv_obj_t *pill = lv_obj_create(scr_activation);
     lv_obj_set_size(pill, 160, 40);
-    lv_obj_align(pill, LV_ALIGN_TOP_RIGHT, -20, 22);
+    lv_obj_align(pill, LV_ALIGN_TOP_RIGHT, -20, 16);
     lv_obj_set_style_bg_color(pill, UIManager::rgb(COLOR_GREEN_LIGHT), 0);
     lv_obj_set_style_radius(pill, 20, 0);
     lv_obj_set_style_border_width(pill, 0, 0);

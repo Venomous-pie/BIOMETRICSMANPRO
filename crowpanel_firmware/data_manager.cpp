@@ -8,6 +8,8 @@ bool DataManager::_isActivated = false;
 String DataManager::_hwCode = "";
 int DataManager::_failedAttempts = 0;
 unsigned long DataManager::_lockoutStartTime = 0;
+String DataManager::_wifiSsid = "";
+String DataManager::_wifiPass = "";
 
 void DataManager::begin() {
     if (!LittleFS.begin(true)) {
@@ -24,6 +26,7 @@ void DataManager::begin() {
     createInitialFilesIfMissing();
     loadConfig();
     loadEmployees();
+    loadWifiCredentials();
 }
 
 void DataManager::createInitialFilesIfMissing() {
@@ -105,6 +108,50 @@ void DataManager::setWifiConfigured(bool state) {
     saveConfig(); 
 }
 
+// ── WiFi credential persistence ────────────────────────────────────────────
+void DataManager::loadWifiCredentials() {
+    if (!LittleFS.exists("/wifi_creds.json")) return;
+    File f = LittleFS.open("/wifi_creds.json", "r");
+    if (!f) return;
+    StaticJsonDocument<256> doc;
+    if (deserializeJson(doc, f) == DeserializationError::Ok) {
+        _wifiSsid = doc["ssid"] | "";
+        _wifiPass = doc["pass"] | "";
+    }
+    f.close();
+    Serial.printf("[WiFi] Loaded saved credentials for SSID: %s\n", _wifiSsid.c_str());
+}
+
+void DataManager::saveWifiCredentialsToFs() {
+    File f = LittleFS.open("/wifi_creds.json", "w");
+    if (!f) return;
+    StaticJsonDocument<256> doc;
+    doc["ssid"] = _wifiSsid;
+    doc["pass"] = _wifiPass;
+    serializeJson(doc, f);
+    f.close();
+}
+
+void DataManager::saveWifiCredentials(const String& ssid, const String& pass) {
+    _wifiSsid = ssid;
+    _wifiPass = pass;
+    saveWifiCredentialsToFs();
+    Serial.printf("[WiFi] Credentials saved for SSID: %s\n", ssid.c_str());
+}
+
+void DataManager::clearWifiCredentials() {
+    _wifiSsid = "";
+    _wifiPass = "";
+    if (LittleFS.exists("/wifi_creds.json")) {
+        LittleFS.remove("/wifi_creds.json");
+    }
+    Serial.println("[WiFi] Saved credentials cleared (user switched network)");
+}
+
+String DataManager::getWifiSsid() { return _wifiSsid; }
+String DataManager::getWifiPass() { return _wifiPass; }
+bool   DataManager::hasSavedWifi() { return _wifiSsid.length() > 0; }
+
 bool DataManager::isActivated() { return _isActivated; }
 String DataManager::getHardwareCode() { return _hwCode; }
 
@@ -152,5 +199,6 @@ void DataManager::factoryReset() {
     _isActivated      = false;
     _isWifiConfigured = false;
     saveConfig();
-    Serial.println("[FS] Factory reset: config cleared.");
+    clearWifiCredentials();
+    Serial.println("[FS] Factory reset: config and WiFi credentials cleared.");
 }

@@ -26,6 +26,13 @@ public:
     static bool activate(const String& code);
     static void factoryReset();
 
+    // WiFi credential persistence
+    static void saveWifiCredentials(const String& ssid, const String& pass);
+    static void clearWifiCredentials();
+    static String getWifiSsid();
+    static String getWifiPass();
+    static bool hasSavedWifi();
+
     static int getFailedAttempts();
     static unsigned long getLockoutStartTime();
     static bool isLockedOut();
@@ -43,6 +50,10 @@ private:
     static String _hwCode;
     static int _failedAttempts;
     static unsigned long _lockoutStartTime;
+    static String _wifiSsid;
+    static String _wifiPass;
+    static void loadWifiCredentials();
+    static void saveWifiCredentialsToFs();
 };
 
 #endif // DATA_MANAGER_H

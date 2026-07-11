@@ -15,6 +15,7 @@ extern int pending_action;
 extern void uiShowIdle();
 
 void buildResultScreen() {
+  if (scr_result != NULL) return;  // Already built, skip
   scr_result = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(scr_result, UIManager::rgb(COLOR_BG), 0);
   lv_obj_set_style_bg_opa(scr_result, LV_OPA_COVER, 0);
@@ -90,6 +91,7 @@ void buildResultScreen() {
 }
 
 void uiShowMatch(const char *name, const char *dept, const char *action, const char *ts) {
+  if (scr_result == NULL) buildResultScreen();  // Lazy build on first use
   bool isIn;
   if (pending_action == 0) {
     isIn = (strcmp(action, "IN") == 0);
@@ -128,6 +130,7 @@ void uiShowMatch(const char *name, const char *dept, const char *action, const c
 }
 
 void uiShowNoMatch() {
+  if (scr_result == NULL) buildResultScreen();  // Lazy build on first use
   lv_obj_set_style_bg_color(card_result, UIManager::rgb(COLOR_DANGER), 0);
   lv_obj_set_style_border_color(card_result, UIManager::rgb(COLOR_DANGER), 0);
   lv_label_set_text(lbl_avatar, "!");

@@ -43,6 +43,9 @@ public:
     static void showWifiSetup();
     static void showSettings();
     static void showMainMenu();
+
+    // Shared Header Helper
+    static lv_obj_t* buildHeader(lv_obj_t* scr, const char* title, const char* subtitle, lv_event_cb_t back_cb, bool show_wifi_pill);
 };
 
 #endif // UI_MANAGER_H

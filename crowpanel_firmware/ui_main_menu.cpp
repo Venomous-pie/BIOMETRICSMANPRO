@@ -1,5 +1,6 @@
 #include "ui_main_menu.h"
 #include "ui_manager.h"
+#include "ui_enroll.h"
 
 static lv_obj_t *scr_main_menu = NULL;
 
@@ -12,6 +13,8 @@ extern const lv_img_dsc_t icon_battery;
 extern lv_obj_t *scr_emp_list;
 
 static void btn_emp_cb(lv_event_t * e) {
+    // Lazy-build the emp list screen if it hasn't been built yet
+    if (scr_emp_list == NULL) buildEmpListScreen();
     lv_scr_load_anim(scr_emp_list, LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
 }
 
@@ -33,49 +36,7 @@ void buildMainMenuScreen() {
     lv_obj_set_style_bg_opa(scr_main_menu, LV_OPA_COVER, 0);
     lv_obj_set_scrollbar_mode(scr_main_menu, LV_SCROLLBAR_MODE_OFF);
 
-    // Top left: ManPro Icon (clickable, back to idle)
-    lv_obj_t *logo = lv_img_create(scr_main_menu);
-    lv_img_set_src(logo, &icon_manpro);
-    lv_obj_align(logo, LV_ALIGN_TOP_LEFT, 20, 15);
-    lv_obj_add_flag(logo, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(logo, logo_click_cb, LV_EVENT_CLICKED, NULL);
-
-    // ── Top Right Status Area ──
-    // Structure: [wifi text] [divider] [time/date col + battery box] [version below]
-    lv_obj_t *status_cont = lv_obj_create(scr_main_menu);
-    lv_obj_set_size(status_cont, 340, 50);
-    lv_obj_align(status_cont, LV_ALIGN_TOP_RIGHT, -10, 15);
-    lv_obj_set_style_bg_opa(status_cont, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(status_cont, 0, 0);
-    lv_obj_set_style_pad_all(status_cont, 0, 0);
-    lv_obj_clear_flag(status_cont, LV_OBJ_FLAG_SCROLLABLE);
-
-    // Wi-Fi label on the left of the status bar
-    lv_obj_t *lbl_wifi = lv_label_create(status_cont);
-    lv_label_set_text(lbl_wifi, LV_SYMBOL_WIFI "  Online - Synced");
-    UIManager::styleLabel(lbl_wifi, COLOR_GREEN_DARK, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
-    lv_obj_align(lbl_wifi, LV_ALIGN_LEFT_MID, 0, 0);
-
-    // Vertical divider
-    lv_obj_t *divider = lv_obj_create(status_cont);
-    lv_obj_set_size(divider, 2, 44);
-    lv_obj_align(divider, LV_ALIGN_LEFT_MID, 170, 0);
-    lv_obj_set_style_bg_color(divider, UIManager::rgb(COLOR_STROKE), 0);
-    lv_obj_set_style_border_width(divider, 0, 0);
-    lv_obj_clear_flag(divider, LV_OBJ_FLAG_SCROLLABLE);
-
-    // Time + Date column (amber/orange)
-    lv_obj_t *lbl_datetime = lv_label_create(status_cont);
-    lv_label_set_text(lbl_datetime, "12:00 PM\n7/1/2026");
-    UIManager::styleLabel(lbl_datetime, 0xF5A623, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
-    lv_obj_align(lbl_datetime, LV_ALIGN_LEFT_MID, 182, 0);
-
-    // Battery icon (pure icon, no number)
-    lv_obj_t *batt_img = lv_img_create(status_cont);
-    lv_img_set_src(batt_img, &icon_battery);
-    lv_obj_set_style_img_recolor(batt_img, UIManager::rgb(COLOR_GREEN_DARK), 0);
-    lv_obj_set_style_img_recolor_opa(batt_img, LV_OPA_COVER, 0);
-    lv_obj_align(batt_img, LV_ALIGN_RIGHT_MID, 0, 0);
+    UIManager::buildHeader(scr_main_menu, "Main Menu", "Choose an option", logo_click_cb, true);
 
     // Cards Container (Flex layout)
     lv_obj_t *cards_cont = lv_obj_create(scr_main_menu);
