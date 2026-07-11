@@ -4,6 +4,8 @@
 
 static lv_obj_t *scr_activation = NULL;
 
+extern const lv_img_dsc_t icon_battery;
+
 static lv_obj_t *lbl_title = NULL;
 static lv_obj_t *lbl_step = NULL;
 
@@ -203,18 +205,11 @@ void buildActivationScreen() {
     UIManager::styleLabel(lbl_status, COLOR_GREEN_DARK, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
     lv_obj_align(lbl_status, LV_ALIGN_LEFT_MID, 5, 0);
 
-    lv_obj_t *batt_box = lv_obj_create(pill);
-    lv_obj_set_size(batt_box, 35, 25);
-    lv_obj_align(batt_box, LV_ALIGN_RIGHT_MID, 0, 0);
-    lv_obj_set_style_bg_color(batt_box, UIManager::rgb(COLOR_GREEN_DARK), 0);
-    lv_obj_set_style_radius(batt_box, 4, 0);
-    lv_obj_set_style_border_width(batt_box, 0, 0);
-    lv_obj_clear_flag(batt_box, LV_OBJ_FLAG_SCROLLABLE);
-
-    lv_obj_t *lbl_battery = lv_label_create(batt_box);
-    lv_label_set_text(lbl_battery, "98");
-    UIManager::styleLabel(lbl_battery, 0xFFFFFF, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
-    lv_obj_center(lbl_battery);
+    lv_obj_t *batt_img = lv_img_create(pill);
+    lv_img_set_src(batt_img, &icon_battery);
+    lv_obj_set_style_img_recolor(batt_img, UIManager::rgb(COLOR_GREEN_DARK), 0);
+    lv_obj_set_style_img_recolor_opa(batt_img, LV_OPA_COVER, 0);
+    lv_obj_align(batt_img, LV_ALIGN_RIGHT_MID, 0, 0);
 
     // ==============================================================
     // VIEW 1: Hardware Code

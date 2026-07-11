@@ -7,6 +7,7 @@ extern const lv_img_dsc_t icon_manpro;
 extern const lv_img_dsc_t icon_people;
 extern const lv_img_dsc_t icon_schedule;
 extern const lv_img_dsc_t icon_settings;
+extern const lv_img_dsc_t icon_battery;
 
 extern lv_obj_t *scr_emp_list;
 
@@ -69,18 +70,12 @@ void buildMainMenuScreen() {
     UIManager::styleLabel(lbl_datetime, 0xF5A623, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
     lv_obj_align(lbl_datetime, LV_ALIGN_LEFT_MID, 182, 0);
 
-    // Battery box - centered inline with wifi status
-    lv_obj_t *batt_box = lv_obj_create(status_cont);
-    lv_obj_set_size(batt_box, 32, 22);
-    lv_obj_align(batt_box, LV_ALIGN_RIGHT_MID, 0, 0);
-    lv_obj_set_style_bg_color(batt_box, UIManager::rgb(COLOR_GREEN_DARK), 0);
-    lv_obj_set_style_radius(batt_box, 4, 0);
-    lv_obj_set_style_border_width(batt_box, 0, 0);
-    lv_obj_clear_flag(batt_box, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_t *lbl_batt = lv_label_create(batt_box);
-    lv_label_set_text(lbl_batt, "98");
-    UIManager::styleLabel(lbl_batt, 0xFFFFFF, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
-    lv_obj_center(lbl_batt);
+    // Battery icon (pure icon, no number)
+    lv_obj_t *batt_img = lv_img_create(status_cont);
+    lv_img_set_src(batt_img, &icon_battery);
+    lv_obj_set_style_img_recolor(batt_img, UIManager::rgb(COLOR_GREEN_DARK), 0);
+    lv_obj_set_style_img_recolor_opa(batt_img, LV_OPA_COVER, 0);
+    lv_obj_align(batt_img, LV_ALIGN_RIGHT_MID, 0, 0);
 
     // Cards Container (Flex layout)
     lv_obj_t *cards_cont = lv_obj_create(scr_main_menu);
@@ -130,5 +125,5 @@ void buildMainMenuScreen() {
 }
 
 void uiShowMainMenu() {
-    lv_scr_load_anim(scr_main_menu, LV_SCR_LOAD_ANIM_FADE_ON, 200, 0, false);
+    lv_scr_load_anim(scr_main_menu, LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
 }

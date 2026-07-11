@@ -12,6 +12,7 @@ extern void uiShowEnrollStart(const char* name);
 extern void uiShowEnrollStep(int step, const char* msg);
 extern void uiShowEnrollResult(bool ok, const char* name);
 extern void uiWifiUpdateStatus(bool connected);
+extern void uiIdleUpdateWifi(bool connected);
 extern void uiWifiUpdateScanResult(const char* ssids);
 extern void uiFactoryResetComplete();
 
@@ -74,6 +75,7 @@ void CommManager::dispatchJson(const String& line) {
     } else if (strcmp(type, "WIFI_STATUS") == 0) {
         bool connected = doc["connected"] | false;
         uiWifiUpdateStatus(connected);
+        uiIdleUpdateWifi(connected);
     } else if (strcmp(type, "WIFI_SCAN_RESULT") == 0) {
         const char* ssids = doc["ssids"] | "";
         uiWifiUpdateScanResult(ssids);

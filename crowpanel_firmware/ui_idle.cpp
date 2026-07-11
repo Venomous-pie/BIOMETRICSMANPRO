@@ -8,10 +8,12 @@ static lv_obj_t *lbl_time   = NULL;
 static lv_obj_t *lbl_ampm   = NULL;
 static lv_obj_t *lbl_date   = NULL;
 static lv_obj_t *lbl_prompt = NULL;
+static lv_obj_t *lbl_wifi_status = NULL;
 static lv_obj_t *btn_time_in  = NULL;
 static lv_obj_t *btn_time_out = NULL;
 
 extern const lv_img_dsc_t manpro_logo;
+extern const lv_img_dsc_t icon_battery;
 
 int pending_action = 1; // 0=none, 1=IN, 2=OUT
 
@@ -68,61 +70,74 @@ void buildIdleScreen() {
   lv_obj_add_flag(scr_idle, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(scr_idle, scr_idle_click_cb, LV_EVENT_CLICKED, NULL);
 
-  // Top right pill (Wifi / Battery) - Matched to ui_activation.cpp exactly
+  // Status pill
   lv_obj_t *status_pill = lv_obj_create(scr_idle);
-  lv_obj_set_size(status_pill, 160, 40);
+  lv_obj_set_size(status_pill, 180, 40);
   lv_obj_align(status_pill, LV_ALIGN_TOP_RIGHT, -20, 22);
   lv_obj_set_style_bg_color(status_pill, UIManager::rgb(COLOR_GREEN_LIGHT), 0);
   lv_obj_set_style_radius(status_pill, 20, 0);
   lv_obj_set_style_border_width(status_pill, 0, 0);
   lv_obj_clear_flag(status_pill, LV_OBJ_FLAG_SCROLLABLE);
 
-  lv_obj_t *lbl_wifi = lv_label_create(status_pill);
-  lv_label_set_text(lbl_wifi, LV_SYMBOL_WIFI " Offline");
-  UIManager::styleLabel(lbl_wifi, COLOR_GREEN_DARK, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
-  lv_obj_align(lbl_wifi, LV_ALIGN_LEFT_MID, 5, 0);
+  // Wi-Fi label (dynamic — updated by uiIdleUpdateWifi)
+  lbl_wifi_status = lv_label_create(status_pill);
+  lv_label_set_text(lbl_wifi_status, LV_SYMBOL_WIFI " Offline");
+  UIManager::styleLabel(lbl_wifi_status, COLOR_GREEN_DARK, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
+  lv_obj_align(lbl_wifi_status, LV_ALIGN_LEFT_MID, 8, 0);
 
-  lv_obj_t *batt_box = lv_obj_create(status_pill);
-  lv_obj_set_size(batt_box, 35, 25);
-  lv_obj_align(batt_box, LV_ALIGN_RIGHT_MID, -4, 0);
-  lv_obj_set_style_bg_color(batt_box, UIManager::rgb(COLOR_GREEN_DARK), 0);
-  lv_obj_set_style_radius(batt_box, 4, 0);
-  lv_obj_set_style_border_width(batt_box, 0, 0);
-  lv_obj_clear_flag(batt_box, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_t *lbl_batt = lv_label_create(batt_box);
-  lv_label_set_text(lbl_batt, "98");
-  UIManager::styleLabel(lbl_batt, 0xFFFFFF, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
-  lv_obj_center(lbl_batt);
+  // Battery icon (no number — pure icon)
+  lv_obj_t *batt_img = lv_img_create(status_pill);
+  lv_img_set_src(batt_img, &icon_battery);
+  lv_obj_set_style_img_recolor(batt_img, UIManager::rgb(COLOR_GREEN_DARK), 0);
+  lv_obj_set_style_img_recolor_opa(batt_img, LV_OPA_COVER, 0);
+  lv_obj_align(batt_img, LV_ALIGN_RIGHT_MID, -6, 0);
 
-  // Logo
+  // ── ManPro Logo ─────────────────────────────────────────
   lv_obj_t *logo = lv_img_create(scr_idle);
   lv_img_set_src(logo, &manpro_logo);
-  lv_obj_align(logo, LV_ALIGN_TOP_MID, 0, 80);
+  lv_obj_align(logo, LV_ALIGN_TOP_MID, 0, 45);
 
-  // Clock Container
+  // ── Clock container ──────────────────────────────────────
+  // Flex row: time (48px) + AM/PM (14px), zoomed 2× = ~96px / ~28px visually
   lv_obj_t *clock_cont = lv_obj_create(scr_idle);
-  lv_obj_set_size(clock_cont, 300, 80);
-  lv_obj_align(clock_cont, LV_ALIGN_CENTER, 0, 0);
+  lv_obj_set_size(clock_cont, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
   lv_obj_set_style_bg_opa(clock_cont, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(clock_cont, 0, 0);
+  lv_obj_set_style_pad_all(clock_cont, 0, 0);
   lv_obj_clear_flag(clock_cont, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(clock_cont, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
+
+  lv_obj_set_layout(clock_cont, LV_LAYOUT_FLEX);
+  lv_obj_set_flex_flow(clock_cont, LV_FLEX_FLOW_ROW);
+  // Align children to the bottom of the flex row so AM/PM sits at baseline
+  lv_obj_set_flex_align(clock_cont, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
+  lv_obj_set_style_pad_column(clock_cont, 6, 0);
+
+  // 2× zoom: 48px font renders visually at ~96px
+  lv_obj_set_style_transform_zoom(clock_cont, 512, 0);
 
   lbl_time = lv_label_create(clock_cont);
   lv_label_set_text(lbl_time, "12:00");
   UIManager::styleLabel(lbl_time, COLOR_STROKE, &lv_font_montserrat_48, LV_TEXT_ALIGN_CENTER);
-  lv_obj_align(lbl_time, LV_ALIGN_CENTER, -15, 0);
 
   lbl_ampm = lv_label_create(clock_cont);
   lv_label_set_text(lbl_ampm, "PM");
-  UIManager::styleLabel(lbl_ampm, COLOR_STROKE, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
-  lv_obj_align_to(lbl_ampm, lbl_time, LV_ALIGN_OUT_RIGHT_BOTTOM, 5, -8);
+  // 14px × 2× zoom = 28px visual — sits neatly beside the large time
+  UIManager::styleLabel(lbl_ampm, COLOR_STROKE, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
+  lv_obj_set_style_pad_bottom(lbl_ampm, 4, 0);
 
+  // Position clock visually in the upper-center of the screen
+  // (visual content expands 2× outward from the object's natural center)
+  lv_obj_align(clock_cont, LV_ALIGN_CENTER, 0, -15);
+
+  // ── Date label ───────────────────────────────────────────
   lbl_date = lv_label_create(scr_idle);
-  lv_label_set_text(lbl_date, "Wednesday 7/1/2026");
+  lv_label_set_text(lbl_date, "Wednesday    7/1/2026");
   UIManager::styleLabel(lbl_date, COLOR_STROKE, &lv_font_montserrat_24, LV_TEXT_ALIGN_CENTER);
-  lv_obj_align(lbl_date, LV_ALIGN_CENTER, 0, 45);
+  // Pushed down enough to clear the 2× zoomed clock above
+  lv_obj_align(lbl_date, LV_ALIGN_CENTER, 0, 100);
 
-  // Prompt / Bottom Text
+  // ── Prompt / Bottom Text ─────────────────────────────────
   lbl_prompt = lv_label_create(scr_idle);
   lv_label_set_text(lbl_prompt, "< Time - In >");
   UIManager::styleLabel(lbl_prompt, COLOR_STROKE, &lv_font_montserrat_28, LV_TEXT_ALIGN_CENTER);
@@ -165,8 +180,9 @@ void uiUpdateClock(const char *ts) {
     
     if (lbl_ampm) lv_label_set_text(lbl_ampm, ampm);
 
-    char dateStr[32];
-    snprintf(dateStr, sizeof(dateStr), "%s %d/%d/%d", days[h], month, day, year);
+    char dateStr[40];
+    // Four spaces between day name and date — matches reference design
+    snprintf(dateStr, sizeof(dateStr), "%s    %d/%d/%d", days[h], month, day, year);
     lv_label_set_text(lbl_date, dateStr);
   }
 }
@@ -174,5 +190,13 @@ void uiUpdateClock(const char *ts) {
 void uiShowPlaceFinger() {
   if (pending_action != 0) {
     lv_label_set_text(lbl_prompt, "Reading fingerprint...");
+  }
+}
+
+void uiIdleUpdateWifi(bool connected) {
+  if (lbl_wifi_status) {
+    lv_label_set_text(lbl_wifi_status, connected ? LV_SYMBOL_WIFI " Online" : LV_SYMBOL_WIFI " Offline");
+    lv_obj_set_style_text_color(lbl_wifi_status,
+      UIManager::rgb(connected ? COLOR_GREEN_MAIN : COLOR_GREEN_DARK), 0);
   }
 }

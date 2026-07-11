@@ -22,6 +22,8 @@
 #include <RTClib.h>
 #include <ArduinoJson.h>
 #include <WiFi.h>
+#include <WiFiUdp.h>
+#include <time.h>
 
 // ============================================================
 // Pin definitions
@@ -31,6 +33,7 @@
 #define PIN_FP_TOUCH 34   // AS608 T-OUT  HIGH when finger present
 #define PIN_CP_TX    33   // -> CrowPanel IO44  (UART2 TX)
 #define PIN_CP_RX    32   // <- CrowPanel IO43  (UART2 RX)
+#define PIN_FACTORY_RESET 14 // Factory Reset hardware button (active low)
 #define MAX_SLOTS    127
 
 // ============================================================
@@ -113,6 +116,25 @@ String getTimestamp() {
            now.year(), now.month(), now.day(),
            now.hour(), now.minute(), now.second());
   return String(buf);
+}
+
+// Sync time from NTP and update RTC if available
+void syncNTP() {
+  if (WiFi.status() != WL_CONNECTED) return;
+  Serial.println("[NTP] Syncing time...");
+  configTime(8 * 3600, 0, "pool.ntp.org", "time.google.com"); // UTC+8 (adjust offset as needed)
+  struct tm t;
+  if (getLocalTime(&t, 8000)) {
+    Serial.printf("[NTP] Synced: %04d-%02d-%02d %02d:%02d:%02d\n",
+      t.tm_year+1900, t.tm_mon+1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec);
+    if (rtcValid) {
+      rtc.adjust(DateTime(t.tm_year+1900, t.tm_mon+1, t.tm_mday,
+                          t.tm_hour, t.tm_min, t.tm_sec));
+      Serial.println("[NTP] RTC updated from NTP");
+    }
+  } else {
+    Serial.println("[NTP] Sync failed - using existing time");
+  }
 }
 
 // Full send: UART + Serial log (for important events)
@@ -337,14 +359,27 @@ void handleCmd(String cmd) {
       if (connected) {
         resp["ip"] = WiFi.localIP().toString();
         Serial.println("[WIFI] Connected! IP: " + WiFi.localIP().toString());
+        sendDoc(resp);
+        syncNTP();  // Sync time from NTP on successful connect
       } else {
         Serial.println("[WIFI] Connection failed.");
+        sendDoc(resp);
       }
-      sendDoc(resp);
 
     } else if (strcmp(action, "DEVICE_ACTIVATED") == 0) {
       activated = true;
       Serial.println("[SYSTEM] CrowPanel signaled DEVICE_ACTIVATED. Fingerprint scanner enabled.");
+      // Broadcast current wifi status so idle screen pill updates
+      StaticJsonDocument<128> wstat;
+      wstat["type"]      = "WIFI_STATUS";
+      wstat["connected"] = (WiFi.status() == WL_CONNECTED);
+      sendDoc(wstat);
+
+    } else if (strcmp(action, "GET_WIFI_STATUS") == 0) {
+      StaticJsonDocument<128> wstat;
+      wstat["type"]      = "WIFI_STATUS";
+      wstat["connected"] = (WiFi.status() == WL_CONNECTED);
+      sendDoc(wstat);
 
     } else if (strcmp(action, "FACTORY_RESET") == 0) {
       activated = false;
@@ -411,6 +446,9 @@ void setup() {
   // We no longer rely on PIN_FP_TOUCH, polling sensor instead to avoid spam.
   // pinMode(PIN_FP_TOUCH, INPUT);
 
+  // Factory reset button module (Active-High)
+  pinMode(PIN_FACTORY_RESET, INPUT_PULLDOWN);
+
   Serial.println("\nReady. Commands:");
   Serial.println("  ENROLL:1  -> enroll finger for slot 1 (Alice Santos)");
   Serial.println("  ENROLL:2  -> enroll finger for slot 2 (Bob Cruz)");
@@ -423,8 +461,35 @@ void setup() {
 
 unsigned long lastTimeBcast = 0;
 String cpBuf = "";  // Non-blocking accumulator for CrowPanel UART
+unsigned long btnPressTime = 0;
+bool btnHeld = false;
 
 void loop() {
+  // Check factory reset button (hold for 5 seconds)
+  if (digitalRead(PIN_FACTORY_RESET) == HIGH) {
+    if (!btnHeld) {
+      btnHeld = true;
+      btnPressTime = millis();
+      Serial.println("[SYSTEM] Factory reset button pressed. Hold for 5 seconds to confirm...");
+    } else if (millis() - btnPressTime > 5000) {
+      Serial.println("[SYSTEM] HARDWARE FACTORY RESET TRIGGERED!");
+      // 1. Erase Wi-Fi credentials
+      WiFi.disconnect(true, true);
+      // 2. Erase all fingerprints
+      finger.emptyDatabase();
+      Serial.println("[SYSTEM] Wi-Fi erased and fingerprint database wiped. Rebooting...");
+      // Send message to CrowPanel to wipe its own state
+      send("{\"type\":\"FACTORY_RESET_ACK\"}");
+      delay(2000);
+      ESP.restart();
+    }
+  } else {
+    if (btnHeld) {
+      Serial.println("[SYSTEM] Factory reset button released.");
+    }
+    btnHeld = false;
+  }
+
   // Broadcast current time to CrowPanel every second (QUIET - no Serial spam)
   if (millis() - lastTimeBcast >= 1000) {
     lastTimeBcast = millis();

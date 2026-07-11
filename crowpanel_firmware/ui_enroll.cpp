@@ -17,6 +17,7 @@ static lv_obj_t *kb_search = NULL;
 extern void uiShowIdle();
 extern lv_timer_t *returnTimer;
 extern const lv_img_dsc_t icon_people;
+extern const lv_img_dsc_t icon_people_small;
 
 static void btn_back_cb(lv_event_t * e) {
   UIManager::showMainMenu();
@@ -107,14 +108,20 @@ static void search_ta_event_cb(lv_event_t * e) {
         const char *d = ta_dept_search ? lv_textarea_get_text(ta_dept_search) : "";
         populate_emp_list(n, d);
     } else if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
+        // Dismiss keyboard, restore full list height
         lv_obj_add_flag(kb_search, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_clear_flag(emp_list_obj, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_height(emp_list_obj, 270);
+        lv_obj_align(emp_list_obj, LV_ALIGN_BOTTOM_MID, 0, -10);
     } else if (code == LV_EVENT_FOCUSED) {
+        // Show keyboard but keep list visible above it (keyboard ~200px tall)
         lv_keyboard_set_textarea(kb_search, (lv_obj_t*)lv_event_get_target(e));
         lv_obj_clear_flag(kb_search, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_add_flag(emp_list_obj, LV_OBJ_FLAG_HIDDEN);
+        // Shrink list so it fits above the keyboard
+        lv_obj_set_height(emp_list_obj, 140);
+        lv_obj_align(emp_list_obj, LV_ALIGN_TOP_MID, 0, 200);
     }
 }
+
 
 void buildEmpListScreen() {
   scr_emp_list = lv_obj_create(NULL);
@@ -137,11 +144,9 @@ void buildEmpListScreen() {
 
   // Center: people icon + "Employees" title
   lv_obj_t *hdr_icon = lv_img_create(scr_emp_list);
-  lv_img_set_src(hdr_icon, &icon_people);
+  lv_img_set_src(hdr_icon, &icon_people_small);
   lv_obj_set_style_img_recolor(hdr_icon, UIManager::rgb(COLOR_GREEN_MAIN), 0);
   lv_obj_set_style_img_recolor_opa(hdr_icon, LV_OPA_COVER, 0);
-  // Scale icon to 36x36 for the header
-  lv_obj_set_style_transform_zoom(hdr_icon, 96, 0);
   lv_obj_align(hdr_icon, LV_ALIGN_TOP_MID, -80, 18);
 
   lv_obj_t *lbl_title = lv_label_create(scr_emp_list);

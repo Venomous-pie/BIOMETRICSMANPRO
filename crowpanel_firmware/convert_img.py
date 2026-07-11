@@ -58,6 +58,13 @@ if __name__ == "__main__":
     )
     
     convert_image(
+        r"c:\Users\User\BIOMETRICSMANPRO\data\icons\people.png", 
+        r"c:\Users\User\BIOMETRICSMANPRO\crowpanel_firmware\icon_people_small.c",
+        "icon_people_small",
+        36, 36
+    )
+    
+    convert_image(
         r"c:\Users\User\BIOMETRICSMANPRO\data\icons\schedule.png", 
         r"c:\Users\User\BIOMETRICSMANPRO\crowpanel_firmware\icon_schedule.c",
         "icon_schedule",
