@@ -3,6 +3,9 @@
 #include "data_manager.h"
 #include "comm_manager.h"
 
+// Custom 144-px Montserrat Bold font
+extern const lv_font_t lv_font_montserrat_144;
+
 static lv_obj_t *scr_idle   = NULL;
 static lv_obj_t *lbl_time   = NULL;
 static lv_obj_t *lbl_ampm   = NULL;
@@ -97,45 +100,23 @@ void buildIdleScreen() {
   lv_img_set_src(logo, &manpro_logo);
   lv_obj_align(logo, LV_ALIGN_TOP_MID, 0, 45);
 
-  // ── Clock container ──────────────────────────────────────
-  // Flex row: time (48px) + AM/PM (14px), zoomed 2× = ~96px / ~28px visually
-  lv_obj_t *clock_cont = lv_obj_create(scr_idle);
-  lv_obj_set_size(clock_cont, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
-  lv_obj_set_style_bg_opa(clock_cont, LV_OPA_TRANSP, 0);
-  lv_obj_set_style_border_width(clock_cont, 0, 0);
-  lv_obj_set_style_pad_all(clock_cont, 0, 0);
-  lv_obj_clear_flag(clock_cont, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_add_flag(clock_cont, LV_OBJ_FLAG_OVERFLOW_VISIBLE);
-
-  lv_obj_set_layout(clock_cont, LV_LAYOUT_FLEX);
-  lv_obj_set_flex_flow(clock_cont, LV_FLEX_FLOW_ROW);
-  // Align children to the bottom of the flex row so AM/PM sits at baseline
-  lv_obj_set_flex_align(clock_cont, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
-  lv_obj_set_style_pad_column(clock_cont, 6, 0);
-
-  // 2× zoom: 48px font renders visually at ~96px
-  lv_obj_set_style_transform_zoom(clock_cont, 512, 0);
-
-  lbl_time = lv_label_create(clock_cont);
+  lbl_time = lv_label_create(scr_idle);
   lv_label_set_text(lbl_time, "12:00");
-  UIManager::styleLabel(lbl_time, COLOR_STROKE, &lv_font_montserrat_48, LV_TEXT_ALIGN_CENTER);
+  UIManager::styleLabel(lbl_time, COLOR_STROKE, &lv_font_montserrat_144, LV_TEXT_ALIGN_CENTER);
+  // Time is perfectly centered on the screen
+  lv_obj_align(lbl_time, LV_ALIGN_CENTER, 0, -15);
 
-  lbl_ampm = lv_label_create(clock_cont);
+  // AM/PM superscript — small font, anchored to the right-bottom of the time
+  lbl_ampm = lv_label_create(scr_idle);
   lv_label_set_text(lbl_ampm, "PM");
-  // 14px × 2× zoom = 28px visual — sits neatly beside the large time
-  UIManager::styleLabel(lbl_ampm, COLOR_STROKE, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
-  lv_obj_set_style_pad_bottom(lbl_ampm, 4, 0);
-
-  // Position clock visually in the upper-center of the screen
-  // (visual content expands 2× outward from the object's natural center)
-  lv_obj_align(clock_cont, LV_ALIGN_CENTER, 0, -15);
+  UIManager::styleLabel(lbl_ampm, COLOR_STROKE, &lv_font_montserrat_28, LV_TEXT_ALIGN_LEFT);
+  lv_obj_align_to(lbl_ampm, lbl_time, LV_ALIGN_OUT_RIGHT_BOTTOM, 6, -16);
 
   // ── Date label ───────────────────────────────────────────
   lbl_date = lv_label_create(scr_idle);
   lv_label_set_text(lbl_date, "Wednesday    7/1/2026");
   UIManager::styleLabel(lbl_date, COLOR_STROKE, &lv_font_montserrat_24, LV_TEXT_ALIGN_CENTER);
-  // Pushed down enough to clear the 2× zoomed clock above
-  lv_obj_align(lbl_date, LV_ALIGN_CENTER, 0, 100);
+  lv_obj_align(lbl_date, LV_ALIGN_CENTER, 0, 80);
 
   // ── Prompt / Bottom Text ─────────────────────────────────
   lbl_prompt = lv_label_create(scr_idle);
