@@ -1,6 +1,7 @@
 #include "ui_manager.h"
 #include "data_manager.h"
 #include "ui_wifi_setup.h"
+#include "ui_settings.h"
 #include "ui_enroll.h"
 #include "ui_result.h"
 #include "ui_main_menu.h"
@@ -12,12 +13,14 @@ extern void buildResultScreen();
 extern void buildEnrollScreen();
 extern void buildEmpListScreen();
 extern void buildWifiSetupScreen();
+extern void buildSettingsScreen();
 extern void buildMainMenuScreen();
 
 // External screen show functions
 extern void uiShowIdle();
 extern void uiShowActivation();
 extern void uiShowWifiSetup();
+extern void uiShowSettings();
 extern void uiShowMainMenu();
 
 void UIManager::begin() {
@@ -69,6 +72,15 @@ void UIManager::showActivation() {
 
 void UIManager::showWifiSetup() {
     uiShowWifiSetup();
+}
+
+extern lv_obj_t *scr_settings;
+
+void UIManager::showSettings() {
+    if (scr_settings == NULL) {
+        buildSettingsScreen();
+    }
+    uiShowSettings();
 }
 
 void UIManager::showMainMenu() {

@@ -41,6 +41,7 @@ public:
     static void showIdle();
     static void showActivation();
     static void showWifiSetup();
+    static void showSettings();
     static void showMainMenu();
 };
 

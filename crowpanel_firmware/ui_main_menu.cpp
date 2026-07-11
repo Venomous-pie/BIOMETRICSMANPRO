@@ -20,7 +20,7 @@ static void btn_att_cb(lv_event_t * e) {
 }
 
 static void btn_set_cb(lv_event_t * e) {
-    UIManager::showWifiSetup();
+    UIManager::showSettings();
 }
 
 static void logo_click_cb(lv_event_t * e) {
