@@ -169,7 +169,9 @@ void buildActivationScreen() {
     lv_obj_clear_flag(scr_activation, LV_OBJ_FLAG_SCROLLABLE);
 
     // ── Title & Header ──
-    UIManager::buildHeader(scr_activation, "Register this Device", ". . Step 2 of 3", btn_back_cb, false);
+    lv_obj_t *header = UIManager::buildHeader(scr_activation, "Register this Device", ". . Step 2 of 3", btn_back_cb, false);
+    lbl_title = lv_obj_get_child(header, 1);
+    lbl_step = lv_obj_get_child(header, 2);
 
     // ── Status Pill ──
     lv_obj_t *pill = lv_obj_create(scr_activation);

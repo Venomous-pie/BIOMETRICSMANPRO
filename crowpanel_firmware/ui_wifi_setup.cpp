@@ -5,25 +5,34 @@
 #include <ArduinoJson.h>
 
 // ── static object handles ──────────────────────────────────────────────────
-static lv_obj_t *scr_wifi      = NULL;
-static lv_obj_t *ta_ssid       = NULL;
-static lv_obj_t *ta_pass       = NULL;
-static lv_obj_t *kb_wifi       = NULL;
-static lv_obj_t *lbl_status    = NULL;
-static lv_obj_t *lbl_err       = NULL;
-static lv_obj_t *lbl_battery   = NULL;
+static lv_obj_t *scr_wifi       = NULL;
+static lv_obj_t *ta_ssid        = NULL;
+static lv_obj_t *ta_pass        = NULL;
+static lv_obj_t *kb_wifi        = NULL;
+static lv_obj_t *lbl_status     = NULL;   // pill label (Online/Offline)
+static lv_obj_t *lbl_err        = NULL;   // footer status message
 static lv_obj_t *panel_networks = NULL;   // scrollable list of found SSIDs
-static lv_obj_t *lbl_scan_btn  = NULL;    // ref to the Scan button label
+static lv_obj_t *lbl_scan_btn   = NULL;   // ref to the Scan button label
+static lv_obj_t *pill           = NULL;   // status pill object
 
-static bool     wifi_is_connected = false;
+static bool wifi_is_connected = false;
 
 // Scan-timeout timer: clears "Scanning..." if WROOM never replies
 static lv_timer_t *scan_timeout_timer = NULL;
 
 extern void uiShowActivation();
 
-// ── helper: set error label text and colour ────────────────────────────────
+// ── Layout constants (800 x 480) ───────────────────────────────────────────
+#define HEADER_H    72   // matches UIManager::buildHeader height
+#define FOOTER_H    54
+#define DIVIDER_X   400
+#define PANEL_PAD   18
+#define CONTENT_Y   (HEADER_H + 4)
+#define CONTENT_H   (480 - HEADER_H - FOOTER_H - 4)
+
+// ── helper: set footer status text and colour ──────────────────────────────
 static void setErr(const char* txt, bool success) {
+    if (!lbl_err) return;
     lv_label_set_text(lbl_err, txt);
     lv_obj_set_style_text_color(lbl_err,
         success ? UIManager::rgb(COLOR_GREEN_MAIN) : UIManager::rgb(COLOR_DANGER), 0);
@@ -46,9 +55,8 @@ static void ta_event_cb(lv_event_t *e) {
     if (code == LV_EVENT_FOCUSED) {
         lv_keyboard_set_textarea(kb_wifi, ta);
         lv_obj_clear_flag(kb_wifi, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_move_foreground(kb_wifi);  // ensure keyboard is on top of all panels
     }
-    // When user manually edits the SSID field to something different from
-    // the saved SSID, treat it as intentionally switching networks.
     if (code == LV_EVENT_VALUE_CHANGED && ta == ta_ssid) {
         const char *typed = lv_textarea_get_text(ta_ssid);
         if (DataManager::hasSavedWifi() &&
@@ -76,30 +84,34 @@ static void network_row_cb(lv_event_t *e) {
     lv_event_code_t code = lv_event_get_code(e);
     if (code == LV_EVENT_CLICKED) {
         lv_obj_t *row = (lv_obj_t *)lv_event_get_target(e);
-        // First child of row is the SSID label
-        lv_obj_t *lbl = lv_obj_get_child(row, 0);
+        lv_obj_t *lbl = lv_obj_get_child(row, 1);  // child 0=ico, 1=SSID name, 2=chevron
         if (lbl) {
             const char *name = lv_label_get_text(lbl);
-            // If user is selecting a different SSID than what was saved,
-            // clear the stored credentials so we don't silently reconnect old ones.
             if (DataManager::hasSavedWifi() &&
                 String(name) != DataManager::getWifiSsid()) {
                 DataManager::clearWifiCredentials();
             }
             lv_textarea_set_text(ta_ssid, name);
-            lv_textarea_set_text(ta_pass, "");  // clear password for fresh entry
+            lv_textarea_set_text(ta_pass, "");
+
+            // Highlight: reset all rows then highlight this one
+            uint32_t child_cnt = lv_obj_get_child_cnt(panel_networks);
+            for (uint32_t i = 0; i < child_cnt; i++) {
+                lv_obj_t *r = lv_obj_get_child(panel_networks, i);
+                lv_obj_set_style_bg_color(r, UIManager::rgb(i % 2 == 0 ? 0xFFFFFF : COLOR_STROKE), 0);
+            }
+            lv_obj_set_style_bg_color(row, UIManager::rgb(COLOR_GREEN_LIGHT), 0);
         }
-        setErr("Network selected. Enter password and tap Connect.", true);
+        setErr("Network selected \xe2\x80\x94 enter password and tap Connect", true);
     }
 }
 
 // ── scan timeout callback ──────────────────────────────────────────────────
 static void scan_timeout_cb(lv_timer_t *t) {
-    // If still showing "Scanning...", WROOM did not respond — give up
-    const char *cur = lv_label_get_text(lbl_err);
-    if (strcmp(cur, "Scanning networks...") == 0) {
-        setErr("Scan timed out. Try again.", false);
-        lv_label_set_text(lbl_scan_btn, "Scan networks " LV_SYMBOL_REFRESH);
+    const char *cur = lbl_err ? lv_label_get_text(lbl_err) : "";
+    if (strcmp(cur, "Scanning for networks...") == 0) {
+        setErr("Scan timed out. Tap Scan to retry.", false);
+        if (lbl_scan_btn) lv_label_set_text(lbl_scan_btn, LV_SYMBOL_REFRESH " Scan");
     }
     lv_timer_del(t);
     scan_timeout_timer = NULL;
@@ -107,16 +119,14 @@ static void scan_timeout_cb(lv_timer_t *t) {
 
 // ── Scan button ────────────────────────────────────────────────────────────
 static void btn_scan_cb(lv_event_t *e) {
-    lv_label_set_text(lbl_scan_btn, LV_SYMBOL_REFRESH " Scanning...");
-    lv_label_set_text(lbl_err, "Scanning networks...");
-    lv_obj_set_style_text_color(lbl_err, UIManager::rgb(COLOR_TEXT_MAIN), 0);
+    if (lbl_scan_btn) lv_label_set_text(lbl_scan_btn, LV_SYMBOL_REFRESH " ...");
+    setErr("Scanning for networks...", true);
+    lv_obj_set_style_text_color(lbl_err, UIManager::rgb(COLOR_GREEN_MAIN), 0);
 
-    // Cancel existing timeout timer if any
     if (scan_timeout_timer) {
         lv_timer_del(scan_timeout_timer);
         scan_timeout_timer = NULL;
     }
-    // 25 s timeout to accommodate slow ESP32 radio scans in dense areas
     scan_timeout_timer = lv_timer_create(scan_timeout_cb, 25000, NULL);
     lv_timer_set_repeat_count(scan_timeout_timer, 1);
 
@@ -128,8 +138,8 @@ static void btn_connect_cb(lv_event_t *e) {
     const char *ssid = lv_textarea_get_text(ta_ssid);
     const char *pass = lv_textarea_get_text(ta_pass);
 
-    if (strlen(ssid) == 0) {
-        setErr("SSID cannot be empty!", false);
+    if (!ssid || strlen(ssid) == 0) {
+        setErr("Network name (SSID) cannot be empty!", false);
         return;
     }
 
@@ -150,17 +160,21 @@ static void btn_continue_cb(lv_event_t *e) {
         DataManager::setWifiConfigured(true);
         uiShowActivation();
     } else {
-        setErr("Please connect to WiFi first.", false);
+        setErr("Connect to a WiFi network first.", false);
     }
 }
 
-// ── Public: called by CommManager when WIFI_STATUS arrives ─────────────────
+// ── Public: WIFI_STATUS from CommManager ───────────────────────────────────
 void uiWifiUpdateStatus(bool connected) {
     wifi_is_connected = connected;
+    if (!lbl_status || !pill) return;
+
     if (connected) {
         lv_label_set_text(lbl_status, LV_SYMBOL_WIFI " Online");
-        setErr("Connected! Tap 'Continue to registration'.", true);
-        // Persist credentials so we can auto-reconnect on next boot
+        lv_obj_set_style_bg_color(pill, UIManager::rgb(COLOR_GREEN_LIGHT), 0);
+        lv_obj_set_style_text_color(lbl_status, UIManager::rgb(COLOR_GREEN_MAIN), 0);
+        setErr("Connected! Tap 'Continue to Registration'.", true);
+        // Persist credentials for auto-reconnect
         if (ta_ssid && ta_pass) {
             const char *ssid = lv_textarea_get_text(ta_ssid);
             const char *pass = lv_textarea_get_text(ta_pass);
@@ -170,57 +184,65 @@ void uiWifiUpdateStatus(bool connected) {
         }
     } else {
         lv_label_set_text(lbl_status, LV_SYMBOL_WIFI " Offline");
+        lv_obj_set_style_bg_color(pill, UIManager::rgb(0xFFE5E5), 0);
+        lv_obj_set_style_text_color(lbl_status, UIManager::rgb(COLOR_DANGER), 0);
         setErr("Connection failed. Check SSID / password.", false);
     }
 }
 
-// ── Public: called by CommManager when WIFI_SCAN_RESULT arrives ────────────
-// Expected JSON from WROOM: {"type":"WIFI_SCAN_RESULT","ssids":"Net1,Net2,Net3"}
+// ── Public: WIFI_SCAN_RESULT from CommManager ──────────────────────────────
 void uiWifiUpdateScanResult(const char *ssids) {
-    // Cancel the timeout timer
     if (scan_timeout_timer) {
         lv_timer_del(scan_timeout_timer);
         scan_timeout_timer = NULL;
     }
-
-    lv_label_set_text(lbl_scan_btn, "Scan networks " LV_SYMBOL_REFRESH);
+    if (lbl_scan_btn) lv_label_set_text(lbl_scan_btn, LV_SYMBOL_REFRESH " Scan");
 
     if (!ssids || strlen(ssids) == 0) {
-        setErr("No networks found. Try again.", false);
+        setErr("No networks found. Move closer to router and retry.", false);
         return;
     }
 
-    // Build row for each comma-separated SSID
     lv_obj_clean(panel_networks);
     lv_obj_clear_flag(panel_networks, LV_OBJ_FLAG_HIDDEN);
 
     String all = String(ssids);
-    int start = 0;
-    int rowIndex = 0;
+    int start = 0, rowIndex = 0;
     while (true) {
         int comma = all.indexOf(',', start);
         String name = (comma < 0) ? all.substring(start) : all.substring(start, comma);
         name.trim();
         if (name.length() > 0) {
             lv_obj_t *row = lv_obj_create(panel_networks);
-            lv_obj_set_size(row, 348, 36);
-            lv_obj_set_style_bg_color(row, UIManager::rgb((rowIndex % 2 == 0) ? COLOR_WIFI_BG : COLOR_GREEN_LIGHT), 0);
+            lv_obj_set_size(row, lv_pct(100), 40);
+            lv_obj_set_style_bg_color(row, UIManager::rgb(rowIndex % 2 == 0 ? 0xFFFFFF : COLOR_STROKE), 0);
             lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
             lv_obj_set_style_border_width(row, 0, 0);
             lv_obj_set_style_radius(row, 0, 0);
-            lv_obj_set_style_pad_all(row, 4, 0);
+            lv_obj_set_style_pad_left(row, 10, 0);
+            lv_obj_set_style_pad_right(row, 10, 0);
+            lv_obj_set_style_pad_top(row, 0, 0);
+            lv_obj_set_style_pad_bottom(row, 0, 0);
             lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
             lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
 
+            // Wi-Fi icon
+            lv_obj_t *ico = lv_label_create(row);
+            lv_label_set_text(ico, LV_SYMBOL_WIFI);
+            UIManager::styleLabel(ico, COLOR_GREEN_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
+            lv_obj_align(ico, LV_ALIGN_LEFT_MID, 0, 0);
+
+            // SSID name
             lv_obj_t *lbl_net = lv_label_create(row);
             lv_label_set_text(lbl_net, name.c_str());
             UIManager::styleLabel(lbl_net, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
-            lv_obj_align(lbl_net, LV_ALIGN_LEFT_MID, 6, 0);
+            lv_obj_align(lbl_net, LV_ALIGN_LEFT_MID, 28, 0);
 
-            lv_obj_t *ico = lv_label_create(row);
-            lv_label_set_text(ico, LV_SYMBOL_WIFI);
-            UIManager::styleLabel(ico, COLOR_GREEN_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_RIGHT);
-            lv_obj_align(ico, LV_ALIGN_RIGHT_MID, -6, 0);
+            // Chevron
+            lv_obj_t *chev = lv_label_create(row);
+            lv_label_set_text(chev, LV_SYMBOL_RIGHT);
+            UIManager::styleLabel(chev, 0xAAAAAA, &lv_font_montserrat_16, LV_TEXT_ALIGN_RIGHT);
+            lv_obj_align(chev, LV_ALIGN_RIGHT_MID, 0, 0);
 
             lv_obj_add_event_cb(row, network_row_cb, LV_EVENT_CLICKED, NULL);
             rowIndex++;
@@ -229,162 +251,261 @@ void uiWifiUpdateScanResult(const char *ssids) {
         start = comma + 1;
     }
 
-    setErr("Tap a network below to select it.", true);
+    setErr("Tap a network to select it, then enter the password.", true);
 }
 
 // ── Build the screen ───────────────────────────────────────────────────────
 void buildWifiSetupScreen() {
+    // ── Screen base ──
     scr_wifi = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(scr_wifi, UIManager::rgb(COLOR_WIFI_BG), 0);
     lv_obj_set_style_bg_opa(scr_wifi, LV_OPA_COVER, 0);
+    lv_obj_set_scrollbar_mode(scr_wifi, LV_SCROLLBAR_MODE_OFF);
 
-    // ── Title & Header ──
-    UIManager::buildHeader(scr_wifi, LV_SYMBOL_WIFI " WiFi set-up", ". . . Step 1 of 3", NULL, false);
+    // ════════════════════════════════════════════════════════════
+    // HEADER — shared style (transparent bg, centered title)
+    // ════════════════════════════════════════════════════════════
+    // Use buildHeader with no subtitle to avoid clipping inside the 72px container
+    UIManager::buildHeader(scr_wifi, LV_SYMBOL_WIFI " WiFi Setup", NULL, NULL, false);
 
-    // ── Status Pill ──
-    lv_obj_t *pill = lv_obj_create(scr_wifi);
-    lv_obj_set_size(pill, 170, 38);
-    lv_obj_align(pill, LV_ALIGN_TOP_RIGHT, -20, 17);
+    // Step label placed directly on scr_wifi so it is never clipped by the header bounds
+    lv_obj_t *lbl_step = lv_label_create(scr_wifi);
+    lv_label_set_text(lbl_step, ". . . Step 1 of 3");
+    UIManager::styleLabel(lbl_step, 0x666666, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
+    lv_obj_align(lbl_step, LV_ALIGN_TOP_MID, 0, 50);
+
+    // Status pill — top-right, same position as other screens
+    pill = lv_obj_create(scr_wifi);
+    lv_obj_set_size(pill, 140, 36);
+    lv_obj_align(pill, LV_ALIGN_TOP_RIGHT, -20, 18);
     lv_obj_set_style_bg_color(pill, UIManager::rgb(COLOR_GREEN_LIGHT), 0);
-    lv_obj_set_style_radius(pill, 19, 0);
+    lv_obj_set_style_radius(pill, 18, 0);
     lv_obj_set_style_border_width(pill, 0, 0);
     lv_obj_clear_flag(pill, LV_OBJ_FLAG_SCROLLABLE);
 
     lbl_status = lv_label_create(pill);
     lv_label_set_text(lbl_status, LV_SYMBOL_WIFI " Offline");
-    UIManager::styleLabel(lbl_status, COLOR_GREEN_DARK, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
-    lv_obj_align(lbl_status, LV_ALIGN_LEFT_MID, 8, 0);
+    UIManager::styleLabel(lbl_status, COLOR_GREEN_DARK, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
+    lv_obj_center(lbl_status);
 
-    lv_obj_t *batt_box = lv_obj_create(pill);
-    lv_obj_set_size(batt_box, 32, 24);
-    lv_obj_align(batt_box, LV_ALIGN_RIGHT_MID, -4, 0);
-    lv_obj_set_style_bg_color(batt_box, UIManager::rgb(COLOR_GREEN_DARK), 0);
-    lv_obj_set_style_radius(batt_box, 4, 0);
-    lv_obj_set_style_border_width(batt_box, 0, 0);
-    lv_obj_clear_flag(batt_box, LV_OBJ_FLAG_SCROLLABLE);
+    // ════════════════════════════════════════════════════════════
+    // FOOTER BAR — light green, full width
+    // ════════════════════════════════════════════════════════════
+    lv_obj_t *footer = lv_obj_create(scr_wifi);
+    lv_obj_set_size(footer, 800, FOOTER_H);
+    lv_obj_align(footer, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_style_bg_color(footer, UIManager::rgb(COLOR_GREEN_LIGHT), 0);
+    lv_obj_set_style_bg_opa(footer, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(footer, 0, 0);
+    lv_obj_set_style_border_side(footer, LV_BORDER_SIDE_TOP, 0);
+    lv_obj_set_style_border_color(footer, UIManager::rgb(COLOR_STROKE), LV_PART_MAIN);
+    lv_obj_set_style_radius(footer, 0, 0);
+    lv_obj_set_style_pad_all(footer, 0, 0);
+    lv_obj_clear_flag(footer, LV_OBJ_FLAG_SCROLLABLE);
 
-    lbl_battery = lv_label_create(batt_box);
-    lv_label_set_text(lbl_battery, "98");
-    UIManager::styleLabel(lbl_battery, 0xFFFFFF, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
-    lv_obj_center(lbl_battery);
+    // Status message (footer left)
+    lbl_err = lv_label_create(footer);
+    lv_label_set_text(lbl_err, "Select a network or type the SSID manually.");
+    UIManager::styleLabel(lbl_err, COLOR_TEXT_MAIN, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
+    lv_obj_align(lbl_err, LV_ALIGN_LEFT_MID, 20, 0);
+    lv_label_set_long_mode(lbl_err, LV_LABEL_LONG_CLIP);
+    lv_obj_set_width(lbl_err, 430);
 
-    // ── Subtitle ──
-    lv_obj_t *lbl_sub = lv_label_create(scr_wifi);
-    lv_label_set_text(lbl_sub, "Connect the WiFi before registering this device");
-    UIManager::styleLabel(lbl_sub, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
-    lv_obj_align(lbl_sub, LV_ALIGN_TOP_LEFT, 30, 90);
+    // Continue button (footer right)
+    lv_obj_t *btn_continue = lv_btn_create(footer);
+    lv_obj_set_size(btn_continue, 270, 38);
+    lv_obj_align(btn_continue, LV_ALIGN_RIGHT_MID, -14, 0);
+    lv_obj_set_style_bg_color(btn_continue, UIManager::rgb(COLOR_GREEN_MAIN), 0);
+    lv_obj_set_style_radius(btn_continue, 8, 0);
+    lv_obj_set_style_shadow_width(btn_continue, 0, 0);
+    lv_obj_t *lbl_cont = lv_label_create(btn_continue);
+    lv_label_set_text(lbl_cont, "Continue to Registration " LV_SYMBOL_RIGHT);
+    UIManager::styleLabel(lbl_cont, 0xFFFFFF, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
+    lv_obj_center(lbl_cont);
+    lv_obj_add_event_cb(btn_continue, btn_continue_cb, LV_EVENT_CLICKED, NULL);
 
-    // ── SSID Input ──
-    lv_obj_t *lbl_ssid_title = lv_label_create(scr_wifi);
-    lv_label_set_text(lbl_ssid_title, "Network name (SSID)");
+
+
+    // ════════════════════════════════════════════════════════════
+    // LEFT PANEL — Available Networks
+    // ════════════════════════════════════════════════════════════
+    lv_obj_t *left_panel = lv_obj_create(scr_wifi);
+    lv_obj_set_size(left_panel, DIVIDER_X - 1, CONTENT_H);
+    lv_obj_align(left_panel, LV_ALIGN_TOP_LEFT, 0, CONTENT_Y);
+    lv_obj_set_style_bg_color(left_panel, UIManager::rgb(COLOR_WIFI_BG), 0);
+    lv_obj_set_style_bg_opa(left_panel, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(left_panel, 0, 0);
+    lv_obj_set_style_pad_all(left_panel, PANEL_PAD, 0);
+    lv_obj_set_style_radius(left_panel, 0, 0);
+    lv_obj_clear_flag(left_panel, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Section header row: "Available Networks" + Scan button
+    lv_obj_t *sec_left = lv_label_create(left_panel);
+    lv_label_set_text(sec_left, "Available Networks");
+    UIManager::styleLabel(sec_left, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
+    lv_obj_set_style_text_opa(sec_left, LV_OPA_80, 0);
+    lv_obj_align(sec_left, LV_ALIGN_TOP_LEFT, 0, 0);
+
+    // Scan button
+    lv_obj_t *btn_scan = lv_btn_create(left_panel);
+    lv_obj_set_size(btn_scan, 90, 32);
+    lv_obj_align(btn_scan, LV_ALIGN_TOP_RIGHT, 0, -4);
+    lv_obj_set_style_bg_color(btn_scan, UIManager::rgb(COLOR_GREEN_MAIN), 0);
+    lv_obj_set_style_radius(btn_scan, 6, 0);
+    lv_obj_set_style_shadow_width(btn_scan, 0, 0);
+    lbl_scan_btn = lv_label_create(btn_scan);
+    lv_label_set_text(lbl_scan_btn, LV_SYMBOL_REFRESH " Scan");
+    UIManager::styleLabel(lbl_scan_btn, 0xFFFFFF, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
+    lv_obj_center(lbl_scan_btn);
+    lv_obj_add_event_cb(btn_scan, btn_scan_cb, LV_EVENT_CLICKED, NULL);
+
+    // Divider under section header
+    lv_obj_t *sep_l = lv_obj_create(left_panel);
+    lv_obj_set_size(sep_l, lv_pct(100), 1);
+    lv_obj_align(sep_l, LV_ALIGN_TOP_MID, 0, 30);
+    lv_obj_set_style_bg_color(sep_l, UIManager::rgb(COLOR_STROKE), 0);
+    lv_obj_set_style_border_width(sep_l, 0, 0);
+    lv_obj_set_style_radius(sep_l, 0, 0);
+    lv_obj_set_style_pad_all(sep_l, 0, 0);
+    lv_obj_clear_flag(sep_l, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Network list panel
+    panel_networks = lv_obj_create(left_panel);
+    lv_obj_set_size(panel_networks, lv_pct(100), CONTENT_H - 46);
+    lv_obj_align(panel_networks, LV_ALIGN_TOP_MID, 0, 36);
+    lv_obj_set_style_bg_color(panel_networks, UIManager::rgb(0xFFFFFF), 0);
+    lv_obj_set_style_bg_opa(panel_networks, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_color(panel_networks, UIManager::rgb(COLOR_STROKE), 0);
+    lv_obj_set_style_border_width(panel_networks, 1, 0);
+    lv_obj_set_style_radius(panel_networks, 8, 0);
+    lv_obj_set_style_pad_all(panel_networks, 0, 0);
+    lv_obj_set_flex_flow(panel_networks, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_layout(panel_networks, LV_LAYOUT_FLEX);
+    lv_obj_set_scrollbar_mode(panel_networks, LV_SCROLLBAR_MODE_AUTO);
+
+    // Empty state hint
+    lv_obj_t *lbl_hint = lv_label_create(panel_networks);
+    lv_label_set_text(lbl_hint, "Tap \"Scan\" to discover networks");
+    UIManager::styleLabel(lbl_hint, 0xAAAAAA, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
+    lv_obj_set_width(lbl_hint, lv_pct(100));
+    lv_obj_set_style_pad_top(lbl_hint, 30, 0);
+
+    // ════════════════════════════════════════════════════════════
+    // VERTICAL DIVIDER
+    // ════════════════════════════════════════════════════════════
+    lv_obj_t *vdiv = lv_obj_create(scr_wifi);
+    lv_obj_set_size(vdiv, 1, CONTENT_H);
+    lv_obj_align(vdiv, LV_ALIGN_TOP_MID, 0, CONTENT_Y);
+    lv_obj_set_style_bg_color(vdiv, UIManager::rgb(COLOR_STROKE), 0);
+    lv_obj_set_style_border_width(vdiv, 0, 0);
+    lv_obj_set_style_radius(vdiv, 0, 0);
+    lv_obj_set_style_pad_all(vdiv, 0, 0);
+    lv_obj_clear_flag(vdiv, LV_OBJ_FLAG_SCROLLABLE);
+
+    // ════════════════════════════════════════════════════════════
+    // RIGHT PANEL — Network Credentials
+    // ════════════════════════════════════════════════════════════
+    lv_obj_t *right_panel = lv_obj_create(scr_wifi);
+    lv_obj_set_size(right_panel, 800 - DIVIDER_X, CONTENT_H);
+    lv_obj_align(right_panel, LV_ALIGN_TOP_RIGHT, 0, CONTENT_Y);
+    lv_obj_set_style_bg_color(right_panel, UIManager::rgb(COLOR_WIFI_BG), 0);
+    lv_obj_set_style_bg_opa(right_panel, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(right_panel, 0, 0);
+    lv_obj_set_style_pad_all(right_panel, PANEL_PAD, 0);
+    lv_obj_set_style_radius(right_panel, 0, 0);
+    lv_obj_clear_flag(right_panel, LV_OBJ_FLAG_SCROLLABLE);
+
+    // Section label
+    lv_obj_t *sec_right = lv_label_create(right_panel);
+    lv_label_set_text(sec_right, "Network Credentials");
+    UIManager::styleLabel(sec_right, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
+    lv_obj_set_style_text_opa(sec_right, LV_OPA_80, 0);
+    lv_obj_align(sec_right, LV_ALIGN_TOP_LEFT, 0, 0);
+
+    // Divider under section header
+    lv_obj_t *sep_r = lv_obj_create(right_panel);
+    lv_obj_set_size(sep_r, lv_pct(100), 1);
+    lv_obj_align(sep_r, LV_ALIGN_TOP_MID, 0, 30);
+    lv_obj_set_style_bg_color(sep_r, UIManager::rgb(COLOR_STROKE), 0);
+    lv_obj_set_style_border_width(sep_r, 0, 0);
+    lv_obj_set_style_radius(sep_r, 0, 0);
+    lv_obj_set_style_pad_all(sep_r, 0, 0);
+    lv_obj_clear_flag(sep_r, LV_OBJ_FLAG_SCROLLABLE);
+
+    // ── SSID label ──
+    lv_obj_t *lbl_ssid_title = lv_label_create(right_panel);
+    lv_label_set_text(lbl_ssid_title, "Network Name (SSID)");
     UIManager::styleLabel(lbl_ssid_title, COLOR_TEXT_MAIN, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
-    lv_obj_align(lbl_ssid_title, LV_ALIGN_TOP_LEFT, 30, 130);
+    lv_obj_align(lbl_ssid_title, LV_ALIGN_TOP_LEFT, 0, 42);
 
-    ta_ssid = lv_textarea_create(scr_wifi);
+    // ── SSID input ──
+    ta_ssid = lv_textarea_create(right_panel);
     lv_textarea_set_one_line(ta_ssid, true);
-    lv_obj_set_width(ta_ssid, 350);
-    lv_obj_align(ta_ssid, LV_ALIGN_TOP_LEFT, 30, 155);
-    lv_obj_add_event_cb(ta_ssid, ta_event_cb, LV_EVENT_ALL, NULL);
+    lv_obj_set_size(ta_ssid, lv_pct(100), 46);
+    lv_obj_align(ta_ssid, LV_ALIGN_TOP_MID, 0, 64);
+    lv_obj_set_style_bg_color(ta_ssid, UIManager::rgb(0xFFFFFF), 0);
     lv_obj_set_style_border_color(ta_ssid, UIManager::rgb(COLOR_STROKE), 0);
-    // Pre-fill with saved SSID for convenience
+    lv_obj_set_style_border_width(ta_ssid, 1, 0);
+    lv_obj_set_style_radius(ta_ssid, 8, 0);
+    lv_obj_set_style_border_color(ta_ssid, UIManager::rgb(COLOR_GREEN_MAIN), LV_STATE_FOCUSED);
+    lv_obj_set_style_border_width(ta_ssid, 2, LV_STATE_FOCUSED);
+    lv_obj_add_event_cb(ta_ssid, ta_event_cb, LV_EVENT_ALL, NULL);
     if (DataManager::hasSavedWifi()) {
         lv_textarea_set_text(ta_ssid, DataManager::getWifiSsid().c_str());
     }
 
-    // ── Password Input ──
-    lv_obj_t *lbl_pass_title = lv_label_create(scr_wifi);
+    // ── Password label ──
+    lv_obj_t *lbl_pass_title = lv_label_create(right_panel);
     lv_label_set_text(lbl_pass_title, "Password");
     UIManager::styleLabel(lbl_pass_title, COLOR_TEXT_MAIN, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
-    lv_obj_align(lbl_pass_title, LV_ALIGN_TOP_LEFT, 400, 130);
+    lv_obj_align(lbl_pass_title, LV_ALIGN_TOP_LEFT, 0, 124);
 
-    ta_pass = lv_textarea_create(scr_wifi);
+    // ── Password input — full width, eye button overlaid on right edge ──
+    ta_pass = lv_textarea_create(right_panel);
     lv_textarea_set_one_line(ta_pass, true);
     lv_textarea_set_password_mode(ta_pass, true);
-    lv_obj_set_width(ta_pass, 305);
-    lv_obj_align(ta_pass, LV_ALIGN_TOP_LEFT, 400, 155);
-    lv_obj_add_event_cb(ta_pass, ta_event_cb, LV_EVENT_ALL, NULL);
+    lv_obj_set_size(ta_pass, lv_pct(100), 46);
+    lv_obj_align(ta_pass, LV_ALIGN_TOP_LEFT, 0, 146);
+    lv_obj_set_style_bg_color(ta_pass, UIManager::rgb(0xFFFFFF), 0);
     lv_obj_set_style_border_color(ta_pass, UIManager::rgb(COLOR_STROKE), 0);
+    lv_obj_set_style_border_width(ta_pass, 1, 0);
+    lv_obj_set_style_radius(ta_pass, 8, 0);
+    lv_obj_set_style_border_color(ta_pass, UIManager::rgb(COLOR_GREEN_MAIN), LV_STATE_FOCUSED);
+    lv_obj_set_style_border_width(ta_pass, 2, LV_STATE_FOCUSED);
+    // Extra right padding so typed text doesn't hide under the eye button
+    lv_obj_set_style_pad_right(ta_pass, 52, 0);
+    lv_obj_add_event_cb(ta_pass, ta_event_cb, LV_EVENT_ALL, NULL);
 
-    // ── Show Password Button ──
-    lv_obj_t *btn_show = lv_btn_create(scr_wifi);
-    lv_obj_set_size(btn_show, 40, 40);
-    lv_obj_align(btn_show, LV_ALIGN_TOP_LEFT, 710, 155);
-    lv_obj_set_style_bg_color(btn_show, UIManager::rgb(COLOR_WIFI_BG), 0);
-    lv_obj_set_style_border_width(btn_show, 1, 0);
-    lv_obj_set_style_border_color(btn_show, UIManager::rgb(COLOR_STROKE), 0);
-    lv_obj_set_style_radius(btn_show, 4, 0);
-    
+    // ── Show/Hide password button — overlaid on the right edge of ta_pass ──
+    lv_obj_t *btn_show = lv_btn_create(right_panel);
+    lv_obj_set_size(btn_show, 44, 44);
+    lv_obj_align(btn_show, LV_ALIGN_TOP_RIGHT, -1, 147);  // 1px inset from edge
+    lv_obj_set_style_bg_color(btn_show, UIManager::rgb(0xFFFFFF), 0);
+    lv_obj_set_style_border_width(btn_show, 0, 0);
+    lv_obj_set_style_radius(btn_show, 7, 0);
+    lv_obj_set_style_shadow_width(btn_show, 0, 0);
     lv_obj_t *lbl_show = lv_label_create(btn_show);
     lv_label_set_text(lbl_show, LV_SYMBOL_EYE_OPEN);
     UIManager::styleLabel(lbl_show, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
     lv_obj_center(lbl_show);
     lv_obj_add_event_cb(btn_show, btn_show_pass_cb, LV_EVENT_CLICKED, NULL);
 
-    // ── Scan Button ──
-    lv_obj_t *btn_scan = lv_btn_create(scr_wifi);
-    lv_obj_set_size(btn_scan, 350, 40);
-    lv_obj_align(btn_scan, LV_ALIGN_TOP_LEFT, 30, 210);
-    lv_obj_set_style_bg_color(btn_scan, UIManager::rgb(COLOR_WIFI_BG), 0);
-    lv_obj_set_style_border_width(btn_scan, 1, 0);
-    lv_obj_set_style_border_color(btn_scan, UIManager::rgb(COLOR_STROKE), 0);
-    lv_obj_set_style_radius(btn_scan, 6, 0);
-
-    lbl_scan_btn = lv_label_create(btn_scan);
-    lv_label_set_text(lbl_scan_btn, "Scan networks " LV_SYMBOL_REFRESH);
-    UIManager::styleLabel(lbl_scan_btn, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
-    lv_obj_center(lbl_scan_btn);
-    lv_obj_add_event_cb(btn_scan, btn_scan_cb, LV_EVENT_CLICKED, NULL);
-
-    // ── Connect Button ──
-    lv_obj_t *btn_connect = lv_btn_create(scr_wifi);
-    lv_obj_set_size(btn_connect, 350, 40);
-    lv_obj_align(btn_connect, LV_ALIGN_TOP_LEFT, 400, 210);
-    lv_obj_set_style_bg_color(btn_connect, UIManager::rgb(COLOR_GREEN_LIGHT), 0);
-    lv_obj_set_style_radius(btn_connect, 6, 0);
+    // ── Connect button ──
+    lv_obj_t *btn_connect = lv_btn_create(right_panel);
+    lv_obj_set_size(btn_connect, lv_pct(100), 48);
+    lv_obj_align(btn_connect, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_set_style_bg_color(btn_connect, UIManager::rgb(COLOR_GREEN_MAIN), 0);
+    lv_obj_set_style_radius(btn_connect, 10, 0);
+    lv_obj_set_style_shadow_width(btn_connect, 0, 0);
     lv_obj_t *lbl_connect = lv_label_create(btn_connect);
-    lv_label_set_text(lbl_connect, "Connect");
-    UIManager::styleLabel(lbl_connect, COLOR_GREEN_DARK, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
+    lv_label_set_text(lbl_connect, LV_SYMBOL_WIFI "  Connect");
+    UIManager::styleLabel(lbl_connect, 0xFFFFFF, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
     lv_obj_center(lbl_connect);
     lv_obj_add_event_cb(btn_connect, btn_connect_cb, LV_EVENT_CLICKED, NULL);
 
-    // ── Scrollable Network List (hidden until scan returns) ──
-    panel_networks = lv_obj_create(scr_wifi);
-    lv_obj_set_size(panel_networks, 350, 145);
-    lv_obj_align(panel_networks, LV_ALIGN_TOP_LEFT, 30, 260);
-    lv_obj_set_style_bg_color(panel_networks, UIManager::rgb(0xFFFFFF), 0);
-    lv_obj_set_style_border_color(panel_networks, UIManager::rgb(COLOR_STROKE), 0);
-    lv_obj_set_style_border_width(panel_networks, 1, 0);
-    lv_obj_set_style_radius(panel_networks, 6, 0);
-    lv_obj_set_style_pad_all(panel_networks, 0, 0);
-    lv_obj_set_flex_flow(panel_networks, LV_FLEX_FLOW_COLUMN);
-    lv_obj_add_flag(panel_networks, LV_OBJ_FLAG_HIDDEN);  // hidden by default
-
-    // ── Divider ──
-    lv_obj_t *line = lv_line_create(scr_wifi);
-    static lv_point_t line_pts[] = { {30, 415}, {750, 415} };
-    lv_line_set_points(line, line_pts, 2);
-    lv_obj_set_style_line_color(line, UIManager::rgb(COLOR_STROKE), 0);
-    lv_obj_set_style_line_width(line, 1, 0);
-
-    // ── Status / Error message ──
-    lbl_err = lv_label_create(scr_wifi);
-    lv_label_set_text(lbl_err, "");
-    UIManager::styleLabel(lbl_err, COLOR_DANGER, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
-    lv_obj_align(lbl_err, LV_ALIGN_BOTTOM_LEFT, 30, -16);
-
-    // ── Continue Button ──
-    lv_obj_t *btn_continue = lv_btn_create(scr_wifi);
-    lv_obj_set_size(btn_continue, 260, 44);
-    lv_obj_align(btn_continue, LV_ALIGN_BOTTOM_RIGHT, -20, -10);
-    lv_obj_set_style_bg_color(btn_continue, UIManager::rgb(COLOR_GREEN_MAIN), 0);
-    lv_obj_set_style_radius(btn_continue, 8, 0);
-    lv_obj_t *lbl_cont = lv_label_create(btn_continue);
-    lv_label_set_text(lbl_cont, "Continue to registration " LV_SYMBOL_RIGHT);
-    UIManager::styleLabel(lbl_cont, 0xFFFFFF, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
-    lv_obj_center(lbl_cont);
-    lv_obj_add_event_cb(btn_continue, btn_continue_cb, LV_EVENT_CLICKED, NULL);
-
-    // ── On-screen Keyboard (hidden by default) ──
+    // ════════════════════════════════════════════════════════════
+    // KEYBOARD — created LAST so it is top-most child of scr_wifi
+    // ════════════════════════════════════════════════════════════
     kb_wifi = lv_keyboard_create(scr_wifi);
     lv_obj_add_flag(kb_wifi, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_event_cb(kb_wifi, kb_event_cb, LV_EVENT_ALL, NULL);

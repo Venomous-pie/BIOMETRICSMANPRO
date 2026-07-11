@@ -34,7 +34,7 @@ void buildSettingsClockScreen() {
     lv_obj_set_style_bg_color(scr, UIManager::rgb(COLOR_WIFI_BG), 0);
     lv_obj_set_scrollbar_mode(scr, LV_SCROLLBAR_MODE_OFF);
 
-    UIManager::buildHeader(scr, "Clock & Network", "Device Settings — 1 of 3", btn_back_cb, true);
+    UIManager::buildHeader(scr, "Clock & Network", "Device Settings", btn_back_cb, true);
 
     lv_obj_t *body = lv_obj_create(scr);
     lv_obj_set_size(body, 800, 408); // 480 - 72
@@ -68,7 +68,7 @@ void buildSettingsClockScreen() {
     lv_obj_align(lbl_date, LV_ALIGN_TOP_LEFT, 5, 80);
 
     lv_obj_t *lbl_auto = lv_label_create(col_left);
-    lv_label_set_text(lbl_auto, "─ Auto settings ─");
+    lv_label_set_text(lbl_auto, "Auto settings");
     UIManager::styleLabel(lbl_auto, 0x999999, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
     lv_obj_align(lbl_auto, LV_ALIGN_TOP_LEFT, 0, 120);
 

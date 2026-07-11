@@ -44,9 +44,9 @@ public:
       cfg.pin_hsync   = GPIO_NUM_39;
       cfg.pin_pclk    = GPIO_NUM_0;
 
-      // Lowered from 24MHz -> 16MHz to prevent PSRAM bus starvation.
-      // This fixes the "CRT TV" boot effect and stabilizes the panel.
-      cfg.freq_write  = 16000000;
+      // Lowered from 16MHz -> 12MHz to completely eliminate PSRAM bus starvation.
+      // This is the definitive fix for the screen shaking/jittering when clicking UI elements.
+      cfg.freq_write  = 12000000;
 
       cfg.hsync_polarity    = 0;
       cfg.hsync_front_porch = 8;
@@ -86,7 +86,7 @@ public:
       //   cfg.bounce_buffer_size_px = 8000;  // 800 * 10 lines of fast SRAM relay
       // ============================================================
       auto cfg = _panel_instance.config_detail();
-      cfg.use_psram = 1;  // Single buffer avoids overwhelming the PSRAM bus
+      cfg.use_psram = 2;  // Double buffer eliminates tearing during UI redraws
       _panel_instance.config_detail(cfg);
     }
     {

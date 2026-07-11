@@ -33,7 +33,7 @@ void buildSettingsServerScreen() {
     lv_obj_set_style_bg_color(scr, UIManager::rgb(COLOR_WIFI_BG), 0);
     lv_obj_set_scrollbar_mode(scr, LV_SCROLLBAR_MODE_OFF);
 
-    UIManager::buildHeader(scr, "Server & Device", "Device Settings — 2 of 3", btn_back_cb, true);
+    UIManager::buildHeader(scr, "Server & Device", "Device Settings", btn_back_cb, true);
 
     lv_obj_t *body = lv_obj_create(scr);
     lv_obj_set_size(body, 800, 408);

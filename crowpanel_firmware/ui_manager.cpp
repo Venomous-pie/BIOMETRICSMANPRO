@@ -23,10 +23,11 @@ extern const lv_img_dsc_t icon_battery;
 
 lv_obj_t* UIManager::buildHeader(lv_obj_t* scr, const char* title, const char* subtitle, lv_event_cb_t back_cb, bool show_wifi_pill) {
     lv_obj_t *header = lv_obj_create(scr);
-    lv_obj_set_size(header, 800, 72);
+    lv_obj_set_size(header, 800, 85);
     lv_obj_align(header, LV_ALIGN_TOP_MID, 0, 0);
     lv_obj_set_style_bg_opa(header, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(header, 0, 0);
+    lv_obj_set_style_pad_all(header, 0, 0);
     lv_obj_clear_flag(header, LV_OBJ_FLAG_SCROLLABLE);
 
     if (back_cb != NULL) {

@@ -97,18 +97,18 @@ HardwareSerial WroomSerial(1);
 // ============================================================
 void setup() {
   Serial.begin(115200);
+  Serial.setTxTimeoutMs(0); // Prevent native USB CDC from blocking the loop if host isn't reading
   delay(500);
   Serial.println("\n=== Biometrics CrowPanel Display ===");
 
   // Init LittleFS and Data
   DataManager::begin();
 
-  // PSRAM check
+  // PSRAM check (informational only — do not halt, we fall back to internal RAM)
   size_t psram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
   Serial.printf("[PSRAM] Free SPIRAM: %u bytes\n", psram_free);
   if (psram_free < 800000) {
-    Serial.println("FATAL: PSRAM not available or too small!");
-    while (true) { delay(1000); }
+    Serial.println("[PSRAM] SPIRAM unavailable or low — falling back to internal RAM for LVGL buffers");
   }
 
   // Backlight reset sequence
@@ -127,8 +127,8 @@ void setup() {
   
 #if LVGL_VERSION_MAJOR >= 9
   uint32_t buf_sz = LCD_WIDTH * LV_BUF_LINES * 2;
-  buf1 = heap_caps_malloc(buf_sz, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-  buf2 = heap_caps_malloc(buf_sz, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  buf1 = heap_caps_malloc(buf_sz, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  buf2 = heap_caps_malloc(buf_sz, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 
   disp = lv_display_create(LCD_WIDTH, LCD_HEIGHT);
   lv_display_set_flush_cb(disp, my_disp_flush);
@@ -138,8 +138,19 @@ void setup() {
   lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
   lv_indev_set_read_cb(indev, my_touch_read);
 #else
-  buf1 = (lv_color_t *)heap_caps_malloc(LCD_WIDTH * LV_BUF_LINES * sizeof(lv_color_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-  buf2 = (lv_color_t *)heap_caps_malloc(LCD_WIDTH * LV_BUF_LINES * sizeof(lv_color_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+  uint32_t buf_malloc_flags = (psram_free >= 800000)
+    ? (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
+    : (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+
+  buf1 = (lv_color_t *)heap_caps_malloc(LCD_WIDTH * LV_BUF_LINES * sizeof(lv_color_t), buf_malloc_flags);
+  buf2 = (lv_color_t *)heap_caps_malloc(LCD_WIDTH * LV_BUF_LINES * sizeof(lv_color_t), buf_malloc_flags);
+  if (!buf1 || !buf2) {
+    Serial.println("[LVGL] FATAL: Could not allocate display buffers!");
+    // Try minimal single-line internal buffer as last resort
+    free(buf1); free(buf2);
+    buf1 = (lv_color_t *)heap_caps_malloc(LCD_WIDTH * 10 * sizeof(lv_color_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    buf2 = NULL;
+  }
 
   lv_disp_draw_buf_init(&draw_buf, buf1, buf2, LCD_WIDTH * LV_BUF_LINES);
 
@@ -149,7 +160,10 @@ void setup() {
   disp_drv.flush_cb = my_disp_flush;
   disp_drv.draw_buf = &draw_buf;
   lv_disp_t * my_disp = lv_disp_drv_register(&disp_drv);
-  lv_timer_set_period(my_disp->refr_timer, 10);
+  // Guard: refr_timer can be NULL in some LVGL 8.x builds
+  if (my_disp && my_disp->refr_timer) {
+    lv_timer_set_period(my_disp->refr_timer, 10);
+  }
 
   lv_indev_drv_init(&indev_drv);
   indev_drv.type    = LV_INDEV_TYPE_POINTER;
