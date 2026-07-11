@@ -66,8 +66,12 @@ void buildSettingsServerScreen() {
     UIManager::styleLabel(lbl_dev_id, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
     lv_obj_align(lbl_dev_id, LV_ALIGN_TOP_LEFT, 0, 0);
 
-    create_input_field(body, "Device name", "Main office device", 30, 360, 0, false);
-    create_input_field(body, "Device ID", "ESP32-A1", 30, 360, 400, false);
+    lv_obj_t *ta_dev_name = create_input_field(body, "Device name", "Main office device", 30, 360, 0, false);
+    lv_textarea_set_text(ta_dev_name, DataManager::getDeviceName().c_str());
+
+    lv_obj_t *ta_dev_id = create_input_field(body, "Device ID", "ESP32-A1", 30, 360, 400, false);
+    lv_textarea_set_text(ta_dev_id, DataManager::getDeviceId().c_str());
+    lv_obj_clear_flag(ta_dev_id, LV_OBJ_FLAG_CLICKABLE); // Usually Device ID shouldn't be edited by user directly
 
     // Server connection
     lv_obj_t *lbl_serv = lv_label_create(body);
@@ -77,8 +81,11 @@ void buildSettingsServerScreen() {
 
     lv_obj_t *ta_api = create_input_field(body, "API endpoint", "https://api.manpro-attendance.com/v1", 130, 760, 0, false);
     lv_textarea_set_text(ta_api, "https://api.manpro-attendance.com/v1");
+    lv_obj_clear_flag(ta_api, LV_OBJ_FLAG_CLICKABLE);
 
-    create_input_field(body, "Device token", "••••••••••••••••••••••••", 210, 360, 0, true);
+    lv_obj_t *ta_token = create_input_field(body, "Device token", "••••••••••••••••••••••••", 210, 360, 0, true);
+    lv_textarea_set_text(ta_token, DataManager::getActivationCode().c_str());
+    lv_obj_clear_flag(ta_token, LV_OBJ_FLAG_CLICKABLE);
 
     lv_obj_t *btn_test = lv_btn_create(body);
     lv_obj_set_size(btn_test, 160, 40);
@@ -98,6 +105,7 @@ void buildSettingsServerScreen() {
     lv_obj_align(bottom, LV_ALIGN_BOTTOM_MID, 0, 0);
     lv_obj_set_style_bg_opa(bottom, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(bottom, 0, 0);
+    lv_obj_set_style_pad_all(bottom, 0, 0);
     
     lv_obj_t *btn_cancel = lv_btn_create(bottom);
     lv_obj_set_size(btn_cancel, 370, 40);
@@ -115,14 +123,13 @@ void buildSettingsServerScreen() {
     lv_obj_t *btn_save = lv_btn_create(bottom);
     lv_obj_set_size(btn_save, 370, 40);
     lv_obj_align(btn_save, LV_ALIGN_RIGHT_MID, 0, 0);
-    lv_obj_set_style_bg_color(btn_save, lv_color_white(), 0);
-    lv_obj_set_style_border_color(btn_save, UIManager::rgb(COLOR_STROKE), 0);
-    lv_obj_set_style_border_width(btn_save, 1, 0);
+    lv_obj_set_style_bg_color(btn_save, UIManager::rgb(COLOR_GREEN_MAIN), 0);
+    lv_obj_set_style_border_width(btn_save, 0, 0);
     lv_obj_set_style_radius(btn_save, 8, 0);
     lv_obj_add_event_cb(btn_save, btn_save_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *lbl_save = lv_label_create(btn_save);
     lv_label_set_text(lbl_save, "Save changes");
-    UIManager::styleLabel(lbl_save, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
+    UIManager::styleLabel(lbl_save, 0xFFFFFF, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
     lv_obj_center(lbl_save);
 }
 

@@ -10,6 +10,7 @@ int DataManager::_failedAttempts = 0;
 unsigned long DataManager::_lockoutStartTime = 0;
 String DataManager::_wifiSsid = "";
 String DataManager::_wifiPass = "";
+String DataManager::_activationCode = "";
 
 void DataManager::begin() {
     if (!LittleFS.begin(true)) {
@@ -63,6 +64,7 @@ void DataManager::loadConfig() {
     if (deserializeJson(doc, f) == DeserializationError::Ok) {
         _isWifiConfigured = doc["wifiConfigured"] | false;
         _isActivated = doc["activated"] | false;
+        _activationCode = doc["activationCode"] | "";
     }
     f.close();
 }
@@ -74,6 +76,7 @@ void DataManager::saveConfig() {
     StaticJsonDocument<256> doc;
     doc["wifiConfigured"] = _isWifiConfigured;
     doc["activated"] = _isActivated;
+    doc["activationCode"] = _activationCode;
     serializeJson(doc, f);
     f.close();
 }
@@ -182,6 +185,7 @@ bool DataManager::activate(const String& code) {
     
     if (valid) {
         _isActivated = true;
+        _activationCode = code;
         _failedAttempts = 0;
         saveConfig();
         return true;
@@ -198,7 +202,20 @@ bool DataManager::activate(const String& code) {
 void DataManager::factoryReset() {
     _isActivated      = false;
     _isWifiConfigured = false;
+    _activationCode   = "";
     saveConfig();
     clearWifiCredentials();
     Serial.println("[FS] Factory reset: config and WiFi credentials cleared.");
+}
+
+String DataManager::getActivationCode() {
+    return _activationCode;
+}
+
+String DataManager::getDeviceId() {
+    return "ManPro_Biometric_" + _activationCode + "_" + _hwCode;
+}
+
+String DataManager::getDeviceName() {
+    return "ManPro Biometric";
 }

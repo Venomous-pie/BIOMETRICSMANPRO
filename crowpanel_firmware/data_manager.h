@@ -26,6 +26,10 @@ public:
     static bool activate(const String& code);
     static void factoryReset();
 
+    static String getActivationCode();
+    static String getDeviceId();
+    static String getDeviceName();
+
     // WiFi credential persistence
     static void saveWifiCredentials(const String& ssid, const String& pass);
     static void clearWifiCredentials();
@@ -52,6 +56,7 @@ private:
     static unsigned long _lockoutStartTime;
     static String _wifiSsid;
     static String _wifiPass;
+    static String _activationCode;
     static void loadWifiCredentials();
     static void saveWifiCredentialsToFs();
 };
