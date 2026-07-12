@@ -1,6 +1,7 @@
 #include "ui_main_menu.h"
 #include "ui_manager.h"
 #include "ui_enroll.h"
+#include "data_manager.h"
 
 static lv_obj_t *scr_main_menu = NULL;
 
@@ -87,4 +88,6 @@ void buildMainMenuScreen() {
 
 void uiShowMainMenu() {
     lv_scr_load_anim(scr_main_menu, LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
+    // Refresh WiFi status to show current connection state
+    UIManager::updateHeaderWifi(DataManager::isWifiConnected());
 }

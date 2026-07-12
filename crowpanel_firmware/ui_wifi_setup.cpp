@@ -208,11 +208,12 @@ void uiWifiUpdateScanResult(const char *ssids) {
 
     String all = String(ssids);
     int start = 0, rowIndex = 0;
+    const int MAX_NETWORKS = 10; // Limit to prevent UI freeze with many networks
     while (true) {
         int comma = all.indexOf(',', start);
         String name = (comma < 0) ? all.substring(start) : all.substring(start, comma);
         name.trim();
-        if (name.length() > 0) {
+        if (name.length() > 0 && rowIndex < MAX_NETWORKS) {
             lv_obj_t *row = lv_obj_create(panel_networks);
             lv_obj_set_size(row, lv_pct(100), 40);
             lv_obj_set_style_bg_color(row, UIManager::rgb(rowIndex % 2 == 0 ? 0xFFFFFF : COLOR_STROKE), 0);
@@ -251,7 +252,11 @@ void uiWifiUpdateScanResult(const char *ssids) {
         start = comma + 1;
     }
 
-    setErr("Tap a network to select it, then enter the password.", true);
+    if (rowIndex >= MAX_NETWORKS) {
+        setErr(String("Showing " + String(MAX_NETWORKS) + " networks. More available but not shown.").c_str(), true);
+    } else {
+        setErr("Tap a network to select it, then enter the password.", true);
+    }
 }
 
 // ── Build the screen ───────────────────────────────────────────────────────
@@ -284,7 +289,15 @@ void buildWifiSetupScreen() {
     lv_obj_clear_flag(pill, LV_OBJ_FLAG_SCROLLABLE);
 
     lbl_status = lv_label_create(pill);
-    lv_label_set_text(lbl_status, LV_SYMBOL_WIFI " Offline");
+    wifi_is_connected = DataManager::isWifiConnected();  // seed from shared state
+    if (wifi_is_connected) {
+        lv_label_set_text(lbl_status, LV_SYMBOL_WIFI " Online");
+        lv_obj_set_style_bg_color(pill, UIManager::rgb(COLOR_GREEN_LIGHT), 0);
+        lv_obj_set_style_text_color(lbl_status, UIManager::rgb(COLOR_GREEN_MAIN), 0);
+    } else {
+        lv_label_set_text(lbl_status, LV_SYMBOL_WIFI " Offline");
+        lv_obj_set_style_text_color(lbl_status, UIManager::rgb(COLOR_GREEN_DARK), 0);
+    }
     UIManager::styleLabel(lbl_status, COLOR_GREEN_DARK, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
     lv_obj_center(lbl_status);
 

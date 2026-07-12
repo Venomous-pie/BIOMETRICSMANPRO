@@ -1,6 +1,7 @@
 #include "comm_manager.h"
 #include <ArduinoJson.h>
 #include "data_manager.h"
+#include "ui_manager.h"
 
 // UI forward declarations (to avoid circular dependency right now, or include UI headers later)
 extern void uiShowIdle();
@@ -15,6 +16,9 @@ extern void uiWifiUpdateStatus(bool connected);
 extern void uiIdleUpdateWifi(bool connected);
 extern void uiWifiUpdateScanResult(const char* ssids);
 extern void uiFactoryResetComplete();
+extern void uiSettingsUpdateClock(const char* ts);
+extern void uiSettingsUpdateWifiScan(const char* ssids);
+extern void uiSettingsUpdateWifiStatus(bool connected);
 
 extern HardwareSerial WroomSerial;
 
@@ -79,13 +83,16 @@ void CommManager::dispatchJson(const String& line) {
 
     if (strcmp(type, "TIME") == 0) {
         uiUpdateClock(doc["ts"] | "");
+        uiSettingsUpdateClock(doc["ts"] | "");
     } else if (strcmp(type, "PING") == 0) {
         WroomSerial.println("{\"type\":\"PONG\"}");
-        if (Serial) Serial.println("[PING] Got PING from WROOM -> sent PONG");
     } else if (strcmp(type, "WIFI_STATUS") == 0) {
         bool connected = doc["connected"] | false;
+        DataManager::setWifiConnected(connected);  // single source of truth
+        UIManager::updateHeaderWifi(connected);     // update currently visible header pill
         uiWifiUpdateStatus(connected);
         uiIdleUpdateWifi(connected);
+        uiSettingsUpdateWifiStatus(connected);
 
         // ── Auto-reconnect on boot ──
         // If the WROOM reports it is disconnected and we have saved credentials,
@@ -110,6 +117,7 @@ void CommManager::dispatchJson(const String& line) {
     } else if (strcmp(type, "WIFI_SCAN_RESULT") == 0) {
         const char* ssids = doc["ssids"] | "";
         uiWifiUpdateScanResult(ssids);
+        uiSettingsUpdateWifiScan(ssids);
     } else if (strcmp(type, "FACTORY_RESET_ACK") == 0) {
         uiFactoryResetComplete();
     } else {

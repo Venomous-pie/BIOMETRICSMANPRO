@@ -11,6 +11,7 @@ unsigned long DataManager::_lockoutStartTime = 0;
 String DataManager::_wifiSsid = "";
 String DataManager::_wifiPass = "";
 String DataManager::_activationCode = "";
+bool   DataManager::_wifiConnected = false;
 
 void DataManager::begin() {
     if (!LittleFS.begin(true)) {
@@ -154,6 +155,9 @@ void DataManager::clearWifiCredentials() {
 String DataManager::getWifiSsid() { return _wifiSsid; }
 String DataManager::getWifiPass() { return _wifiPass; }
 bool   DataManager::hasSavedWifi() { return _wifiSsid.length() > 0; }
+
+void DataManager::setWifiConnected(bool connected) { _wifiConnected = connected; }
+bool DataManager::isWifiConnected() { return _wifiConnected; }
 
 bool DataManager::isActivated() { return _isActivated; }
 String DataManager::getHardwareCode() { return _hwCode; }

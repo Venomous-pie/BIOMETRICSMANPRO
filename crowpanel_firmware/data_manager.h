@@ -37,6 +37,10 @@ public:
     static String getWifiPass();
     static bool hasSavedWifi();
 
+    // Live runtime Wi-Fi state (not persisted — updated by CommManager on every WIFI_STATUS event)
+    static void setWifiConnected(bool connected);
+    static bool isWifiConnected();
+
     static int getFailedAttempts();
     static unsigned long getLockoutStartTime();
     static bool isLockedOut();
@@ -57,6 +61,7 @@ private:
     static String _wifiSsid;
     static String _wifiPass;
     static String _activationCode;
+    static bool _wifiConnected;
     static void loadWifiCredentials();
     static void saveWifiCredentialsToFs();
 };

@@ -390,6 +390,14 @@ void handleCmd(String cmd) {
         sendDoc(resp);
       }
 
+    } else if (strcmp(action, "WIFI_DISCONNECT") == 0) {
+      Serial.println("[WIFI] Disconnecting...");
+      WiFi.disconnect(true, true);
+      StaticJsonDocument<128> resp;
+      resp["type"]      = "WIFI_STATUS";
+      resp["connected"] = false;
+      sendDoc(resp);
+
     } else if (strcmp(action, "DEVICE_ACTIVATED") == 0) {
       activated = true;
       Serial.println("[SYSTEM] CrowPanel signaled DEVICE_ACTIVATED. Fingerprint scanner enabled.");

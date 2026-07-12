@@ -21,6 +21,11 @@ LV_FONT_DECLARE(lv_font_montserrat_16);
 LV_FONT_DECLARE(lv_font_montserrat_20);
 extern const lv_img_dsc_t icon_battery;
 
+// The most-recently created shared header pill label.
+// Every screen that calls buildHeader(show_wifi_pill=true) overwrites this pointer,
+// so it always points to the currently visible header's pill.
+static lv_obj_t *g_header_wifi_lbl = NULL;
+
 lv_obj_t* UIManager::buildHeader(lv_obj_t* scr, const char* title, const char* subtitle, lv_event_cb_t back_cb, bool show_wifi_pill) {
     lv_obj_t *header = lv_obj_create(scr);
     lv_obj_set_size(header, 800, 85);
@@ -67,10 +72,12 @@ lv_obj_t* UIManager::buildHeader(lv_obj_t* scr, const char* title, const char* s
         lv_obj_set_style_border_width(pill, 0, 0);
         lv_obj_clear_flag(pill, LV_OBJ_FLAG_SCROLLABLE);
 
+        bool wifiNow = DataManager::isWifiConnected();
         lv_obj_t *lbl_status = lv_label_create(pill);
-        lv_label_set_text(lbl_status, LV_SYMBOL_WIFI " Online");
-        styleLabel(lbl_status, COLOR_GREEN_DARK, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
+        lv_label_set_text(lbl_status, wifiNow ? LV_SYMBOL_WIFI " Online" : LV_SYMBOL_WIFI " Offline");
+        styleLabel(lbl_status, wifiNow ? COLOR_GREEN_MAIN : COLOR_GREEN_DARK, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
         lv_obj_align(lbl_status, LV_ALIGN_LEFT_MID, 15, 0);
+        g_header_wifi_lbl = lbl_status;  // track so we can update it live
 
         lv_obj_t *batt_img = lv_img_create(pill);
         lv_img_set_src(batt_img, &icon_battery);
@@ -126,6 +133,13 @@ void UIManager::buildAllScreens() {
 
 void uiFactoryResetComplete() {
     uiShowWifiSetup();
+}
+
+void UIManager::updateHeaderWifi(bool connected) {
+    if (!g_header_wifi_lbl) return;
+    lv_label_set_text(g_header_wifi_lbl, connected ? LV_SYMBOL_WIFI " Online" : LV_SYMBOL_WIFI " Offline");
+    lv_obj_set_style_text_color(g_header_wifi_lbl,
+        rgb(connected ? COLOR_GREEN_MAIN : COLOR_GREEN_DARK), 0);
 }
 
 void UIManager::showIdle() {

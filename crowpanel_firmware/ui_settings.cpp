@@ -91,7 +91,4 @@ void uiShowSettings() {
     lv_scr_load(scr_settings);
 }
 
-// These empty functions are left to not break compilation if they are called elsewhere.
-void uiSettingsUpdateClock(const char *ts) {}
-void uiSettingsUpdateWifiList() {}
-void uiSettingsUpdateStatus(bool connected, int pending, const char* last_synced, int buffer_pct) {}
+

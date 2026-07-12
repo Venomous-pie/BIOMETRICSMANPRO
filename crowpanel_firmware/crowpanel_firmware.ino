@@ -89,8 +89,8 @@ void my_touch_read(lv_indev_drv_t *indev_drv, lv_indev_data_t *data) {
 // UART to WROOM
 // ============================================================
 HardwareSerial WroomSerial(1);
-#define WROOM_RX 38   // IO38: UART RX from WROOM GPIO33
-#define WROOM_TX 43   // IO43: UART TX to WROOM GPIO32
+#define WROOM_RX 38   // IO38: UART RX from WROOM GPIO33 (TX)
+#define WROOM_TX 43   // IO43: UART TX to WROOM GPIO32 (RX)
 
 // ============================================================
 // Setup
@@ -171,13 +171,13 @@ void setup() {
   lv_indev_drv_register(&indev_drv);
 #endif
 
-  // Init UI Manager (Builds screens and loads activation or idle)
-  UIManager::begin();
-
-  // WROOM UART - Increase RX buffer to prevent dropping long JSON packets while LVGL is blocking
+  // WROOM UART - MUST be initialized before UIManager::begin() because screens send commands on boot
   WroomSerial.setRxBufferSize(2048);
   WroomSerial.begin(115200, SERIAL_8N1, WROOM_RX, WROOM_TX);
   CommManager::begin();
+
+  // Init UI Manager (Builds screens and loads activation or idle)
+  UIManager::begin();
 }
 
 // ============================================================

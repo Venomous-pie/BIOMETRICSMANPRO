@@ -84,8 +84,9 @@ void buildIdleScreen() {
 
   // Wi-Fi label (dynamic — updated by uiIdleUpdateWifi)
   lbl_wifi_status = lv_label_create(status_pill);
-  lv_label_set_text(lbl_wifi_status, LV_SYMBOL_WIFI " Offline");
-  UIManager::styleLabel(lbl_wifi_status, COLOR_GREEN_DARK, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
+  bool seededWifi = DataManager::isWifiConnected();
+  lv_label_set_text(lbl_wifi_status, seededWifi ? LV_SYMBOL_WIFI " Online" : LV_SYMBOL_WIFI " Offline");
+  UIManager::styleLabel(lbl_wifi_status, seededWifi ? COLOR_GREEN_MAIN : COLOR_GREEN_DARK, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
   lv_obj_align(lbl_wifi_status, LV_ALIGN_LEFT_MID, 8, 0);
 
   // Battery icon (no number — pure icon)
