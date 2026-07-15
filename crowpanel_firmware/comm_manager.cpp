@@ -45,6 +45,11 @@ void CommManager::process() {
             uartBuf = "";
         } else {
             uartBuf += c;
+            // Prevent infinite memory allocation if newline is dropped
+            if (uartBuf.length() > 1024) {
+                if (Serial) Serial.println("[UART] ERROR: Buffer overflow! Dropping corrupted packet.");
+                uartBuf = "";
+            }
         }
     }
 
@@ -125,6 +130,8 @@ void CommManager::dispatchJson(const String& line) {
         uiSettingsUpdateWifiScan(ssids);
     } else if (strcmp(type, "FACTORY_RESET_ACK") == 0) {
         uiFactoryResetComplete();
+    } else if (strcmp(type, "RESET_ACK") == 0) {
+        if (Serial) Serial.println("[SYSTEM] WROOM acknowledged reboot. Waiting for reconnect...");
     } else {
         if (!DataManager::isActivated()) {
             if (Serial) Serial.println("[UART] Ignored event (device not activated): " + String(type));

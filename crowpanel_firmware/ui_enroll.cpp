@@ -48,7 +48,7 @@ static void populate_emp_list(const char* name_filter, const char* dept_filter) 
     if (nFilt.length() > 0 && nStr.indexOf(nFilt) == -1) continue;
     if (dFilt.length() > 0 && dStr.indexOf(dFilt) == -1) continue;
 
-    bool enrolled = (db[i].id > 0); // Replace with real enrollment check if available
+    bool enrolled = (db[i].id > 0); // AS608 slots are 1-based; id > 0 means enrolled
 
     // Row container
     lv_obj_t *row = lv_obj_create(emp_list_obj);

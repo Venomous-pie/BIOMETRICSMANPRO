@@ -26,6 +26,10 @@ static void btn_factory_reset_cb(lv_event_t * e) {
     DataManager::factoryReset();
 }
 
+static void btn_reboot_wroom_cb(lv_event_t * e) {
+    CommManager::sendCommand("{\"cmd\":\"RESET\"}");
+}
+
 void buildSettingsDangerScreen() {
     if (scr) return;
     
@@ -74,7 +78,7 @@ void buildSettingsDangerScreen() {
 
     // Danger Zone Card
     lv_obj_t *card_danger = lv_obj_create(body);
-    lv_obj_set_size(card_danger, 760, 140);
+    lv_obj_set_size(card_danger, 760, 160);
     lv_obj_align(card_danger, LV_ALIGN_TOP_MID, 0, 160);
     lv_obj_set_style_bg_color(card_danger, UIManager::rgb(0xfff0f3), 0); // Light red
     lv_obj_set_style_border_color(card_danger, UIManager::rgb(COLOR_DANGER), 0);
@@ -104,6 +108,20 @@ void buildSettingsDangerScreen() {
     lv_label_set_text(lbl_reset, "Factory Reset");
     UIManager::styleLabel(lbl_reset, COLOR_DANGER, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
     lv_obj_center(lbl_reset);
+
+    // Reboot WROOM button
+    lv_obj_t *btn_reboot = lv_btn_create(card_danger);
+    lv_obj_set_size(btn_reboot, 180, 40);
+    lv_obj_align(btn_reboot, LV_ALIGN_TOP_LEFT, 200, 60);
+    lv_obj_set_style_bg_color(btn_reboot, UIManager::rgb(0xfff3e0), 0);
+    lv_obj_set_style_border_color(btn_reboot, UIManager::rgb(0xf57c00), 0);
+    lv_obj_set_style_border_width(btn_reboot, 1, 0);
+    lv_obj_set_style_radius(btn_reboot, 8, 0);
+    lv_obj_add_event_cb(btn_reboot, btn_reboot_wroom_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *lbl_reboot = lv_label_create(btn_reboot);
+    lv_label_set_text(lbl_reboot, "Reboot WROOM");
+    UIManager::styleLabel(lbl_reboot, 0xf57c00, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
+    lv_obj_center(lbl_reboot);
 }
 
 void uiShowSettingsDanger() {

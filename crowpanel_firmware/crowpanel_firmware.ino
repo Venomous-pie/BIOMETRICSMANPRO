@@ -89,7 +89,7 @@ void my_touch_read(lv_indev_drv_t *indev_drv, lv_indev_data_t *data) {
 // ============================================================
 // UART to WROOM
 // ============================================================
-HardwareSerial WroomSerial(0);
+HardwareSerial WroomSerial(1);
 #define WROOM_RX 38   // IO38: UART RX from WROOM GPIO33 (TX)
 #define WROOM_TX 43   // IO43: UART TX to WROOM GPIO32 (RX)
 
@@ -179,16 +179,13 @@ void setup() {
 #endif
 
   // WROOM UART - MUST be initialized before UIManager::begin() because screens send commands on boot
-  // CRITICAL: Delete the IDF console's pre-installed UART0 driver first.
-  // Without this, WroomSerial.begin() silently fails to remap the GPIO matrix.
-  // This matches the proven pattern from crowpanel_test_pingpong.ino.
-  uart_driver_delete(UART_NUM_0);
+  // We use UART1 to avoid conflicts with ESP-IDF's default UART0 console
   WroomSerial.setRxBufferSize(2048);
   WroomSerial.begin(115200, SERIAL_8N1, WROOM_RX, WROOM_TX);
   
-  // Flush the RX hardware FIFO to clear any ESP32 boot ROM noise 
+  // Flush the RX software/hardware FIFO to clear any ESP32 boot ROM noise 
   // that accumulated during startup before we start parsing JSON.
-  uart_flush_input(UART_NUM_0);
+  while(WroomSerial.available()) WroomSerial.read();
 
   CommManager::begin();
 

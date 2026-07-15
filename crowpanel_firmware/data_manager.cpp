@@ -37,11 +37,12 @@ void DataManager::createInitialFilesIfMissing() {
         File f = LittleFS.open("/employees.json", "w");
         if (f) {
             f.print(R"([
-  {"id":1,"name":"Alice Santos","dept":"HR"},
-  {"id":2,"name":"Bob Cruz","dept":"IT"},
-  {"id":3,"name":"Carol Reyes","dept":"Finance"},
-  {"id":4,"name":"Dave Lim","dept":"Security"},
-  {"id":5,"name":"Eve Tan","dept":"Admin"}
+  {"id":1,"name":"Claire Jem Dedicatoria","dept":"Admin"},
+  {"id":2,"name":"Alice Santos","dept":"HR"},
+  {"id":3,"name":"Bob Cruz","dept":"IT"},
+  {"id":4,"name":"Carol Reyes","dept":"Finance"},
+  {"id":5,"name":"Dave Lim","dept":"Security"},
+  {"id":6,"name":"Eve Tan","dept":"Admin"}
 ])");
             f.close();
         }

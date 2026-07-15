@@ -54,11 +54,12 @@ RTC_DS3231 rtc;
 // Edit this JSON and re-flash to add/change employees.
 // ============================================================
 const char EMPLOYEES_JSON[] = R"([
-  {"id":1,"name":"Alice Santos","dept":"HR"},
-  {"id":2,"name":"Bob Cruz","dept":"IT"},
-  {"id":3,"name":"Carol Reyes","dept":"Finance"},
-  {"id":4,"name":"Dave Lim","dept":"Security"},
-  {"id":5,"name":"Eve Tan","dept":"Admin"}
+  {"id":1,"name":"Claire Jem Dedicatoria","dept":"Admin"},
+  {"id":2,"name":"Alice Santos","dept":"HR"},
+  {"id":3,"name":"Bob Cruz","dept":"IT"},
+  {"id":4,"name":"Carol Reyes","dept":"Finance"},
+  {"id":5,"name":"Dave Lim","dept":"Security"},
+  {"id":6,"name":"Eve Tan","dept":"Admin"}
 ])";
 
 struct Employee { int id; String name; String dept; };
@@ -195,12 +196,17 @@ bool doEnroll(int slot) {
   Serial.println("[ENROLL] Step 1 - place finger on sensor");
   t = millis();
   do {
-    if (millis() - t > 15000) return false;
+    if (millis() - t > 15000) { Serial.println("[ENROLL] Step 1 TIMEOUT"); return false; }
     p = finger.getImage();
+    if (p != FINGERPRINT_OK && p != FINGERPRINT_NOFINGER) {
+      Serial.printf("[ENROLL] Step 1 getImage() transient error: 0x%02X\n", p);
+    }
     delay(50);
-  } while (p == FINGERPRINT_NOFINGER);
-  if (p != FINGERPRINT_OK)              return false;
-  if (finger.image2Tz(1) != FINGERPRINT_OK) return false;
+  } while (p != FINGERPRINT_OK);
+  Serial.println("[ENROLL] Step 1 image taken!");
+  p = finger.image2Tz(1);
+  Serial.printf("[ENROLL] Step 1 image2Tz(1) = 0x%02X\n", p);
+  if (p != FINGERPRINT_OK) { Serial.printf("[ENROLL] Step 1 FAIL: image2Tz(1) bad code 0x%02X\n", p); return false; }
 
   // --- Lift ---
   send("{\"type\":\"ENROLL_STEP\",\"step\":2,\"msg\":\"Lift finger\"}");
@@ -213,18 +219,28 @@ bool doEnroll(int slot) {
   Serial.println("[ENROLL] Step 3 - place finger again");
   t = millis();
   do {
-    if (millis() - t > 15000) return false;
+    if (millis() - t > 15000) { Serial.println("[ENROLL] Step 3 TIMEOUT"); return false; }
     p = finger.getImage();
+    if (p != FINGERPRINT_OK && p != FINGERPRINT_NOFINGER) {
+      Serial.printf("[ENROLL] Step 3 getImage() transient error: 0x%02X\n", p);
+    }
     delay(50);
-  } while (p == FINGERPRINT_NOFINGER);
-  if (p != FINGERPRINT_OK)                return false;
-  if (finger.image2Tz(2) != FINGERPRINT_OK)   return false;
+  } while (p != FINGERPRINT_OK);
+  Serial.println("[ENROLL] Step 3 image taken!");
+  p = finger.image2Tz(2);
+  Serial.printf("[ENROLL] Step 3 image2Tz(2) = 0x%02X\n", p);
+  if (p != FINGERPRINT_OK) { Serial.printf("[ENROLL] Step 3 FAIL: image2Tz(2) bad code 0x%02X\n", p); return false; }
 
   // --- Create & store model ---
-  if (finger.createModel()    != FINGERPRINT_OK) return false;
-  if (finger.storeModel(slot) != FINGERPRINT_OK) return false;
+  p = finger.createModel();
+  Serial.printf("[ENROLL] createModel() = 0x%02X\n", p);
+  if (p != FINGERPRINT_OK) { Serial.printf("[ENROLL] FAIL: createModel bad code 0x%02X\n", p); return false; }
+  p = finger.storeModel(slot);
+  Serial.printf("[ENROLL] storeModel(%d) = 0x%02X\n", slot, p);
+  if (p != FINGERPRINT_OK) { Serial.printf("[ENROLL] FAIL: storeModel bad code 0x%02X\n", p); return false; }
   return true;
 }
+
 
 // ============================================================
 // Command handler (shared by USB Serial + CrowPanel UART)
@@ -250,7 +266,12 @@ void handleCmd(String cmd) {
 
   Serial.println("[CMD] " + cmd);
 
-  if (cmd.startsWith("ENROLL:")) {
+  if (cmd == "RESET") {
+    Serial.println("[SYSTEM] Reboot command received via Serial. Restarting...");
+    send("{\"type\":\"RESET_ACK\"}");
+    delay(200);
+    ESP.restart();
+  } else if (cmd.startsWith("ENROLL:")) {
     int slot = cmd.substring(7).toInt();
     if (slot < 1 || slot > MAX_SLOTS) {
       Serial.println("Slot must be 1-127");
@@ -420,6 +441,12 @@ void handleCmd(String cmd) {
       activated = false;
       Serial.println("[SYSTEM] Factory reset received. Fingerprint scanner disabled.");
       send("{\"type\":\"FACTORY_RESET_ACK\"}");
+
+    } else if (strcmp(action, "RESET") == 0) {
+      Serial.println("[SYSTEM] Remote reboot command received from CrowPanel. Restarting...");
+      send("{\"type\":\"RESET_ACK\"}");
+      delay(200); // Give UART time to flush before restart
+      ESP.restart();
     }
   }
 }
@@ -558,6 +585,10 @@ void loop() {
       cpBuf = "";
     } else {
       cpBuf += c;
+      if (cpBuf.length() > 1024) {
+        Serial.println("[UART_RX] ERROR: Buffer overflow! Dropping corrupted packet.");
+        cpBuf = "";
+      }
     }
   }
 
