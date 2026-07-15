@@ -100,6 +100,17 @@ void buildResultScreen() {
 
 void uiShowMatch(const char *name, const char *dept, const char *action, const char *ts) {
   if (scr_result == NULL) buildResultScreen();  // Lazy build on first use
+
+  if (pending_action == 3) {
+    pending_action = 1; // Reset to default
+    if (dept && strcmp(dept, "Admin") == 0) {
+      UIManager::showMainMenu();
+    } else {
+      uiShowNoMatch();
+    }
+    return;
+  }
+
   bool isIn;
   if (pending_action == 0) {
     isIn = (strcmp(action, "IN") == 0);
