@@ -5,14 +5,14 @@
  * Board    : ESP32-WROOM-32
  * AS608    : UART1  RX=GPIO16, TX=GPIO17, TOUCH=GPIO34
  * DS3231   : I2C    SDA=GPIO21, SCL=GPIO22
- * CrowPanel: UART2  TX=GPIO33 --> CP IO38, RX=GPIO32 <-- CP IO43
+ * CrowPanel: ESP-NOW wireless link (no UART wire needed)
  *
  * Libraries (install via Arduino Library Manager):
  *   - Adafruit Fingerprint Sensor Library  (Adafruit)
  *   - RTClib                               (Adafruit)
  *   - ArduinoJson                          (Benoit Blanchon)
  *
- * Serial commands (USB monitor OR CrowPanel UART):
+ * Serial commands (USB monitor only):
  *   ENROLL:<slot>   enroll a finger into slot 1-127
  *   DELETE:<slot>   erase stored template from sensor
  */
@@ -24,6 +24,9 @@
 #include <WiFi.h>
 #include <WiFiUdp.h>
 #include <time.h>
+#include <esp_now.h>
+#include <esp_system.h>
+#include <esp_wifi.h>
 
 // ============================================================
 // Pin definitions
@@ -31,16 +34,29 @@
 #define PIN_FP_RX    17   // AS608 TX  -> WROOM (UART1 RX)
 #define PIN_FP_TX    16   // AS608 RX  <- WROOM (UART1 TX)
 #define PIN_FP_TOUCH 34   // AS608 T-OUT  HIGH when finger present
-#define PIN_CP_TX    33   // -> CrowPanel IO38  (UART2 TX)
-#define PIN_CP_RX    32   // <- CrowPanel IO43  (UART2 RX)
 #define PIN_FACTORY_RESET 14 // Factory Reset hardware button (active low)
 #define MAX_SLOTS    127
+
+// ============================================================
+// ESP-NOW configuration  (Option A — fixed channel)
+// ============================================================
+// Set your router to a fixed channel (e.g. 1) and update ESPNOW_CHANNEL to match.
+// Both boards must use the same value.
+#define ESPNOW_CHANNEL 1
+
+// The CrowPanel's actual station MAC address.
+// PLACEHOLDER: Flash the CrowPanel first and read its "[BOOT] CP MAC:" line,
+// then paste those 6 hex bytes here before flashing the WROOM.
+uint8_t CROWPANEL_MAC[6] = {0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA};
+
+// ESP-NOW payload size limit
+#define ESPNOW_PAYLOAD_MAX 251
 
 // ============================================================
 // UART instances
 // ============================================================
 HardwareSerial fpSerial(1);   // UART1 -> AS608
-HardwareSerial cpSerial(2);   // UART2 -> CrowPanel
+// cpSerial removed — CrowPanel link is now ESP-NOW wireless
 
 // ============================================================
 // Peripheral objects
@@ -138,15 +154,20 @@ void syncNTP() {
   }
 }
 
-// Full send: UART + Serial log (for important events)
+// Full send: ESP-NOW + Serial log (for important events)
 void send(const String &json) {
-  cpSerial.println(json);
+  if (json.length() >= ESPNOW_PAYLOAD_MAX) {
+    Serial.printf("[ESP-NOW] TX SKIP: payload too large (%d bytes)\n", json.length());
+    return;
+  }
+  esp_now_send(CROWPANEL_MAC, (const uint8_t*)json.c_str(), json.length());
   Serial.println("[->CP] " + json);
 }
 
-// Quiet send: UART only, no Serial spam (used for high-frequency TIME broadcasts)
+// Quiet send: ESP-NOW only, no Serial spam (used for high-frequency TIME broadcasts)
 void sendQuiet(const String &json) {
-  cpSerial.println(json);
+  if (json.length() >= ESPNOW_PAYLOAD_MAX) return;
+  esp_now_send(CROWPANEL_MAC, (const uint8_t*)json.c_str(), json.length());
 }
 
 void sendDoc(JsonDocument &doc) {
@@ -351,7 +372,8 @@ void handleCmd(String cmd) {
 
       Serial.printf("[WIFI] %d networks found\n", found);
       String ssidList = "";
-      for (int i = 0; i < found; i++) {
+      int limit = min(found, 5); // Cap at 5 — ESP-NOW payload is max 250 bytes
+      for (int i = 0; i < limit; i++) {
         if (i > 0) ssidList += ",";
         ssidList += WiFi.SSID(i);
       }
@@ -452,12 +474,68 @@ void handleCmd(String cmd) {
 }
 
 // ============================================================
+// ESP-NOW ring buffer + callbacks
+// Ring buffer: ESP-NOW recv callback (WiFi task, Core 0) -> loop() (Core 1).
+// Lockless single-producer / single-consumer — only the producer advances
+// s_cpQTail and only the consumer advances s_cpQHead.
+// ============================================================
+#define ESPNOW_QUEUE_SIZE 8
+struct EspNowMsg { char data[ESPNOW_PAYLOAD_MAX]; };
+static EspNowMsg s_cpQueue[ESPNOW_QUEUE_SIZE];
+static volatile uint8_t s_cpQHead = 0, s_cpQTail = 0;
+
+static void onDataRecvFromCP(const uint8_t *mac, const uint8_t *data, int len) {
+  if (len <= 0 || len >= ESPNOW_PAYLOAD_MAX) return;
+  uint8_t next = (s_cpQTail + 1) % ESPNOW_QUEUE_SIZE;
+  if (next == s_cpQHead) return; // queue full — drop
+  memcpy(s_cpQueue[s_cpQTail].data, data, len);
+  s_cpQueue[s_cpQTail].data[len] = '\0';
+  s_cpQTail = next;
+}
+
+static void onDataSentToCP(const uint8_t *mac, esp_now_send_status_t status) {
+  if (status != ESP_NOW_SEND_SUCCESS) {
+    Serial.println("[ESP-NOW] SEND FAIL — CP unreachable or MAC mismatch");
+  }
+}
+
+void espNowInit() {
+  // WiFi must be in STA mode for ESP-NOW to work.
+  // If WiFi is already in STA mode (from a previous call) this is a no-op.
+  if (WiFi.getMode() == WIFI_OFF) WiFi.mode(WIFI_STA);
+
+  // Lock to the fixed channel BEFORE esp_now_init() so the peer
+  // registration uses the correct channel from the start.
+  esp_wifi_set_channel(ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE);
+
+  if (esp_now_init() != ESP_OK) {
+    Serial.println("[ESP-NOW] Init FAILED!");
+    return;
+  }
+
+  esp_now_register_recv_cb(onDataRecvFromCP);
+  esp_now_register_send_cb(onDataSentToCP);
+
+  esp_now_peer_info_t peer = {};
+  memcpy(peer.peer_addr, CROWPANEL_MAC, 6);
+  peer.channel = 0;   // 0 = use current channel
+  peer.encrypt  = false;
+  if (esp_now_add_peer(&peer) != ESP_OK) {
+    Serial.println("[ESP-NOW] add_peer FAILED — check CROWPANEL_MAC");
+  }
+
+  Serial.printf("[ESP-NOW] Initialized on channel %d\n", ESPNOW_CHANNEL);
+  Serial.printf("[BOOT] WROOM MAC: %s\n", WiFi.macAddress().c_str());
+}
+
+// ============================================================
 // Setup
 // ============================================================
 
 void setup() {
   Serial.begin(115200);
   delay(500);
+  Serial.printf("[BOOT] Reset reason: %d\n", esp_reset_reason());
   Serial.println("\n=== Biometrics WROOM Controller ===");
 
   // Parse employee JSON into struct array
@@ -486,10 +564,8 @@ void setup() {
     Serial.println("[AS608] NOT FOUND - check wiring!");
   }
 
-  // CrowPanel UART2 - Large RX buffer so PONG/messages aren't dropped during blocking WiFi scans
-  cpSerial.setRxBufferSize(2048);
-  cpSerial.begin(115200, SERIAL_8N1, PIN_CP_RX, PIN_CP_TX);
-  Serial.println("[UART2] CrowPanel link ready");
+  // CrowPanel link — ESP-NOW wireless (no UART wire)
+  espNowInit();
 
   // DS3231 RTC
   Wire.begin(21, 22);
@@ -572,23 +648,14 @@ void loop() {
     handleCmd(Serial.readStringUntil('\n'));
   }
 
-  // Commands from CrowPanel - NON-BLOCKING char-by-char
-  // (avoids readStringUntil timeout dropping PONG or other replies)
-  while (cpSerial.available()) {
-    char c = cpSerial.read();
-    if (c == '\n') {
-      cpBuf.trim();
-      if (cpBuf.length() > 0) {
-        Serial.println("[UART_RX] From CP: " + cpBuf);
-        handleCmd(cpBuf);
-      }
-      cpBuf = "";
-    } else {
-      cpBuf += c;
-      if (cpBuf.length() > 1024) {
-        Serial.println("[UART_RX] ERROR: Buffer overflow! Dropping corrupted packet.");
-        cpBuf = "";
-      }
+  // Commands from CrowPanel — drained from ESP-NOW ring buffer.
+  // onDataRecvFromCP() (Core 0 WiFi task) writes; this loop (Core 1) reads.
+  while (s_cpQHead != s_cpQTail) {
+    String line(s_cpQueue[s_cpQHead].data);
+    s_cpQHead = (s_cpQHead + 1) % ESPNOW_QUEUE_SIZE;
+    if (line.length() > 0) {
+      Serial.println("[<-CP] " + line);
+      handleCmd(line);
     }
   }
 

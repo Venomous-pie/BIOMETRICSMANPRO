@@ -3,7 +3,7 @@
  * Biometrics Employee Time-In/Time-Out System - Display Node
  *
  * Board   : ESP32-S3 CrowPanel 5.0" (800x480)
- * UART    : IO38 (RX from WROOM GPIO33), IO43 (TX to WROOM GPIO32)
+ * Comms   : ESP-NOW wireless link to WROOM (no UART wire)
  *
  * Libraries (install via Arduino Library Manager):
  *   - LVGL 8.x/9.x
@@ -12,14 +12,13 @@
  */
 
 #include <Arduino.h>
-// No longer includes driver/uart.h - we use UART2 which needs no IDF driver manipulation
 #include "display_driver.h"
 #include <lvgl.h>
+#include <esp_system.h>
 
 #include "data_manager.h"
 #include "comm_manager.h"
 #include "ui_manager.h"
-#include "esp_system.h"
 
 
 // ============================================================
@@ -89,23 +88,14 @@ void my_touch_read(lv_indev_drv_t *indev_drv, lv_indev_data_t *data) {
 #endif
 
 // ============================================================
-// UART to WROOM
-// ============================================================
-// UART 1 is used so we NEVER touch UART 0 or its IOMUX pins (GPIO 43/44).
-HardwareSerial WroomSerial(1);
-#define WROOM_RX 38   // IO38: UART RX from WROOM GPIO33 (TX)
-#define WROOM_TX 43   // IO43: UART TX to WROOM GPIO32 (RX)
-
-// ============================================================
 // Setup
 // ============================================================
 void setup() {
   Serial.begin(115200);
-  Serial.setTxTimeoutMs(0); // Prevent native USB CDC from blocking the loop if host isn't reading
+  Serial.setTxTimeoutMs(0); // Prevent USB CDC from blocking loop if host isn't reading
   Serial.printf("[BOOT] Reset reason: %d\n", esp_reset_reason());
 
   delay(500);
-  
   if (Serial && Serial.availableForWrite() > 32) {
     Serial.println("\n=== Biometrics CrowPanel Display ===");
   }
@@ -113,21 +103,16 @@ void setup() {
   // Init LittleFS and Data
   DataManager::begin();
 
-  // PSRAM check (informational only — do not halt, we fall back to internal RAM)
+  // PSRAM check (informational only — falls back to internal RAM if unavailable)
   size_t psram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
   if (Serial && Serial.availableForWrite() > 64) {
     Serial.printf("[PSRAM] Free SPIRAM: %u bytes\n", psram_free);
-    if (psram_free < 800000) {
-      Serial.println("[PSRAM] SPIRAM unavailable or low");
-    }
+    if (psram_free < 800000) Serial.println("[PSRAM] SPIRAM unavailable or low");
   }
 
-  // WROOM UART (UART 2) — MUST be initialized BEFORE lcd.init()!
-  // The ESP32-S3 RGB LCD GDMA engine claims the GPIO matrix after lcd.init().
-  // If UART2 is set up first, its GPIO38 RX claim is established and survives the display init.
-  WroomSerial.setRxBufferSize(2048);
-  WroomSerial.begin(115200, SERIAL_8N1, WROOM_RX, WROOM_TX);
-  while (WroomSerial.available()) WroomSerial.read(); // flush boot-ROM noise
+  // CommManager initializes ESP-NOW, prints CP MAC, adds WROOM as unicast peer.
+  // Called BEFORE lcd.init() so WiFi radio init doesn't conflict with
+  // the RGB LCD GDMA engine that claims the GPIO matrix during lcd.init().
   CommManager::begin();
 
   // Backlight reset sequence

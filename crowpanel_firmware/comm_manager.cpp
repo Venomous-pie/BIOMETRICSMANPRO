@@ -1,5 +1,7 @@
 #include "comm_manager.h"
 #include <ArduinoJson.h>
+#include <WiFi.h>
+#include <esp_wifi.h>
 #include "data_manager.h"
 #include "ui_manager.h"
 
@@ -20,46 +22,103 @@ extern void uiSettingsUpdateClock(const char* ts);
 extern void uiSettingsUpdateWifiScan(const char* ssids);
 extern void uiSettingsUpdateWifiStatus(bool connected);
 
-extern HardwareSerial WroomSerial;
+// ============================================================
+// ESP-NOW ring buffer
+// Lockless single-producer (Core 0 WiFi task) / single-consumer (Core 1 loop()).
+// Producer only advances s_qTail; consumer only advances s_qHead.
+// ============================================================
+#define ESPNOW_QUEUE_SIZE  8
+#define ESPNOW_PAYLOAD_MAX 251
 
-String CommManager::uartBuf  = "";
+struct EspNowMsg { char data[ESPNOW_PAYLOAD_MAX]; };
+static EspNowMsg  s_queue[ESPNOW_QUEUE_SIZE];
+static volatile uint8_t s_qHead = 0;
+static volatile uint8_t s_qTail = 0;
+
+// Static member definitions
 String CommManager::serialBuf = "";
 
-void CommManager::begin() {
-    if (Serial) Serial.println("[UART] CommManager ready");
+// ============================================================
+// ESP-NOW receive callback  (runs in WiFi task, Core 0)
+// Only copies bytes into the ring buffer — zero parsing here.
+// ============================================================
+void CommManager::onEspNowRecv(const uint8_t* mac,
+                                const uint8_t* data, int len) {
+    if (len <= 0 || len >= ESPNOW_PAYLOAD_MAX) return;
+    uint8_t next = (s_qTail + 1) % ESPNOW_QUEUE_SIZE;
+    if (next == s_qHead) return; // queue full — drop
+    memcpy(s_queue[s_qTail].data, data, len);
+    s_queue[s_qTail].data[len] = '\0';
+    s_qTail = next;             // publish to consumer
 }
 
-void CommManager::process() {
-    // NON-BLOCKING: read WROOM UART char-by-char
-    while (WroomSerial.available()) {
-        char c = WroomSerial.read();
-        if (c == '\n') {
-            uartBuf.trim();
-            if (uartBuf.length() > 0) {
-                if (strcmp(uartBuf.c_str(), "{\"type\":\"TIME\"}") != 0) {
-                    if (Serial) Serial.println("[<-WROOM] " + uartBuf);
-                }
-                dispatchJson(uartBuf);
-            }
-            uartBuf = "";
-        } else if (c != '\r') {
-            uartBuf += c;
-            if (uartBuf.length() > 1024) {
-                if (Serial) Serial.println("[UART] Overflow — dropping.");
-                uartBuf = "";
-            }
-        }
+// ============================================================
+// begin()
+// ============================================================
+void CommManager::begin() {
+    // WiFi STA mode is required for ESP-NOW on ESP32-S3.
+    // We don't connect to a router here — just enable the radio.
+    WiFi.mode(WIFI_STA);
+
+    // Pin to the fixed channel before esp_now_init() so peer
+    // registration uses the correct channel from the start.
+    esp_wifi_set_channel(ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE);
+
+    if (esp_now_init() != ESP_OK) {
+        if (Serial) Serial.println("[ESP-NOW] Init FAILED!");
+        return;
     }
 
-    // NON-BLOCKING: USB Serial forwarder
+    // Bind the static member as the C callback
+    esp_now_register_recv_cb(CommManager::onEspNowRecv);
+
+    // Register WROOM as a unicast peer
+    esp_now_peer_info_t peer = {};
+    memcpy(peer.peer_addr, WROOM_MAC, 6);
+    peer.channel = 0;      // 0 = use current channel
+    peer.encrypt  = false;
+    if (esp_now_add_peer(&peer) != ESP_OK) {
+        if (Serial) Serial.println("[ESP-NOW] add_peer FAILED — check WROOM_MAC");
+    }
+
+    if (Serial) {
+        Serial.printf("[ESP-NOW] Initialized on channel %d\n", ESPNOW_CHANNEL);
+        Serial.printf("[BOOT] CP MAC: %s\n", WiFi.macAddress().c_str());
+        Serial.println("[UART] CommManager ready");
+    }
+}
+
+// ============================================================
+// process()  — called from loop() on Core 1
+// Drains the ring buffer and dispatches each JSON line.
+// All LVGL/UI calls stay on Core 1 — no mutex needed for LVGL.
+// ============================================================
+void CommManager::process() {
+    // Drain all messages deposited by the ESP-NOW callback
+    while (s_qHead != s_qTail) {
+        String line(s_queue[s_qHead].data);
+        s_qHead = (s_qHead + 1) % ESPNOW_QUEUE_SIZE;
+
+        if (line.length() == 0) continue;
+
+        if (strcmp(line.c_str(), "{\"type\":\"TIME\"}") != 0) {
+            if (Serial) Serial.println("[<-WROOM] " + line);
+        }
+        dispatchJson(line);
+    }
+
+    // NON-BLOCKING: USB Serial forwarder (char-by-char so we never stall the loop)
     if (Serial) {
         while (Serial.available()) {
             char c = Serial.read();
             if (c == '\n') {
                 serialBuf.trim();
                 if (serialBuf.length() > 0) {
-                    WroomSerial.println(serialBuf);
-                    if (Serial) Serial.println("[FWD->WROOM] " + serialBuf);
+                    // Forward typed commands to WROOM via ESP-NOW
+                    esp_now_send(WROOM_MAC,
+                                 (const uint8_t*)serialBuf.c_str(),
+                                 serialBuf.length());
+                    Serial.println("[FWD->WROOM] " + serialBuf);
                 }
                 serialBuf = "";
             } else if (c != '\r') {
@@ -69,11 +128,21 @@ void CommManager::process() {
     }
 }
 
+// ============================================================
+// sendCommand()
+// ============================================================
 void CommManager::sendCommand(const String& cmd) {
-    WroomSerial.println(cmd);
+    if (cmd.length() >= ESPNOW_PAYLOAD_MAX) {
+        if (Serial) Serial.printf("[ESP-NOW] TX SKIP: too large (%d bytes)\n", cmd.length());
+        return;
+    }
+    esp_now_send(WROOM_MAC, (const uint8_t*)cmd.c_str(), cmd.length());
     if (Serial) Serial.println("[->WROOM] " + cmd);
 }
 
+// ============================================================
+// dispatchJson()
+// ============================================================
 void CommManager::dispatchJson(const String& line) {
     StaticJsonDocument<1024> doc;
     if (deserializeJson(doc, line) != DeserializationError::Ok) {
@@ -88,7 +157,9 @@ void CommManager::dispatchJson(const String& line) {
         uiUpdateClock(doc["ts"] | "");
         uiSettingsUpdateClock(doc["ts"] | "");
     } else if (strcmp(type, "PING") == 0) {
-        WroomSerial.println("{\"type\":\"PONG\"}");
+        // Reply directly to WROOM MAC
+        const char* pong = "{\"type\":\"PONG\"}";
+        esp_now_send(WROOM_MAC, (const uint8_t*)pong, strlen(pong));
         if (Serial) Serial.println("[PING] Got PING -> sent PONG");
     } else if (strcmp(type, "WIFI_STATUS") == 0) {
         bool connected = doc["connected"] | false;
