@@ -119,7 +119,7 @@ void buildSettingsDangerScreen() {
     lv_obj_set_style_radius(btn_reboot, 8, 0);
     lv_obj_add_event_cb(btn_reboot, btn_reboot_wroom_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *lbl_reboot = lv_label_create(btn_reboot);
-    lv_label_set_text(lbl_reboot, "Reboot WROOM");
+    lv_label_set_text(lbl_reboot, "Reboot System");
     UIManager::styleLabel(lbl_reboot, 0xf57c00, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
     lv_obj_center(lbl_reboot);
 }
