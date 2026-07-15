@@ -26,10 +26,8 @@ String CommManager::uartBuf = "";
 String CommManager::serialBuf = "";
 
 void CommManager::begin() {
-    Serial.println("[UART] Initializing WROOM UART...");
-    // Configuration happens in setup() via WroomSerial.begin() usually,
-    // but we can assume WroomSerial is started before CommManager::begin()
-    Serial.println("[UART] CommManager ready");
+    if (Serial) Serial.println("[UART] Initializing WROOM UART...");
+    if (Serial) Serial.println("[UART] CommManager ready");
 }
 
 void CommManager::process() {
@@ -38,7 +36,12 @@ void CommManager::process() {
         char c = WroomSerial.read();
         if (c == '\n') {
             uartBuf.trim();
-            if (uartBuf.length() > 0) dispatchJson(uartBuf);
+            if (uartBuf.length() > 0) {
+                if (Serial && strcmp(uartBuf.c_str(), "{\"type\":\"TIME\"}") != 0) {
+                    Serial.println("[UART_RX] From WROOM: " + uartBuf);
+                }
+                dispatchJson(uartBuf);
+            }
             uartBuf = "";
         } else {
             uartBuf += c;
@@ -53,7 +56,7 @@ void CommManager::process() {
                 serialBuf.trim();
                 if (serialBuf.length() > 0) {
                     WroomSerial.println(serialBuf);
-                    Serial.println("[FWD->WROOM] " + serialBuf);
+                    if (Serial) Serial.println("[FWD->WROOM] " + serialBuf);
                 }
                 serialBuf = "";
             } else if (c != '\r') {
@@ -65,20 +68,21 @@ void CommManager::process() {
 
 void CommManager::sendCommand(const String& cmd) {
     WroomSerial.println(cmd);
-    Serial.println("[->WROOM] " + cmd);
+    if (Serial) Serial.println("[->WROOM] " + cmd);
 }
 
 void CommManager::dispatchJson(const String& line) {
     StaticJsonDocument<1024> doc;
     if (deserializeJson(doc, line) != DeserializationError::Ok) {
-        return;  // Silently ignore malformed packets
+        if (Serial) Serial.println("[UART] JSON parse error on: " + line);
+        return;
     }
 
     const char *type = doc["type"];
     if (!type) return;
 
-    if (Serial && strcmp(type, "TIME") != 0) {
-        Serial.println("[<-WROOM] " + line);
+    if (strcmp(type, "TIME") != 0) {
+        if (Serial) Serial.println("[<-WROOM] " + line);
     }
 
     if (strcmp(type, "TIME") == 0) {
@@ -86,6 +90,7 @@ void CommManager::dispatchJson(const String& line) {
         uiSettingsUpdateClock(doc["ts"] | "");
     } else if (strcmp(type, "PING") == 0) {
         WroomSerial.println("{\"type\":\"PONG\"}");
+        if (Serial) Serial.println("[PING] Got PING from WROOM -> sent PONG");
     } else if (strcmp(type, "WIFI_STATUS") == 0) {
         bool connected = doc["connected"] | false;
         DataManager::setWifiConnected(connected);  // single source of truth
@@ -104,7 +109,7 @@ void CommManager::dispatchJson(const String& line) {
             autoReconnectAttempted = true;
             String savedSsid = DataManager::getWifiSsid();
             String savedPass = DataManager::getWifiPass();
-            Serial.printf("[WiFi] Auto-reconnecting to saved SSID: %s\n", savedSsid.c_str());
+            if (Serial) Serial.println("[WiFi] Auto-reconnecting to saved SSID: " + savedSsid);
             StaticJsonDocument<256> req;
             req["cmd"]  = "WIFI_CONNECT";
             req["ssid"] = savedSsid;

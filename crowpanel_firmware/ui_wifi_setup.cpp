@@ -14,6 +14,11 @@ static lv_obj_t *lbl_err        = NULL;   // footer status message
 static lv_obj_t *panel_networks = NULL;   // scrollable list of found SSIDs
 static lv_obj_t *lbl_scan_btn   = NULL;   // ref to the Scan button label
 static lv_obj_t *pill           = NULL;   // status pill object
+static lv_obj_t *lbl_hint       = NULL;   // empty state hint
+
+const int MAX_NETWORKS = 5;
+static lv_obj_t *network_rows[MAX_NETWORKS];
+static lv_obj_t *network_labels[MAX_NETWORKS];
 
 static bool wifi_is_connected = false;
 
@@ -95,10 +100,10 @@ static void network_row_cb(lv_event_t *e) {
             lv_textarea_set_text(ta_pass, "");
 
             // Highlight: reset all rows then highlight this one
-            uint32_t child_cnt = lv_obj_get_child_cnt(panel_networks);
-            for (uint32_t i = 0; i < child_cnt; i++) {
-                lv_obj_t *r = lv_obj_get_child(panel_networks, i);
-                lv_obj_set_style_bg_color(r, UIManager::rgb(i % 2 == 0 ? 0xFFFFFF : COLOR_STROKE), 0);
+            for (int i = 0; i < MAX_NETWORKS; i++) {
+                if (network_rows[i]) {
+                    lv_obj_set_style_bg_color(network_rows[i], UIManager::rgb(i % 2 == 0 ? 0xFFFFFF : COLOR_STROKE), 0);
+                }
             }
             lv_obj_set_style_bg_color(row, UIManager::rgb(COLOR_GREEN_LIGHT), 0);
         }
@@ -192,6 +197,7 @@ void uiWifiUpdateStatus(bool connected) {
 
 // ── Public: WIFI_SCAN_RESULT from CommManager ──────────────────────────────
 void uiWifiUpdateScanResult(const char *ssids) {
+    if (!panel_networks) return;  // screen not built yet — drop silently (boot-ordering guard)
     if (scan_timeout_timer) {
         lv_timer_del(scan_timeout_timer);
         scan_timeout_timer = NULL;
@@ -203,53 +209,36 @@ void uiWifiUpdateScanResult(const char *ssids) {
         return;
     }
 
-    lv_obj_clean(panel_networks);
-    lv_obj_clear_flag(panel_networks, LV_OBJ_FLAG_HIDDEN);
+    // Hide the "Tap Scan" hint
+    if (lbl_hint) lv_obj_add_flag(lbl_hint, LV_OBJ_FLAG_HIDDEN);
 
     String all = String(ssids);
     int start = 0, rowIndex = 0;
-    const int MAX_NETWORKS = 10; // Limit to prevent UI freeze with many networks
     while (true) {
         int comma = all.indexOf(',', start);
         String name = (comma < 0) ? all.substring(start) : all.substring(start, comma);
         name.trim();
         if (name.length() > 0 && rowIndex < MAX_NETWORKS) {
-            lv_obj_t *row = lv_obj_create(panel_networks);
-            lv_obj_set_size(row, lv_pct(100), 40);
-            lv_obj_set_style_bg_color(row, UIManager::rgb(rowIndex % 2 == 0 ? 0xFFFFFF : COLOR_STROKE), 0);
-            lv_obj_set_style_bg_opa(row, LV_OPA_COVER, 0);
-            lv_obj_set_style_border_width(row, 0, 0);
-            lv_obj_set_style_radius(row, 0, 0);
-            lv_obj_set_style_pad_left(row, 10, 0);
-            lv_obj_set_style_pad_right(row, 10, 0);
-            lv_obj_set_style_pad_top(row, 0, 0);
-            lv_obj_set_style_pad_bottom(row, 0, 0);
-            lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-            lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
-
-            // Wi-Fi icon
-            lv_obj_t *ico = lv_label_create(row);
-            lv_label_set_text(ico, LV_SYMBOL_WIFI);
-            UIManager::styleLabel(ico, COLOR_GREEN_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
-            lv_obj_align(ico, LV_ALIGN_LEFT_MID, 0, 0);
-
-            // SSID name
-            lv_obj_t *lbl_net = lv_label_create(row);
-            lv_label_set_text(lbl_net, name.c_str());
-            UIManager::styleLabel(lbl_net, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
-            lv_obj_align(lbl_net, LV_ALIGN_LEFT_MID, 28, 0);
-
-            // Chevron
-            lv_obj_t *chev = lv_label_create(row);
-            lv_label_set_text(chev, LV_SYMBOL_RIGHT);
-            UIManager::styleLabel(chev, 0xAAAAAA, &lv_font_montserrat_16, LV_TEXT_ALIGN_RIGHT);
-            lv_obj_align(chev, LV_ALIGN_RIGHT_MID, 0, 0);
-
-            lv_obj_add_event_cb(row, network_row_cb, LV_EVENT_CLICKED, NULL);
+            // Update the pre-allocated row instead of dynamically creating a new one
+            if (network_labels[rowIndex]) {
+                lv_label_set_text(network_labels[rowIndex], name.c_str());
+            }
+            if (network_rows[rowIndex]) {
+                lv_obj_clear_flag(network_rows[rowIndex], LV_OBJ_FLAG_HIDDEN);
+                // Reset background color in case it was previously highlighted
+                lv_obj_set_style_bg_color(network_rows[rowIndex], UIManager::rgb(rowIndex % 2 == 0 ? 0xFFFFFF : COLOR_STROKE), 0);
+            }
             rowIndex++;
         }
         if (comma < 0) break;
         start = comma + 1;
+    }
+
+    // Hide any remaining unused rows in the static pool
+    for (int i = rowIndex; i < MAX_NETWORKS; i++) {
+        if (network_rows[i]) {
+            lv_obj_add_flag(network_rows[i], LV_OBJ_FLAG_HIDDEN);
+        }
     }
 
     if (rowIndex >= MAX_NETWORKS) {
@@ -397,11 +386,48 @@ void buildWifiSetupScreen() {
     lv_obj_set_scrollbar_mode(panel_networks, LV_SCROLLBAR_MODE_AUTO);
 
     // Empty state hint
-    lv_obj_t *lbl_hint = lv_label_create(panel_networks);
+    lbl_hint = lv_label_create(panel_networks);
     lv_label_set_text(lbl_hint, "Tap \"Scan\" to discover networks");
     UIManager::styleLabel(lbl_hint, 0xAAAAAA, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
     lv_obj_set_width(lbl_hint, lv_pct(100));
     lv_obj_set_style_pad_top(lbl_hint, 30, 0);
+
+    // Pre-allocate the network rows to avoid dynamic heap fragmentation
+    for (int i = 0; i < MAX_NETWORKS; i++) {
+        network_rows[i] = lv_obj_create(panel_networks);
+        lv_obj_set_size(network_rows[i], lv_pct(100), 40);
+        lv_obj_set_style_bg_color(network_rows[i], UIManager::rgb(i % 2 == 0 ? 0xFFFFFF : COLOR_STROKE), 0);
+        lv_obj_set_style_bg_opa(network_rows[i], LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(network_rows[i], 0, 0);
+        lv_obj_set_style_radius(network_rows[i], 0, 0);
+        lv_obj_set_style_pad_left(network_rows[i], 10, 0);
+        lv_obj_set_style_pad_right(network_rows[i], 10, 0);
+        lv_obj_set_style_pad_top(network_rows[i], 0, 0);
+        lv_obj_set_style_pad_bottom(network_rows[i], 0, 0);
+        lv_obj_clear_flag(network_rows[i], LV_OBJ_FLAG_SCROLLABLE);
+        lv_obj_add_flag(network_rows[i], LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(network_rows[i], LV_OBJ_FLAG_HIDDEN); // Hidden by default
+
+        // Wi-Fi icon
+        lv_obj_t *ico = lv_label_create(network_rows[i]);
+        lv_label_set_text(ico, LV_SYMBOL_WIFI);
+        UIManager::styleLabel(ico, COLOR_GREEN_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
+        lv_obj_align(ico, LV_ALIGN_LEFT_MID, 0, 0);
+
+        // SSID name
+        network_labels[i] = lv_label_create(network_rows[i]);
+        lv_label_set_text(network_labels[i], "");
+        UIManager::styleLabel(network_labels[i], COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
+        lv_obj_align(network_labels[i], LV_ALIGN_LEFT_MID, 28, 0);
+
+        // Chevron
+        lv_obj_t *chev = lv_label_create(network_rows[i]);
+        lv_label_set_text(chev, LV_SYMBOL_RIGHT);
+        UIManager::styleLabel(chev, 0xAAAAAA, &lv_font_montserrat_16, LV_TEXT_ALIGN_RIGHT);
+        lv_obj_align(chev, LV_ALIGN_RIGHT_MID, 0, 0);
+
+        lv_obj_add_event_cb(network_rows[i], network_row_cb, LV_EVENT_CLICKED, NULL);
+    }
 
     // ════════════════════════════════════════════════════════════
     // VERTICAL DIVIDER

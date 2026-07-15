@@ -1,5 +1,7 @@
 #include "ui_result.h"
 #include "ui_manager.h"
+#include <cstring>
+#include <Arduino.h>
 
 static lv_obj_t *scr_result = NULL;
 static lv_obj_t *card_result  = NULL;
@@ -16,13 +18,19 @@ extern void uiShowIdle();
 
 void buildResultScreen() {
   if (scr_result != NULL) return;  // Already built, skip
+  Serial.println("[UI_RESULT] Building result screen...");
+  
   scr_result = lv_obj_create(NULL);
+  if (!scr_result) { Serial.println("[UI_RESULT] FATAL: scr_result is NULL (OOM)"); return; }
+  
   lv_obj_set_style_bg_color(scr_result, UIManager::rgb(COLOR_BG), 0);
   lv_obj_set_style_bg_opa(scr_result, LV_OPA_COVER, 0);
   lv_obj_set_scrollbar_mode(scr_result, LV_SCROLLBAR_MODE_OFF);
 
+  Serial.println("[UI_RESULT] Creating card_result...");
   // Employee card
   card_result = lv_obj_create(scr_result);
+  if (!card_result) { Serial.println("[UI_RESULT] FATAL: card_result is NULL (OOM)"); return; }
   lv_obj_set_size(card_result, 680, 300);
   lv_obj_align(card_result, LV_ALIGN_CENTER, 0, 0);
   lv_obj_set_style_bg_color(card_result, UIManager::rgb(COLOR_CARD), 0);
@@ -130,9 +138,14 @@ void uiShowMatch(const char *name, const char *dept, const char *action, const c
 }
 
 void uiShowNoMatch() {
+  Serial.println("[UI_RESULT] uiShowNoMatch called");
   if (scr_result == NULL) buildResultScreen();  // Lazy build on first use
+  
+  Serial.println("[UI_RESULT] Setting danger styles...");
   lv_obj_set_style_bg_color(card_result, UIManager::rgb(COLOR_DANGER), 0);
   lv_obj_set_style_border_color(card_result, UIManager::rgb(COLOR_DANGER), 0);
+  
+  Serial.println("[UI_RESULT] Setting labels...");
   lv_label_set_text(lbl_avatar, "!");
   lv_label_set_text(lbl_emp_name, "Unknown");
   lv_label_set_text(lbl_emp_dept, "Fingerprint not registered");
@@ -140,7 +153,9 @@ void uiShowNoMatch() {
   lv_label_set_text(lbl_action, "DENIED");
   lv_obj_set_style_bg_color(badge_action, UIManager::rgb(COLOR_DANGER), 0);
 
+  Serial.println("[UI_RESULT] Loading screen...");
   lv_scr_load_anim(scr_result, LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
+  Serial.println("[UI_RESULT] Screen loaded.");
 
   if (returnTimer) lv_timer_del(returnTimer);
   returnTimer = lv_timer_create([](lv_timer_t *t) {

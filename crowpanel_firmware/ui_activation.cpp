@@ -122,11 +122,9 @@ static void ta_event_cb(lv_event_t * e) {
         // Auto-advance if 4 chars typed
         if (s.length() >= 4) {
             if (ta == ta_code1) {
-                lv_event_send(ta_code2, LV_EVENT_FOCUSED, NULL);
                 lv_obj_add_state(ta_code2, LV_STATE_FOCUSED);
                 lv_obj_clear_state(ta_code1, LV_STATE_FOCUSED);
             } else if (ta == ta_code2) {
-                lv_event_send(ta_code3, LV_EVENT_FOCUSED, NULL);
                 lv_obj_add_state(ta_code3, LV_STATE_FOCUSED);
                 lv_obj_clear_state(ta_code2, LV_STATE_FOCUSED);
             } else if (ta == ta_code3) {

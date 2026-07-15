@@ -12,6 +12,7 @@
  */
 
 #include <Arduino.h>
+#include <driver/uart.h>
 #include "display_driver.h"
 #include <lvgl.h>
 
@@ -88,7 +89,7 @@ void my_touch_read(lv_indev_drv_t *indev_drv, lv_indev_data_t *data) {
 // ============================================================
 // UART to WROOM
 // ============================================================
-HardwareSerial WroomSerial(1);
+HardwareSerial WroomSerial(0);
 #define WROOM_RX 38   // IO38: UART RX from WROOM GPIO33 (TX)
 #define WROOM_TX 43   // IO43: UART TX to WROOM GPIO32 (RX)
 
@@ -98,17 +99,23 @@ HardwareSerial WroomSerial(1);
 void setup() {
   Serial.begin(115200);
   Serial.setTxTimeoutMs(0); // Prevent native USB CDC from blocking the loop if host isn't reading
+
   delay(500);
-  Serial.println("\n=== Biometrics CrowPanel Display ===");
+  
+  if (Serial && Serial.availableForWrite() > 32) {
+    Serial.println("\n=== Biometrics CrowPanel Display ===");
+  }
 
   // Init LittleFS and Data
   DataManager::begin();
 
   // PSRAM check (informational only — do not halt, we fall back to internal RAM)
   size_t psram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
-  Serial.printf("[PSRAM] Free SPIRAM: %u bytes\n", psram_free);
-  if (psram_free < 800000) {
-    Serial.println("[PSRAM] SPIRAM unavailable or low — falling back to internal RAM for LVGL buffers");
+  if (Serial && Serial.availableForWrite() > 64) {
+    Serial.printf("[PSRAM] Free SPIRAM: %u bytes\n", psram_free);
+    if (psram_free < 800000) {
+      Serial.println("[PSRAM] SPIRAM unavailable or low");
+    }
   }
 
   // Backlight reset sequence
@@ -172,8 +179,17 @@ void setup() {
 #endif
 
   // WROOM UART - MUST be initialized before UIManager::begin() because screens send commands on boot
+  // CRITICAL: Delete the IDF console's pre-installed UART0 driver first.
+  // Without this, WroomSerial.begin() silently fails to remap the GPIO matrix.
+  // This matches the proven pattern from crowpanel_test_pingpong.ino.
+  uart_driver_delete(UART_NUM_0);
   WroomSerial.setRxBufferSize(2048);
   WroomSerial.begin(115200, SERIAL_8N1, WROOM_RX, WROOM_TX);
+  
+  // Flush the RX hardware FIFO to clear any ESP32 boot ROM noise 
+  // that accumulated during startup before we start parsing JSON.
+  uart_flush_input(UART_NUM_0);
+
   CommManager::begin();
 
   // Init UI Manager (Builds screens and loads activation or idle)

@@ -28,10 +28,10 @@
 // ============================================================
 // Pin definitions
 // ============================================================
-#define PIN_FP_RX    16   // AS608 TX  -> WROOM (UART1 RX)
-#define PIN_FP_TX    17   // AS608 RX  <- WROOM (UART1 TX)
+#define PIN_FP_RX    17   // AS608 TX  -> WROOM (UART1 RX)
+#define PIN_FP_TX    16   // AS608 RX  <- WROOM (UART1 TX)
 #define PIN_FP_TOUCH 34   // AS608 T-OUT  HIGH when finger present
-#define PIN_CP_TX    33   // -> CrowPanel IO44  (UART2 TX)
+#define PIN_CP_TX    33   // -> CrowPanel IO38  (UART2 TX)
 #define PIN_CP_RX    32   // <- CrowPanel IO43  (UART2 RX)
 #define PIN_FACTORY_RESET 14 // Factory Reset hardware button (active low)
 #define MAX_SLOTS    127
@@ -340,16 +340,17 @@ void handleCmd(String cmd) {
       sendDoc(resp);
 
     } else if (strcmp(action, "WIFI_CONNECT") == 0) {
-      const char *ssid = jcmd["ssid"] | "";
-      const char *pass = jcmd["pass"] | "";
-      Serial.printf("[WIFI] Connecting to SSID: '%s' (len %d), PASS: '%s' (len %d)\n", ssid, strlen(ssid), pass, strlen(pass));
+      String ssidStr = jcmd["ssid"].as<String>();
+      String passStr = jcmd["pass"].as<String>();
+      Serial.printf("[WIFI] Connecting to SSID: '%s' (len %d), PASS: '%s' (len %d)\n", 
+                    ssidStr.c_str(), ssidStr.length(), passStr.c_str(), passStr.length());
 
       // Robust connection sequence for ESP32
-      WiFi.disconnect(false, true); // Keep radio on, but ERASE saved AP credentials (clears BSSID lock)
-      delay(500);            
+      WiFi.disconnect(true); // Completely reset Wi-Fi state
+      delay(100);
       WiFi.mode(WIFI_STA);
       delay(100);
-      WiFi.begin(ssid, pass);
+      WiFi.begin(ssidStr.c_str(), passStr.c_str());
 
       unsigned long t = millis();
       bool connected = false;
@@ -366,9 +367,11 @@ void handleCmd(String cmd) {
         // If router aggressively rejects us (e.g. WPA3 transition or Fast Roaming), re-attempt immediately
         if (status == WL_CONNECT_FAILED || status == WL_NO_SSID_AVAIL) {
             Serial.println("[WIFI] Re-attempting begin()...");
-            WiFi.disconnect(false, true);
+            WiFi.disconnect(true);
             delay(100);
-            WiFi.begin(ssid, pass);
+            WiFi.mode(WIFI_STA);
+            delay(100);
+            WiFi.begin(ssidStr.c_str(), passStr.c_str());
             lastStatus = -1; // force status print again
         }
         
@@ -528,8 +531,8 @@ void loop() {
     sendQuiet("{\"type\":\"TIME\",\"ts\":\"" + getTimestamp() + "\"}");
   }
 
-  // PING CrowPanel every 30 seconds to verify bidirectional UART comms
-  if (millis() - lastPingMs >= 30000) {
+  // PING CrowPanel every 3 seconds to verify bidirectional UART comms
+  if (millis() - lastPingMs >= 3000) {
     lastPingMs = millis();
     pingCount++;
     pongReceived = false;
@@ -548,7 +551,10 @@ void loop() {
     char c = cpSerial.read();
     if (c == '\n') {
       cpBuf.trim();
-      if (cpBuf.length() > 0) handleCmd(cpBuf);
+      if (cpBuf.length() > 0) {
+        Serial.println("[UART_RX] From CP: " + cpBuf);
+        handleCmd(cpBuf);
+      }
       cpBuf = "";
     } else {
       cpBuf += c;

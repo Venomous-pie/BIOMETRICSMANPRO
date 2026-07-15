@@ -15,7 +15,7 @@ bool   DataManager::_wifiConnected = false;
 
 void DataManager::begin() {
     if (!LittleFS.begin(true)) {
-        Serial.println("[FS] LittleFS Mount Failed. Formatting...");
+        // Serial.println("[FS] LittleFS Mount Failed. Formatting...");
         return;
     }
     
@@ -33,7 +33,7 @@ void DataManager::begin() {
 
 void DataManager::createInitialFilesIfMissing() {
     if (!LittleFS.exists("/employees.json")) {
-        Serial.println("[FS] Creating initial employees.json...");
+        // Serial.println("[FS] Creating initial employees.json...");
         File f = LittleFS.open("/employees.json", "w");
         if (f) {
             f.print(R"([
@@ -48,7 +48,7 @@ void DataManager::createInitialFilesIfMissing() {
     }
     
     if (!LittleFS.exists("/config.json")) {
-        Serial.println("[FS] Creating initial config.json...");
+        // Serial.println("[FS] Creating initial config.json...");
         File f = LittleFS.open("/config.json", "w");
         if (f) {
             f.print("{\"wifiConfigured\":false,\"activated\":false}");
@@ -96,9 +96,9 @@ void DataManager::loadEmployees() {
             empDB[empCount].dept = e["dept"].as<String>();
             empCount++;
         }
-        Serial.printf("[DB] %d employees loaded from LittleFS\n", empCount);
+        // Serial.printf("[DB] %d employees loaded from LittleFS\n", empCount);
     } else {
-        Serial.println("[DB] ERROR: JSON parse failed for employees");
+        // Serial.println("[DB] ERROR: JSON parse failed for employees");
     }
     f.close();
 }
@@ -123,7 +123,7 @@ void DataManager::loadWifiCredentials() {
         _wifiPass = doc["pass"] | "";
     }
     f.close();
-    Serial.printf("[WiFi] Loaded saved credentials for SSID: %s\n", _wifiSsid.c_str());
+    // Serial.printf("[WiFi] Loaded saved credentials for SSID: %s\n", _wifiSsid.c_str());
 }
 
 void DataManager::saveWifiCredentialsToFs() {
@@ -140,7 +140,7 @@ void DataManager::saveWifiCredentials(const String& ssid, const String& pass) {
     _wifiSsid = ssid;
     _wifiPass = pass;
     saveWifiCredentialsToFs();
-    Serial.printf("[WiFi] Credentials saved for SSID: %s\n", ssid.c_str());
+    // Serial.printf("[WiFi] Credentials saved for SSID: %s\n", ssid.c_str());
 }
 
 void DataManager::clearWifiCredentials() {
@@ -149,7 +149,7 @@ void DataManager::clearWifiCredentials() {
     if (LittleFS.exists("/wifi_creds.json")) {
         LittleFS.remove("/wifi_creds.json");
     }
-    Serial.println("[WiFi] Saved credentials cleared (user switched network)");
+    // Serial.println("[WiFi] Saved credentials cleared (user switched network)");
 }
 
 String DataManager::getWifiSsid() { return _wifiSsid; }
@@ -209,7 +209,7 @@ void DataManager::factoryReset() {
     _activationCode   = "";
     saveConfig();
     clearWifiCredentials();
-    Serial.println("[FS] Factory reset: config and WiFi credentials cleared.");
+    // Serial.println("[FS] Factory reset: config and WiFi credentials cleared.");
 }
 
 String DataManager::getActivationCode() {
