@@ -14,6 +14,13 @@ static lv_obj_t *emp_list_obj = NULL;
 static lv_obj_t *ta_search = NULL;
 static lv_obj_t *kb_search = NULL;
 
+lv_obj_t *scr_choose_finger = NULL;
+static int selected_emp_id = 0;
+static int selected_finger_index = -1;
+static lv_obj_t *btn_start_scan = NULL;
+static lv_obj_t *lbl_choose_info = NULL;
+static lv_obj_t *finger_objs[10];
+
 extern void uiShowIdle();
 extern lv_timer_t *returnTimer;
 extern const lv_img_dsc_t icon_people;
@@ -25,9 +32,17 @@ static void btn_back_cb(lv_event_t * e) {
 
 static void btn_emp_click_cb(lv_event_t * e) {
   int id = (int)(intptr_t)lv_event_get_user_data(e);
-  char buf[32];
-  snprintf(buf, sizeof(buf), "ENROLL:%d", id);
-  CommManager::sendCommand(String(buf));
+  const Employee* db = DataManager::getEmployees();
+  int count = DataManager::getEmployeeCount();
+  String name = "", dept = "";
+  for (int i=0; i<count; i++) {
+    if (db[i].id == id) {
+      name = db[i].name;
+      dept = db[i].dept;
+      break;
+    }
+  }
+  uiShowChooseFinger(id, name.c_str(), dept.c_str());
 }
 
 static void populate_emp_list(const char* name_filter, const char* dept_filter) {
@@ -48,7 +63,7 @@ static void populate_emp_list(const char* name_filter, const char* dept_filter) 
     if (nFilt.length() > 0 && nStr.indexOf(nFilt) == -1) continue;
     if (dFilt.length() > 0 && dStr.indexOf(dFilt) == -1) continue;
 
-    bool enrolled = (db[i].id > 0); // AS608 slots are 1-based; id > 0 means enrolled
+    bool enrolled = db[i].fp_enrolled;
 
     // Row container
     lv_obj_t *row = lv_obj_create(emp_list_obj);
@@ -63,39 +78,43 @@ static void populate_emp_list(const char* name_filter, const char* dept_filter) 
     lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(row, btn_emp_click_cb, LV_EVENT_CLICKED, (void*)(intptr_t)db[i].id);
 
-    // EMP ID
-    char emp_id_buf[16];
-    snprintf(emp_id_buf, sizeof(emp_id_buf), "EMP-%04d", db[i].id);
-    lv_obj_t *lbl_id = lv_label_create(row);
-    lv_label_set_text(lbl_id, emp_id_buf);
-    UIManager::styleLabel(lbl_id, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
-    lv_obj_align(lbl_id, LV_ALIGN_LEFT_MID, 20, 0);
-
     // Name
     lv_obj_t *lbl_name = lv_label_create(row);
     lv_label_set_text(lbl_name, db[i].name.c_str());
     UIManager::styleLabel(lbl_name, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
-    lv_obj_align(lbl_name, LV_ALIGN_LEFT_MID, 180, 0);
+    lv_obj_align(lbl_name, LV_ALIGN_LEFT_MID, 20, 0);
+
+    // Job Title
+    lv_obj_t *lbl_job = lv_label_create(row);
+    lv_label_set_text(lbl_job, db[i].job_title.c_str());
+    UIManager::styleLabel(lbl_job, 0x666666, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
+    lv_obj_align(lbl_job, LV_ALIGN_LEFT_MID, 200, 0);
+
+    // Branch
+    lv_obj_t *lbl_branch = lv_label_create(row);
+    lv_label_set_text(lbl_branch, db[i].branch.c_str());
+    UIManager::styleLabel(lbl_branch, 0x666666, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
+    lv_obj_align(lbl_branch, LV_ALIGN_LEFT_MID, 380, 0);
+
+    // Dept
+    lv_obj_t *lbl_dept = lv_label_create(row);
+    lv_label_set_text(lbl_dept, db[i].dept.c_str());
+    UIManager::styleLabel(lbl_dept, 0x666666, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
+    lv_obj_align(lbl_dept, LV_ALIGN_LEFT_MID, 520, 0);
 
     // Status badge
     lv_obj_t *badge = lv_obj_create(row);
-    lv_obj_set_size(badge, 110, 30);
-    lv_obj_align(badge, LV_ALIGN_RIGHT_MID, -40, 0);
+    lv_obj_set_size(badge, 100, 30);
+    lv_obj_align(badge, LV_ALIGN_RIGHT_MID, -20, 0);
     lv_obj_set_style_radius(badge, 6, 0);
     lv_obj_set_style_border_width(badge, 0, 0);
     lv_obj_clear_flag(badge, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_set_style_bg_color(badge, UIManager::rgb(enrolled ? 0xD4EDDA : 0xF8D7DA), 0);
+    lv_obj_set_style_bg_color(badge, UIManager::rgb(enrolled ? 0xD4EDDA : 0xE0E0E0), 0);
 
     lv_obj_t *lbl_status = lv_label_create(badge);
-    lv_label_set_text(lbl_status, enrolled ? "Enrolled" : "Not Enrolled");
-    UIManager::styleLabel(lbl_status, enrolled ? 0x155724 : 0x721C24, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
+    lv_label_set_text(lbl_status, enrolled ? "Enrolled" : "Unenrolled");
+    UIManager::styleLabel(lbl_status, enrolled ? 0x155724 : 0x666666, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
     lv_obj_center(lbl_status);
-
-    // Chevron >
-    lv_obj_t *lbl_chevron = lv_label_create(row);
-    lv_label_set_text(lbl_chevron, ">");
-    UIManager::styleLabel(lbl_chevron, 0x888888, &lv_font_montserrat_16, LV_TEXT_ALIGN_RIGHT);
-    lv_obj_align(lbl_chevron, LV_ALIGN_RIGHT_MID, -10, 0);
   }
 }
 
@@ -143,28 +162,11 @@ void buildEmpListScreen() {
   UIManager::styleLabel(lbl_back, 0xFFFFFF, &lv_font_montserrat_20, LV_TEXT_ALIGN_CENTER);
   lv_obj_center(lbl_back);
 
-  // Center: people icon + "Employees" title
-  lv_obj_t *hdr_icon = lv_img_create(scr_emp_list);
-  lv_img_set_src(hdr_icon, &icon_people_small);
-  lv_obj_set_style_img_recolor(hdr_icon, UIManager::rgb(COLOR_GREEN_MAIN), 0);
-  lv_obj_set_style_img_recolor_opa(hdr_icon, LV_OPA_COVER, 0);
-  lv_obj_align(hdr_icon, LV_ALIGN_TOP_MID, -80, 18);
-
+  // Center: "Employees" title
   lv_obj_t *lbl_title = lv_label_create(scr_emp_list);
   lv_label_set_text(lbl_title, "Employees");
-  UIManager::styleLabel(lbl_title, COLOR_TEXT_MAIN, &lv_font_montserrat_28, LV_TEXT_ALIGN_LEFT);
-  lv_obj_align(lbl_title, LV_ALIGN_TOP_MID, -30, 18);
-
-  // Add employee button (green, right)
-  lv_obj_t *btn_add = lv_btn_create(scr_emp_list);
-  lv_obj_set_size(btn_add, 170, 44);
-  lv_obj_align(btn_add, LV_ALIGN_TOP_RIGHT, -20, 18);
-  lv_obj_set_style_bg_color(btn_add, UIManager::rgb(COLOR_GREEN_MAIN), 0);
-  lv_obj_set_style_radius(btn_add, 10, 0);
-  lv_obj_t *lbl_add = lv_label_create(btn_add);
-  lv_label_set_text(lbl_add, "Add employee +");
-  UIManager::styleLabel(lbl_add, 0xFFFFFF, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
-  lv_obj_center(lbl_add);
+  UIManager::styleLabel(lbl_title, COLOR_TEXT_MAIN, &lv_font_montserrat_28, LV_TEXT_ALIGN_CENTER);
+  lv_obj_align(lbl_title, LV_ALIGN_TOP_MID, 0, 18);
 
   // Horizontal separator
   lv_obj_t *sep = lv_obj_create(scr_emp_list);
@@ -203,20 +205,30 @@ void buildEmpListScreen() {
   lv_obj_set_style_pad_all(col_hdr, 0, 0);
   lv_obj_clear_flag(col_hdr, LV_OBJ_FLAG_SCROLLABLE);
 
-  lv_obj_t *ch_id = lv_label_create(col_hdr);
-  lv_label_set_text(ch_id, "ID");
-  UIManager::styleLabel(ch_id, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
-  lv_obj_align(ch_id, LV_ALIGN_LEFT_MID, 20, 0);
-
   lv_obj_t *ch_name = lv_label_create(col_hdr);
   lv_label_set_text(ch_name, "Name");
   UIManager::styleLabel(ch_name, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
-  lv_obj_align(ch_name, LV_ALIGN_LEFT_MID, 180, 0);
+  lv_obj_align(ch_name, LV_ALIGN_LEFT_MID, 20, 0);
+
+  lv_obj_t *ch_job = lv_label_create(col_hdr);
+  lv_label_set_text(ch_job, "Job Title");
+  UIManager::styleLabel(ch_job, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
+  lv_obj_align(ch_job, LV_ALIGN_LEFT_MID, 200, 0);
+
+  lv_obj_t *ch_branch = lv_label_create(col_hdr);
+  lv_label_set_text(ch_branch, "Branch");
+  UIManager::styleLabel(ch_branch, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
+  lv_obj_align(ch_branch, LV_ALIGN_LEFT_MID, 380, 0);
+
+  lv_obj_t *ch_dept = lv_label_create(col_hdr);
+  lv_label_set_text(ch_dept, "Department");
+  UIManager::styleLabel(ch_dept, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
+  lv_obj_align(ch_dept, LV_ALIGN_LEFT_MID, 520, 0);
 
   lv_obj_t *ch_status = lv_label_create(col_hdr);
   lv_label_set_text(ch_status, "Status");
   UIManager::styleLabel(ch_status, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_RIGHT);
-  lv_obj_align(ch_status, LV_ALIGN_RIGHT_MID, -50, 0);
+  lv_obj_align(ch_status, LV_ALIGN_RIGHT_MID, -30, 0);
 
   // ── Employee List Container ──
   emp_list_obj = lv_obj_create(scr_emp_list);
@@ -320,4 +332,152 @@ void uiShowEnrollResult(bool ok, const char *name) {
     returnTimer = NULL;
   }, 3000, NULL);
   lv_timer_set_repeat_count(returnTimer, 1);
+}
+
+static void choose_back_cb(lv_event_t * e) {
+  lv_scr_load_anim(scr_emp_list, LV_SCR_LOAD_ANIM_MOVE_RIGHT, 300, 0, false);
+}
+
+static void finger_click_cb(lv_event_t * e) {
+  int f_idx = (int)(intptr_t)lv_event_get_user_data(e);
+  selected_finger_index = f_idx;
+  
+  for (int i=0; i<10; i++) {
+    lv_obj_set_style_bg_color(finger_objs[i], UIManager::rgb(0xE8F5E9), 0); // Light green
+  }
+  lv_obj_set_style_bg_color(finger_objs[f_idx], UIManager::rgb(0x2E7D32), 0); // Dark green
+  
+  if (btn_start_scan) {
+    lv_obj_clear_state(btn_start_scan, LV_STATE_DISABLED);
+    lv_obj_set_style_bg_color(btn_start_scan, UIManager::rgb(0x2E7D32), 0);
+  }
+}
+
+static void start_scan_cb(lv_event_t * e) {
+  if (selected_finger_index < 0 || selected_emp_id <= 0) return;
+  char buf[32];
+  snprintf(buf, sizeof(buf), "ENROLL:%d:%d", selected_emp_id, selected_finger_index);
+  CommManager::sendCommand(String(buf));
+  
+  String n = "";
+  const Employee* db = DataManager::getEmployees();
+  int count = DataManager::getEmployeeCount();
+  for (int i=0; i<count; i++) {
+    if (db[i].id == selected_emp_id) { n = db[i].name; break; }
+  }
+  uiShowEnrollStart(n.c_str());
+}
+
+void buildChooseFingerScreen() {
+  if (scr_choose_finger != NULL) return;
+  scr_choose_finger = lv_obj_create(NULL);
+  lv_obj_set_style_bg_color(scr_choose_finger, UIManager::rgb(0xFFFFFF), 0);
+  
+  // Header
+  lv_obj_t *btn_back = lv_btn_create(scr_choose_finger);
+  lv_obj_set_size(btn_back, 56, 44);
+  lv_obj_align(btn_back, LV_ALIGN_TOP_LEFT, 20, 18);
+  lv_obj_set_style_bg_color(btn_back, UIManager::rgb(COLOR_GREEN_MAIN), 0);
+  lv_obj_set_style_radius(btn_back, 10, 0);
+  lv_obj_add_event_cb(btn_back, choose_back_cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_t *lbl_back = lv_label_create(btn_back);
+  lv_label_set_text(lbl_back, LV_SYMBOL_LEFT);
+  UIManager::styleLabel(lbl_back, 0xFFFFFF, &lv_font_montserrat_20, LV_TEXT_ALIGN_CENTER);
+  lv_obj_center(lbl_back);
+
+  lv_obj_t *lbl_title = lv_label_create(scr_choose_finger);
+  lv_label_set_text(lbl_title, "Enroll fingerprint");
+  UIManager::styleLabel(lbl_title, COLOR_TEXT_MAIN, &lv_font_montserrat_28, LV_TEXT_ALIGN_CENTER);
+  lv_obj_align(lbl_title, LV_ALIGN_TOP_MID, 0, 15);
+  
+  lv_obj_t *lbl_subtitle = lv_label_create(scr_choose_finger);
+  lv_label_set_text(lbl_subtitle, "Select finger");
+  UIManager::styleLabel(lbl_subtitle, 0x666666, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
+  lv_obj_align(lbl_subtitle, LV_ALIGN_TOP_MID, 0, 50);
+
+  btn_start_scan = lv_btn_create(scr_choose_finger);
+  lv_obj_set_size(btn_start_scan, 170, 44);
+  lv_obj_align(btn_start_scan, LV_ALIGN_TOP_RIGHT, -20, 18);
+  lv_obj_set_style_bg_color(btn_start_scan, UIManager::rgb(0xCCCCCC), LV_STATE_DISABLED);
+  lv_obj_set_style_radius(btn_start_scan, 10, 0);
+  lv_obj_add_state(btn_start_scan, LV_STATE_DISABLED);
+  lv_obj_add_event_cb(btn_start_scan, start_scan_cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_t *lbl_start = lv_label_create(btn_start_scan);
+  lv_label_set_text(lbl_start, "Start scan ->");
+  UIManager::styleLabel(lbl_start, 0xFFFFFF, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
+  lv_obj_center(lbl_start);
+
+  lbl_choose_info = lv_label_create(scr_choose_finger);
+  lv_label_set_text(lbl_choose_info, "");
+  UIManager::styleLabel(lbl_choose_info, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
+  lv_obj_align(lbl_choose_info, LV_ALIGN_TOP_LEFT, 20, 90);
+
+  // Draw Hands
+  lv_obj_t *left_palm = lv_obj_create(scr_choose_finger);
+  lv_obj_set_size(left_palm, 180, 150);
+  lv_obj_align(left_palm, LV_ALIGN_BOTTOM_LEFT, 120, -30);
+  lv_obj_set_style_bg_color(left_palm, UIManager::rgb(0xE8F5E9), 0);
+  lv_obj_set_style_radius(left_palm, 20, 0);
+  lv_obj_clear_flag(left_palm, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_t *lbl_lp = lv_label_create(left_palm);
+  lv_label_set_text(lbl_lp, "Left hand");
+  UIManager::styleLabel(lbl_lp, 0x2E7D32, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
+  lv_obj_center(lbl_lp);
+
+  lv_obj_t *right_palm = lv_obj_create(scr_choose_finger);
+  lv_obj_set_size(right_palm, 180, 150);
+  lv_obj_align(right_palm, LV_ALIGN_BOTTOM_RIGHT, -120, -30);
+  lv_obj_set_style_bg_color(right_palm, UIManager::rgb(0xE8F5E9), 0);
+  lv_obj_set_style_radius(right_palm, 20, 0);
+  lv_obj_clear_flag(right_palm, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_t *lbl_rp = lv_label_create(right_palm);
+  lv_label_set_text(lbl_rp, "Right hand");
+  UIManager::styleLabel(lbl_rp, 0x2E7D32, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
+  lv_obj_center(lbl_rp);
+
+  // Draw Fingers (approx layout for LVGL)
+  // Left Hand: 0=LP, 1=LR, 2=LM, 3=LI, 4=LT
+  int lx[5] = {120, 160, 200, 240, 310};
+  int ly[5] = {230, 180, 160, 190, 310};
+  int lh[5] = {120, 170, 190, 160, 100};
+  const char* l_labels[5] = {"LP", "LR", "LM", "LI", "LT"};
+
+  // Right Hand: 5=RT, 6=RI, 7=RM, 8=RR, 9=RP
+  int rx[5] = {450, 520, 560, 600, 640};
+  int ry[5] = {310, 190, 160, 180, 230};
+  int rh[5] = {100, 160, 190, 170, 120};
+  const char* r_labels[5] = {"RT", "RI", "RM", "RR", "RP"};
+
+  for(int i=0; i<10; i++) {
+    finger_objs[i] = lv_obj_create(scr_choose_finger);
+    lv_obj_set_size(finger_objs[i], 36, i<5 ? lh[i] : rh[i-5]);
+    lv_obj_align(finger_objs[i], LV_ALIGN_TOP_LEFT, i<5 ? lx[i] : rx[i-5], i<5 ? ly[i] : ry[i-5]);
+    lv_obj_set_style_bg_color(finger_objs[i], UIManager::rgb(0xE8F5E9), 0);
+    lv_obj_set_style_radius(finger_objs[i], 18, 0);
+    lv_obj_clear_flag(finger_objs[i], LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_event_cb(finger_objs[i], finger_click_cb, LV_EVENT_CLICKED, (void*)(intptr_t)i);
+    
+    lv_obj_t *l = lv_label_create(finger_objs[i]);
+    lv_label_set_text(l, i<5 ? l_labels[i] : r_labels[i-5]);
+    UIManager::styleLabel(l, 0x2E7D32, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
+    lv_obj_align(l, LV_ALIGN_TOP_MID, 0, 10);
+  }
+}
+
+void uiShowChooseFinger(int emp_id, const char *name, const char *dept) {
+  if (scr_choose_finger == NULL) buildChooseFingerScreen();
+  selected_emp_id = emp_id;
+  selected_finger_index = -1;
+  
+  char buf[128];
+  snprintf(buf, sizeof(buf), "Enrolling %s from %s - pick a finger", name ? name : "Unknown", dept ? dept : "Unknown");
+  lv_label_set_text(lbl_choose_info, buf);
+  
+  for (int i=0; i<10; i++) {
+    lv_obj_set_style_bg_color(finger_objs[i], UIManager::rgb(0xE8F5E9), 0);
+  }
+  lv_obj_add_state(btn_start_scan, LV_STATE_DISABLED);
+  lv_obj_set_style_bg_color(btn_start_scan, UIManager::rgb(0xCCCCCC), LV_STATE_DISABLED);
+  
+  lv_scr_load_anim(scr_choose_finger, LV_SCR_LOAD_ANIM_MOVE_LEFT, 300, 0, false);
 }

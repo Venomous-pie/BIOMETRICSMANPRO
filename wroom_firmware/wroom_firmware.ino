@@ -70,15 +70,15 @@ RTC_DS3231 rtc;
 // Edit this JSON and re-flash to add/change employees.
 // ============================================================
 const char EMPLOYEES_JSON[] = R"([
-  {"id":1,"name":"Claire Jem Dedicatoria","dept":"Admin"},
-  {"id":2,"name":"Alice Santos","dept":"HR"},
-  {"id":3,"name":"Bob Cruz","dept":"IT"},
-  {"id":4,"name":"Carol Reyes","dept":"Finance"},
-  {"id":5,"name":"Dave Lim","dept":"Security"},
-  {"id":6,"name":"Eve Tan","dept":"Admin"}
+  {"id":1,"name":"Admin","dept":"Admin","job_title":"System Admin","branch":"Main","fp_enrolled":false},
+  {"id":2,"name":"Alice Santos","dept":"HR","job_title":"HR Manager","branch":"Main","fp_enrolled":false},
+  {"id":3,"name":"Bob Cruz","dept":"IT","job_title":"Developer","branch":"Main","fp_enrolled":false},
+  {"id":4,"name":"Carol Reyes","dept":"Finance","job_title":"Accountant","branch":"Main","fp_enrolled":false},
+  {"id":5,"name":"Dave Lim","dept":"Security","job_title":"Guard","branch":"Main","fp_enrolled":false},
+  {"id":6,"name":"Eve Tan","dept":"Admin","job_title":"Clerk","branch":"Main","fp_enrolled":false}
 ])";
 
-struct Employee { int id; String name; String dept; };
+struct Employee { int id; String name; String dept; String job_title; String branch; bool fp_enrolled; };
 const int MAX_EMP = 10;
 Employee  empDB[MAX_EMP];
 int       empCount = 0;
@@ -116,9 +116,10 @@ uint32_t pongCount = 0;
 // Helpers
 // ============================================================
 
-bool lookupEmployee(int id, String &name, String &dept) {
+bool lookupEmployee(int slot, String &name, String &dept) {
+  int emp_id = ((slot - 1) / 10) + 1;
   for (int i = 0; i < empCount; i++) {
-    if (empDB[i].id == id) {
+    if (empDB[i].id == emp_id) {
       name = empDB[i].name;
       dept = empDB[i].dept;
       return true;
@@ -497,7 +498,17 @@ void handleCmd(String cmd) {
     delay(200);
     ESP.restart();
   } else if (cmd.startsWith("ENROLL:")) {
-    int slot = cmd.substring(7).toInt();
+    int colonIdx = cmd.indexOf(':', 7);
+    int slot = 0;
+    
+    if (colonIdx != -1) {
+      int emp_id = cmd.substring(7, colonIdx).toInt();
+      int finger_index = cmd.substring(colonIdx + 1).toInt();
+      slot = ((emp_id - 1) * 10) + finger_index + 1;
+    } else {
+      slot = cmd.substring(7).toInt(); // Fallback for old format
+    }
+
     if (slot < 1 || slot > MAX_SLOTS) {
       Serial.println("Slot must be 1-127");
       return;
@@ -525,7 +536,17 @@ void handleCmd(String cmd) {
     Serial.println(ok ? "[ENROLL] Success!" : "[ENROLL] Failed.");
 
   } else if (cmd.startsWith("DELETE:")) {
-    int  slot = cmd.substring(7).toInt();
+    int colonIdx = cmd.indexOf(':', 7);
+    int slot = 0;
+    
+    if (colonIdx != -1) {
+      int emp_id = cmd.substring(7, colonIdx).toInt();
+      int finger_index = cmd.substring(colonIdx + 1).toInt();
+      slot = ((emp_id - 1) * 10) + finger_index + 1;
+    } else {
+      slot = cmd.substring(7).toInt(); // Fallback for old format
+    }
+
     bool ok   = (finger.deleteModel(slot) == FINGERPRINT_OK);
     StaticJsonDocument<64> doc;
     doc["type"] = ok ? "DELETE_OK" : "DELETE_FAIL";
@@ -665,9 +686,12 @@ void setup() {
   if (!deserializeJson(empDoc, EMPLOYEES_JSON)) {
     for (JsonObject e : empDoc.as<JsonArray>()) {
       if (empCount >= MAX_EMP) break;
-      empDB[empCount].id   = e["id"].as<int>();
-      empDB[empCount].name = e["name"].as<String>();
-      empDB[empCount].dept = e["dept"].as<String>();
+      empDB[empCount].id          = e["id"].as<int>();
+      empDB[empCount].name        = e["name"].as<String>();
+      empDB[empCount].dept        = e["dept"].as<String>();
+      empDB[empCount].job_title   = e.containsKey("job_title") ? e["job_title"].as<String>() : "";
+      empDB[empCount].branch      = e.containsKey("branch") ? e["branch"].as<String>() : "";
+      empDB[empCount].fp_enrolled = e.containsKey("fp_enrolled") ? e["fp_enrolled"].as<bool>() : false;
       empCount++;
     }
     Serial.printf("[DB] %d employees loaded\n", empCount);

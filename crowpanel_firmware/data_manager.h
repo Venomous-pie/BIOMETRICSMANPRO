@@ -8,6 +8,9 @@ struct Employee {
     int id;
     String name;
     String dept;
+    String job_title;
+    String branch;
+    bool fp_enrolled;
 };
 
 class DataManager {
