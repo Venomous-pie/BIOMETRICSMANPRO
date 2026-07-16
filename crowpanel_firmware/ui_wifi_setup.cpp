@@ -15,6 +15,8 @@ static lv_obj_t *panel_networks = NULL;   // scrollable list of found SSIDs
 static lv_obj_t *lbl_scan_btn   = NULL;   // ref to the Scan button label
 static lv_obj_t *pill           = NULL;   // status pill object
 static lv_obj_t *lbl_hint       = NULL;   // empty state hint
+static lv_obj_t *lbl_step       = NULL;   // "Step 1 of 3"
+static lv_obj_t *lbl_cont       = NULL;   // continue button label
 
 const int MAX_NETWORKS = 5;
 static lv_obj_t *network_rows[MAX_NETWORKS];
@@ -161,6 +163,14 @@ static void btn_connect_cb(lv_event_t *e) {
 
 // ── Continue button ────────────────────────────────────────────────────────
 static void btn_continue_cb(lv_event_t *e) {
+    // If the device is already activated, this button is just "Back to Settings".
+    // We should allow them to back out even if they didn't connect to anything.
+    if (DataManager::isActivated()) {
+        UIManager::showSettings();
+        return;
+    }
+
+    // Otherwise, this is the initial setup flow where connection is mandatory.
     if (wifi_is_connected) {
         DataManager::setWifiConfigured(true);
         uiShowActivation();
@@ -263,7 +273,7 @@ void buildWifiSetupScreen() {
     UIManager::buildHeader(scr_wifi, LV_SYMBOL_WIFI " WiFi Setup", NULL, NULL, false);
 
     // Step label placed directly on scr_wifi so it is never clipped by the header bounds
-    lv_obj_t *lbl_step = lv_label_create(scr_wifi);
+    lbl_step = lv_label_create(scr_wifi);
     lv_label_set_text(lbl_step, ". . . Step 1 of 3");
     UIManager::styleLabel(lbl_step, 0x666666, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
     lv_obj_align(lbl_step, LV_ALIGN_TOP_MID, 0, 50);
@@ -320,8 +330,13 @@ void buildWifiSetupScreen() {
     lv_obj_set_style_bg_color(btn_continue, UIManager::rgb(COLOR_GREEN_MAIN), 0);
     lv_obj_set_style_radius(btn_continue, 8, 0);
     lv_obj_set_style_shadow_width(btn_continue, 0, 0);
-    lv_obj_t *lbl_cont = lv_label_create(btn_continue);
-    lv_label_set_text(lbl_cont, "Continue to Registration " LV_SYMBOL_RIGHT);
+    lbl_cont = lv_label_create(btn_continue);
+    // Label is context-aware: changes depending on whether device is already activated
+    if (DataManager::isActivated()) {
+        lv_label_set_text(lbl_cont, LV_SYMBOL_LEFT "  Back to Settings");
+    } else {
+        lv_label_set_text(lbl_cont, "Continue to Registration " LV_SYMBOL_RIGHT);
+    }
     UIManager::styleLabel(lbl_cont, 0xFFFFFF, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
     lv_obj_center(lbl_cont);
     lv_obj_add_event_cb(btn_continue, btn_continue_cb, LV_EVENT_CLICKED, NULL);
@@ -551,5 +566,23 @@ void buildWifiSetupScreen() {
 }
 
 void uiShowWifiSetup() {
+    if (lbl_step) {
+        if (DataManager::isActivated()) {
+            lv_obj_add_flag(lbl_step, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_clear_flag(lbl_step, LV_OBJ_FLAG_HIDDEN);
+        }
+    }
+    if (lbl_cont) {
+        if (DataManager::isActivated()) {
+            lv_label_set_text(lbl_cont, LV_SYMBOL_LEFT "  Back to Settings");
+        } else {
+            lv_label_set_text(lbl_cont, "Continue to Registration " LV_SYMBOL_RIGHT);
+        }
+    }
+    
+    // Check if we came from settings and it's not connected. 
+    // We already allow going back in btn_continue_cb by checking DataManager::isActivated().
+    
     lv_scr_load(scr_wifi);
 }

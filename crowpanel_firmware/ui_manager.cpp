@@ -172,9 +172,6 @@ void UIManager::showWifiSetup() {
 extern lv_obj_t *scr_settings;
 
 void UIManager::showSettings() {
-    if (scr_settings == NULL) {
-        buildSettingsScreen();
-    }
     uiShowSettings();
 }
 

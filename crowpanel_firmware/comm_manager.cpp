@@ -21,6 +21,7 @@ extern void uiFactoryResetComplete();
 extern void uiSettingsUpdateClock(const char* ts);
 extern void uiSettingsUpdateWifiScan(const char* ssids);
 extern void uiSettingsUpdateWifiStatus(bool connected);
+extern void uiSettingsUpdateNtpStatus(bool ok, const char* ts, const char* err);
 
 // ============================================================
 // ESP-NOW ring buffer
@@ -34,6 +35,12 @@ struct EspNowMsg { char data[ESPNOW_PAYLOAD_MAX]; };
 static EspNowMsg  s_queue[ESPNOW_QUEUE_SIZE];
 static volatile uint8_t s_qHead = 0;
 static volatile uint8_t s_qTail = 0;
+
+// Auto-recovery state
+static volatile unsigned long s_lastRecvMs = 0;
+static bool s_scanningChannels = false;
+static unsigned long s_lastScanMs = 0;
+static uint8_t s_currentChannel = ESPNOW_CHANNEL;
 
 // Static member definitions
 String CommManager::serialBuf = "";
@@ -51,6 +58,7 @@ void CommManager::onEspNowRecv(const esp_now_recv_info_t* recv_info,
     memcpy(s_queue[s_qTail].data, data, len);
     s_queue[s_qTail].data[len] = '\0';
     s_qTail = next;             // publish to consumer
+    s_lastRecvMs = millis();    // heartbeat for auto-recovery
 }
 
 // ============================================================
@@ -90,11 +98,41 @@ void CommManager::begin() {
 }
 
 // ============================================================
-// process()  — called from loop() on Core 1
-// Drains the ring buffer and dispatches each JSON line.
-// All LVGL/UI calls stay on Core 1 — no mutex needed for LVGL.
+// process() — called continuously from loop() (Core 1)
 // ============================================================
 void CommManager::process() {
+    // ── Auto-recovery / Channel Scan Mode ──────────────────────────────────
+    // WROOM broadcasts TIME every 1s. If we hear nothing for 10s, it either crashed
+    // or changed channels without telling us. If so, start hunting for it.
+    if (s_lastRecvMs > 0 && millis() - s_lastRecvMs > 10000) {
+        if (!s_scanningChannels) {
+            s_scanningChannels = true;
+            if (Serial) Serial.println("[ESP-NOW] Link lost! Entering auto-recovery channel scan...");
+        }
+        
+        // Spend 1.5 seconds on each channel (enough to catch a 1Hz TIME broadcast)
+        if (millis() - s_lastScanMs > 1500) {
+            s_lastScanMs = millis();
+            s_currentChannel++;
+            if (s_currentChannel > 13) s_currentChannel = 1;
+            
+            if (Serial) Serial.printf("[ESP-NOW] Scanning channel %d...\n", s_currentChannel);
+            esp_wifi_set_channel(s_currentChannel, WIFI_SECOND_CHAN_NONE);
+        }
+    } else if (s_scanningChannels && s_lastRecvMs > 0 && millis() - s_lastRecvMs <= 1000) {
+        // We received a message! Lock recovered.
+        s_scanningChannels = false;
+        if (Serial) Serial.printf("[ESP-NOW] Link recovered on channel %d!\n", s_currentChannel);
+        
+        // Update the peer entry so we can TX back to WROOM on this new channel
+        esp_now_del_peer(WROOM_MAC);
+        esp_now_peer_info_t peer = {};
+        memcpy(peer.peer_addr, WROOM_MAC, 6);
+        peer.channel = 0; // Use current
+        peer.encrypt = false;
+        esp_now_add_peer(&peer);
+    }
+
     // Drain all messages deposited by the ESP-NOW callback
     while (s_qHead != s_qTail) {
         String line(s_queue[s_qHead].data);
@@ -103,7 +141,7 @@ void CommManager::process() {
         if (line.length() == 0) continue;
 
         if (strcmp(line.c_str(), "{\"type\":\"TIME\"}") != 0) {
-            if (Serial) Serial.println("[<-WROOM] " + line);
+            if (Serial && Serial.availableForWrite() > 32) Serial.println("[<-WROOM] " + line);
         }
         dispatchJson(line);
     }
@@ -134,11 +172,11 @@ void CommManager::process() {
 // ============================================================
 void CommManager::sendCommand(const String& cmd) {
     if (cmd.length() >= ESPNOW_PAYLOAD_MAX) {
-        if (Serial) Serial.printf("[ESP-NOW] TX SKIP: too large (%d bytes)\n", cmd.length());
+        if (Serial && Serial.availableForWrite() > 32) Serial.printf("[ESP-NOW] TX SKIP: too large (%d bytes)\n", cmd.length());
         return;
     }
     esp_now_send(WROOM_MAC, (const uint8_t*)cmd.c_str(), cmd.length());
-    if (Serial) Serial.println("[->WROOM] " + cmd);
+    if (Serial && Serial.availableForWrite() > 32) Serial.println("[->WROOM] " + cmd);
 }
 
 // ============================================================
@@ -177,17 +215,43 @@ void CommManager::dispatchJson(const String& line) {
 
         static bool autoReconnectAttempted = false;
         if (!connected && !autoReconnectAttempted && DataManager::hasSavedWifi()) {
-            autoReconnectAttempted = true;
             String savedSsid = DataManager::getWifiSsid();
             String savedPass = DataManager::getWifiPass();
-            if (Serial) Serial.println("[WiFi] Auto-reconnecting to: " + savedSsid);
-            StaticJsonDocument<256> req;
-            req["cmd"]  = "WIFI_CONNECT";
-            req["ssid"] = savedSsid;
-            req["pass"] = savedPass;
-            String out; serializeJson(req, out);
-            sendCommand(out);
+            // Only auto-reconnect if we have both SSID and a non-empty password
+            if (savedPass.length() > 0) {
+                autoReconnectAttempted = true;
+                if (Serial) Serial.println("[WiFi] Auto-reconnecting to: " + savedSsid);
+                StaticJsonDocument<256> req;
+                req["cmd"]  = "WIFI_CONNECT";
+                req["ssid"] = savedSsid;
+                req["pass"] = savedPass;
+                String out; serializeJson(req, out);
+                sendCommand(out);
+            } else {
+                if (Serial) Serial.println("[WiFi] Saved password is empty — skipping auto-reconnect.");
+                // Clear the bad credential so we don't retry every boot
+                DataManager::clearWifiCredentials();
+            }
         }
+    } else if (strcmp(type, "CHANNEL_HOP") == 0) {
+        int targetChannel = doc["ch"] | 1;
+        if (Serial) Serial.printf("[ESP-NOW] Hopping to channel %d to follow WROOM\n", targetChannel);
+        esp_wifi_set_channel(targetChannel, WIFI_SECOND_CHAN_NONE);
+        // Re-register WROOM peer so the peer entry reflects the new channel.
+        // (peer.channel=0 means "use current" — must re-add after the channel changes)
+        esp_now_del_peer(WROOM_MAC);
+        esp_now_peer_info_t peer = {};
+        memcpy(peer.peer_addr, WROOM_MAC, 6);
+        peer.channel = 0;
+        peer.encrypt  = false;
+        esp_now_add_peer(&peer);
+        if (Serial) Serial.printf("[ESP-NOW] Peer re-registered on channel %d\n", targetChannel);
+    } else if (strcmp(type, "NTP_STATUS") == 0) {
+        bool ok         = doc["ok"] | false;
+        const char* ts  = doc["ts"]  | "";
+        const char* err = doc["err"] | "";
+        if (Serial) Serial.printf("[NTP] Status from WROOM: ok=%d ts=%s err=%s\n", ok, ts, err);
+        uiSettingsUpdateNtpStatus(ok, ts, err);
     } else if (strcmp(type, "WIFI_SCAN_RESULT") == 0) {
         const char* ssids = doc["ssids"] | "";
         uiWifiUpdateScanResult(ssids);

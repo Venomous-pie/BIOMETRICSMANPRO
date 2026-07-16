@@ -14,8 +14,9 @@ extern void uiShowSettingsDanger();
 
 static void btn_back_cb(lv_event_t * e) {
     if (scr_settings) {
-        lv_obj_del_async(scr_settings);
-        scr_settings = NULL;
+        lv_obj_t *to_del = scr_settings;
+        scr_settings = NULL;        // clear BEFORE async delete so re-entry rebuilds cleanly
+        lv_obj_del_async(to_del);
     }
     UIManager::showMainMenu();
 }

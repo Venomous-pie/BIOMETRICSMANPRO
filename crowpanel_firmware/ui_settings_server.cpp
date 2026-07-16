@@ -11,17 +11,20 @@ LV_FONT_DECLARE(lv_font_montserrat_20);
 
 static void destroy_screen() {
     if (scr) {
-        lv_obj_del_async(scr);
-        scr = NULL;
+        lv_obj_t *to_del = scr;
+        scr = NULL;        // null BEFORE async delete so re-entry always rebuilds
+        lv_obj_del_async(to_del);
     }
 }
 
 static void btn_back_cb(lv_event_t * e) {
+    if (Serial) Serial.println("UI Server: btn_back_cb triggered");
     destroy_screen();
     UIManager::showSettings();
 }
 
 static void btn_save_cb(lv_event_t * e) {
+    if (Serial) Serial.println("UI Server: btn_save_cb triggered");
     // Save logic can be added here
     btn_back_cb(e);
 }
@@ -106,6 +109,7 @@ void buildSettingsServerScreen() {
     lv_obj_set_style_bg_opa(bottom, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(bottom, 0, 0);
     lv_obj_set_style_pad_all(bottom, 0, 0);
+    lv_obj_clear_flag(bottom, LV_OBJ_FLAG_SCROLLABLE);
     
     lv_obj_t *btn_cancel = lv_btn_create(bottom);
     lv_obj_set_size(btn_cancel, 370, 40);

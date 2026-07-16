@@ -98,6 +98,14 @@ bool activated  = false;   // Set by CrowPanel via DEVICE_ACTIVATED command
 bool rtcValid   = false;
 uint32_t rtcFallbackOffset = 0;
 
+bool wifiConnecting = false;
+unsigned long wifiConnectStart = 0;
+uint8_t lastKnownChannel = ESPNOW_CHANNEL;
+
+// NTP sync state (non-blocking)
+bool ntpSyncPending = false;
+unsigned long ntpSyncStart = 0;
+
 // PING/PONG test state
 unsigned long lastPingMs = 0;
 bool pongReceived = false;
@@ -135,23 +143,19 @@ String getTimestamp() {
   return String(buf);
 }
 
-// Sync time from NTP and update RTC if available
+// Initiate NTP sync — NON-BLOCKING. Fires configTime(); result polled in loop().
 void syncNTP() {
-  if (WiFi.status() != WL_CONNECTED) return;
-  Serial.println("[NTP] Syncing time...");
-  configTime(8 * 3600, 0, "pool.ntp.org", "time.google.com"); // UTC+8 (adjust offset as needed)
-  struct tm t;
-  if (getLocalTime(&t, 8000)) {
-    Serial.printf("[NTP] Synced: %04d-%02d-%02d %02d:%02d:%02d\n",
-      t.tm_year+1900, t.tm_mon+1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec);
-    if (rtcValid) {
-      rtc.adjust(DateTime(t.tm_year+1900, t.tm_mon+1, t.tm_mday,
-                          t.tm_hour, t.tm_min, t.tm_sec));
-      Serial.println("[NTP] RTC updated from NTP");
-    }
-  } else {
-    Serial.println("[NTP] Sync failed - using existing time");
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[NTP] Skipped — WiFi not connected.");
+    // Tell CrowPanel immediately so the UI doesn't spin
+    send("{\"type\":\"NTP_STATUS\",\"ok\":false,\"err\":\"WiFi not connected\"}");
+    return;
   }
+  Serial.println("[NTP] Sync initiated (non-blocking)...");
+  // UTC+8 (Philippine Standard Time). Both primary & fallback servers used.
+  configTime(8 * 3600, 0, "pool.ntp.org", "time.google.com");
+  ntpSyncPending = true;
+  ntpSyncStart   = millis();
 }
 
 // Full send: ESP-NOW + Serial log (for important events)
@@ -174,6 +178,206 @@ void sendDoc(JsonDocument &doc) {
   String out;
   serializeJson(doc, out);
   send(out);
+}
+
+// ============================================================
+// ESP-NOW Resync (Channel Hop)
+// ============================================================
+void resyncEspNow(bool force = false) {
+  uint8_t curCh = WiFi.channel();
+  if (curCh == 0) curCh = ESPNOW_CHANNEL; // fallback
+
+  if (curCh != lastKnownChannel || force) {
+    if (curCh != lastKnownChannel) {
+      Serial.printf("[ESP-NOW] Radio channel secretly changed from %d to %d (e.g. by scan). Pre-hopping peer.\n", lastKnownChannel, curCh);
+      
+      // Temporarily switch radio BACK to CrowPanel's known channel so it can hear us
+      esp_wifi_set_channel(lastKnownChannel, WIFI_SECOND_CHAN_NONE);
+      
+      StaticJsonDocument<64> hop;
+      hop["type"] = "CHANNEL_HOP";
+      hop["ch"]   = curCh;
+      String hopOut; serializeJson(hop, hopOut);
+      
+      // Add peer temporarily on old channel to dispatch hop
+      esp_now_del_peer(CROWPANEL_MAC);
+      esp_now_peer_info_t peerOld = {};
+      memcpy(peerOld.peer_addr, CROWPANEL_MAC, 6);
+      peerOld.channel = lastKnownChannel;
+      peerOld.encrypt = false;
+      esp_now_add_peer(&peerOld);
+      
+      send(hopOut);
+      delay(100); // Give ESP-NOW time to physically transmit
+    } else {
+      Serial.printf("[ESP-NOW] Forcing ESP-NOW resync on channel %d\n", curCh);
+    }
+    
+    // Now switch to the new actual channel
+    lastKnownChannel = curCh;
+    esp_wifi_set_channel(curCh, WIFI_SECOND_CHAN_NONE);
+    esp_now_del_peer(CROWPANEL_MAC);
+
+    esp_now_peer_info_t peerInfo = {};
+    memcpy(peerInfo.peer_addr, CROWPANEL_MAC, 6);
+    peerInfo.channel = curCh;
+    peerInfo.encrypt = false;
+    esp_now_add_peer(&peerInfo);
+
+    if (force && curCh == lastKnownChannel) {
+      StaticJsonDocument<64> hop;
+      hop["type"] = "CHANNEL_HOP";
+      hop["ch"] = curCh;
+      String hopOut; serializeJson(hop, hopOut);
+      send(hopOut);
+    }
+  }
+}
+
+// ============================================================
+// WiFi Event Handler
+// ============================================================
+void onWiFiEvent(WiFiEvent_t event) {
+  switch (event) {
+    case ARDUINO_EVENT_WIFI_STA_CONNECTED:
+      Serial.println("[WIFI] Connected to AP");
+      resyncEspNow(); // Channel usually changes on connect
+      break;
+    case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+      Serial.println("[WIFI] STA Disconnected");
+      // Force back to default channel when disconnected
+      esp_wifi_set_channel(ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE);
+      resyncEspNow(); 
+      break;
+    default:
+      break;
+  }
+}
+
+// ============================================================
+// WiFi Command Handlers
+// ============================================================
+void handleWifiScan() {
+  Serial.println("[WIFI] Scanning networks...");
+
+  // Soft disconnect to prepare for scan
+  WiFi.disconnect(false);
+  delay(100);
+
+  int found = WiFi.scanNetworks(false, true); // blocking, show hidden
+  Serial.printf("[WIFI] scanNetworks() returned: %d\n", found);
+
+  if (found == -2) {
+    Serial.println("[WIFI] Scan failed, retrying...");
+    delay(500);
+    found = WiFi.scanNetworks(false, true);
+    Serial.printf("[WIFI] Retry returned: %d\n", found);
+  }
+
+  String ssidList = "";
+  if (found > 0) {
+    Serial.printf("[WIFI] %d networks found\n", found);
+    int limit = min(found, 5); // Cap at 5
+    for (int i = 0; i < limit; i++) {
+      if (i > 0) ssidList += ",";
+      ssidList += WiFi.SSID(i);
+    }
+  }
+  WiFi.scanDelete();
+
+  // Re-sync ESP-NOW FIRST in case scanNetworks silently desynced the radio,
+  // otherwise sendDoc will transmit on the wrong channel and CrowPanel will never hear it!
+  resyncEspNow(true);
+
+  StaticJsonDocument<1024> resp;
+  resp["type"]  = "WIFI_SCAN_RESULT";
+  resp["ssids"] = ssidList;
+  sendDoc(resp);
+}
+
+void handleWifiConnect(const String& ssidStr, const String& passStr) {
+  Serial.printf("[WIFI] Connecting to: '%s'\n", ssidStr.c_str());
+
+  WiFi.disconnect(false);
+  delay(100);
+
+  // 1. Find the target AP's channel first so we can pre-hop the CrowPanel
+  int n = WiFi.scanNetworks(false, true, false, 300, 0, ssidStr.c_str());
+  uint8_t targetCh = 0;
+  if (n > 0) {
+    targetCh = WiFi.channel(0);
+  }
+  WiFi.scanDelete();
+
+  // 2. Restore our radio state because scanNetworks changes it
+  resyncEspNow(true);
+  delay(50); // let ESP-NOW stabilize
+
+  // 3. Pre-hop the CrowPanel if the channel is going to change
+  if (targetCh != 0 && targetCh != lastKnownChannel) {
+    Serial.printf("[ESP-NOW] Target AP is on channel %d. Pre-hopping CrowPanel.\n", targetCh);
+    
+    // We are currently on lastKnownChannel. We send hop command to CrowPanel
+    StaticJsonDocument<64> hop;
+    hop["type"] = "CHANNEL_HOP";
+    hop["ch"] = targetCh;
+    String hopOut; serializeJson(hop, hopOut);
+    send(hopOut);
+    delay(100); // Give ESP-NOW time to physically transmit
+    
+    // Now update our local tracking and peer to the NEW channel
+    lastKnownChannel = targetCh;
+    
+    esp_now_del_peer(CROWPANEL_MAC);
+    esp_now_peer_info_t peerInfo = {};
+    memcpy(peerInfo.peer_addr, CROWPANEL_MAC, 6);
+    peerInfo.channel = targetCh;
+    peerInfo.encrypt = false;
+    esp_now_add_peer(&peerInfo);
+  }
+
+  // 4. Connect explicitly to the target channel (prevents sweeping)
+  if (targetCh != 0) {
+    WiFi.begin(ssidStr.c_str(), passStr.c_str(), targetCh);
+  } else {
+    WiFi.begin(ssidStr.c_str(), passStr.c_str());
+  }
+
+  wifiConnecting = true;
+  wifiConnectStart = millis();
+  Serial.println("[WIFI] Connection initiated asynchronously.");
+}
+
+void handleWifiDisconnect() {
+  Serial.println("[WIFI] Disconnecting...");
+
+  // If we are on a non-default channel, tell CrowPanel to go back to default BEFORE we turn off the radio.
+  if (lastKnownChannel != ESPNOW_CHANNEL) {
+    Serial.printf("[ESP-NOW] Pre-hopping CrowPanel back to default channel (%d).\n", ESPNOW_CHANNEL);
+    StaticJsonDocument<64> hop;
+    hop["type"] = "CHANNEL_HOP";
+    hop["ch"] = ESPNOW_CHANNEL;
+    String hopOut; serializeJson(hop, hopOut);
+    send(hopOut);
+    delay(100);
+    lastKnownChannel = ESPNOW_CHANNEL;
+  }
+
+  WiFi.disconnect(true, true);
+  delay(100);
+  
+  // Re-init ESP-NOW after full radio off
+  extern void espNowInit();
+  espNowInit();
+  
+  // Force channel back and notify
+  esp_wifi_set_channel(ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE);
+  resyncEspNow();
+
+  StaticJsonDocument<128> resp;
+  resp["type"]      = "WIFI_STATUS";
+  resp["connected"] = false;
+  sendDoc(resp);
 }
 
 // ============================================================
@@ -340,86 +544,14 @@ void handleCmd(String cmd) {
     const char *action = jcmd["cmd"] | "";
 
     if (strcmp(action, "WIFI_SCAN") == 0) {
-      Serial.println("[WIFI] Scanning networks...");
-
-      // WiFi.disconnect(true) temporarily kills ESP-NOW — we re-init after the scan.
-      WiFi.disconnect(true);
-      WiFi.mode(WIFI_STA);
-      delay(100);
-
-      int found = WiFi.scanNetworks(false, true); // blocking, show hidden
-      Serial.printf("[WIFI] scanNetworks() returned: %d\n", found);
-
-      // Retry once on failure
-      if (found == -2) {
-        Serial.println("[WIFI] Scan failed, retrying...");
-        delay(500);
-        found = WiFi.scanNetworks(false, true);
-        Serial.printf("[WIFI] Retry returned: %d\n", found);
-      }
-
-      // Build SSID list before releasing scan data
-      String ssidList = "";
-      if (found > 0) {
-        Serial.printf("[WIFI] %d networks found\n", found);
-        int limit = min(found, 5); // Cap at 5 — ESP-NOW payload is max 250 bytes
-        for (int i = 0; i < limit; i++) {
-          if (i > 0) ssidList += ",";
-          ssidList += WiFi.SSID(i);
-        }
-      }
-      WiFi.scanDelete();
-
-      // Restore ESP-NOW (killed by WiFi.disconnect above) BEFORE sending result
-      espNowInit();
-
-      StaticJsonDocument<1024> resp;
-      resp["type"]  = "WIFI_SCAN_RESULT";
-      resp["ssids"] = ssidList; // empty string if no networks found
-      sendDoc(resp);
-
+      handleWifiScan();
     } else if (strcmp(action, "WIFI_CONNECT") == 0) {
-      String ssidStr = jcmd["ssid"].as<String>();
-      String passStr = jcmd["pass"].as<String>();
-      Serial.printf("[WIFI] Connecting to SSID: '%s' (len %d), PASS: '%s' (len %d)\n", 
-                    ssidStr.c_str(), ssidStr.length(), passStr.c_str(), passStr.length());
-
-      // Robust connection sequence for ESP32
-      WiFi.disconnect(true); // Completely reset Wi-Fi state
-      delay(100);
-      WiFi.mode(WIFI_STA);
-      delay(100);
-      WiFi.begin(ssidStr.c_str(), passStr.c_str());
-
-      // The blocking loop was removed here so it doesn't block the fingerprint scanner.
-      // Wi-Fi will attempt to connect asynchronously.
-      bool connected = (WiFi.status() == WL_CONNECTED);
-      StaticJsonDocument<128> resp;
-      resp["type"]      = "WIFI_STATUS";
-      resp["connected"] = connected;
-      if (connected) {
-        resp["ip"] = WiFi.localIP().toString();
-        Serial.println("[WIFI] Connected immediately! IP: " + WiFi.localIP().toString());
-        syncNTP();
-      } else {
-        Serial.println("[WIFI] Connection initiated. (Asynchronous)");
-      }
-      // Restore ESP-NOW — WiFi.disconnect(true) at the top of this handler
-      // tore down the WiFi radio and silently killed ESP-NOW.
-      // Must re-init BEFORE sendDoc() or the reply is dropped.
-      espNowInit();
-      sendDoc(resp);
-
+      handleWifiConnect(jcmd["ssid"].as<String>(), jcmd["pass"].as<String>());
     } else if (strcmp(action, "WIFI_DISCONNECT") == 0) {
-      Serial.println("[WIFI] Disconnecting...");
-      WiFi.disconnect(true, true);
-      // Restore ESP-NOW immediately — WiFi.disconnect() killed the radio
-      espNowInit();
-      StaticJsonDocument<128> resp;
-      resp["type"]      = "WIFI_STATUS";
-      resp["connected"] = false;
-      sendDoc(resp);
-
+      handleWifiDisconnect();
+    } else if (strcmp(action, "SYNC_NTP") == 0) {
+      Serial.println("[NTP] Manual sync requested by CrowPanel.");
+      syncNTP();
     } else if (strcmp(action, "DEVICE_ACTIVATED") == 0) {
       activated = true;
       Serial.println("[SYSTEM] CrowPanel signaled DEVICE_ACTIVATED. Fingerprint scanner enabled.");
@@ -549,9 +681,6 @@ void setup() {
   delay(100);
   if (finger.verifyPassword()) {
     finger.getParameters();
-    // Many AS608 clones don't implement readSysPara correctly — templateCount
-    // is often stuck at 0 even when templates are stored. Do a live probe of
-    // the index table instead, which always works.
     int liveCount = 0;
     if (finger.getTemplateCount() == FINGERPRINT_OK) {
       liveCount = finger.templateCount;
@@ -564,7 +693,6 @@ void setup() {
     Serial.println("[AS608] NOT FOUND - check wiring!");
   }
 
-  // CrowPanel link — ESP-NOW wireless (no UART wire)
   espNowInit();
 
   // DS3231 RTC
@@ -581,10 +709,6 @@ void setup() {
     Serial.println("[RTC] NOT FOUND - using software fallback clock");
   }
 
-  // We no longer rely on PIN_FP_TOUCH, polling sensor instead to avoid spam.
-  // pinMode(PIN_FP_TOUCH, INPUT);
-
-  // Factory reset button module (Active-High)
   pinMode(PIN_FACTORY_RESET, INPUT_PULLDOWN);
 
   Serial.println("\nReady. Commands:");
@@ -637,13 +761,64 @@ void loop() {
     sendQuiet("{\"type\":\"TIME\",\"ts\":\"" + getTimestamp() + "\"}");
   }
 
-  // PING CrowPanel every 3 seconds to verify bidirectional UART comms
-  if (millis() - lastPingMs >= 3000) {
+  // PING CrowPanel every 3 seconds to verify bidirectional comms.
+  // Suppress during active WiFi connection so we don't overload the radio.
+  if (!wifiConnecting && millis() - lastPingMs >= 3000) {
     lastPingMs = millis();
     pingCount++;
     pongReceived = false;
     send("{\"type\":\"PING\"}");
     Serial.printf("[PING] Sent PING #%u to CrowPanel (awaiting PONG)\n", pingCount);
+  }
+
+  // Asynchronous Wi-Fi connection monitoring
+  if (wifiConnecting) {
+    if (WiFi.status() == WL_CONNECTED) {
+      wifiConnecting = false;
+      Serial.println("[WIFI] Connected! IP: " + WiFi.localIP().toString());
+      StaticJsonDocument<128> resp;
+      resp["type"]      = "WIFI_STATUS";
+      resp["connected"] = true;
+      resp["ip"]        = WiFi.localIP().toString();
+      sendDoc(resp);
+      syncNTP(); // non-blocking — just fires configTime(), result polled below
+
+    } else if (millis() - wifiConnectStart > 10000) {
+      wifiConnecting = false;
+      Serial.println("[WIFI] Connection timed out.");
+      handleWifiDisconnect();
+    }
+  }
+
+  // ── Non-blocking NTP completion check ──────────────────────────────────────
+  if (ntpSyncPending) {
+    struct tm t = {};
+    if (getLocalTime(&t, 0)) { // timeout=0: non-blocking check
+      ntpSyncPending = false;
+
+      char syncTs[20];
+      snprintf(syncTs, sizeof(syncTs), "%04d-%02d-%02d %02d:%02d:%02d",
+        t.tm_year+1900, t.tm_mon+1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec);
+      Serial.printf("[NTP] Synced: %s (UTC+8)\n", syncTs);
+
+      if (rtcValid) {
+        rtc.adjust(DateTime(t.tm_year+1900, t.tm_mon+1, t.tm_mday,
+                            t.tm_hour, t.tm_min, t.tm_sec));
+        Serial.println("[NTP] RTC updated from NTP");
+      }
+
+      // Notify CrowPanel — clock settings page shows last sync time
+      StaticJsonDocument<128> ntpDoc;
+      ntpDoc["type"] = "NTP_STATUS";
+      ntpDoc["ok"]   = true;
+      ntpDoc["ts"]   = syncTs;
+      sendDoc(ntpDoc);
+
+    } else if (millis() - ntpSyncStart > 15000) {
+      ntpSyncPending = false;
+      Serial.println("[NTP] Sync timed out — using existing time source");
+      send("{\"type\":\"NTP_STATUS\",\"ok\":false,\"err\":\"Sync timed out\"}");
+    }
   }
 
   // Commands from USB Serial Monitor (blocking is OK here, user-typed)

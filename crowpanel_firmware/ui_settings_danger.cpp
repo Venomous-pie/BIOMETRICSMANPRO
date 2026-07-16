@@ -11,22 +11,26 @@ LV_FONT_DECLARE(lv_font_montserrat_20);
 
 static void destroy_screen() {
     if (scr) {
-        lv_obj_del_async(scr);
-        scr = NULL;
+        lv_obj_t *to_del = scr;
+        scr = NULL;        // null BEFORE async delete so re-entry always rebuilds
+        lv_obj_del_async(to_del);
     }
 }
 
 static void btn_back_cb(lv_event_t * e) {
+    if (Serial) Serial.println("UI Danger: btn_back_cb triggered");
     destroy_screen();
     UIManager::showSettings();
 }
 
 static void btn_factory_reset_cb(lv_event_t * e) {
+    if (Serial) Serial.println("UI Danger: btn_factory_reset_cb triggered");
     CommManager::sendCommand("{\"cmd\":\"FACTORY_RESET\"}");
     DataManager::factoryReset();
 }
 
 static void btn_reboot_wroom_cb(lv_event_t * e) {
+    if (Serial) Serial.println("UI Danger: btn_reboot_wroom_cb triggered");
     CommManager::sendCommand("{\"cmd\":\"RESET\"}");
 }
 
