@@ -136,10 +136,25 @@ void uiFactoryResetComplete() {
 }
 
 void UIManager::updateHeaderWifi(bool connected) {
-    if (!g_header_wifi_lbl) return;
-    lv_label_set_text(g_header_wifi_lbl, connected ? LV_SYMBOL_WIFI " Online" : LV_SYMBOL_WIFI " Offline");
-    lv_obj_set_style_text_color(g_header_wifi_lbl,
-        rgb(connected ? COLOR_GREEN_MAIN : COLOR_GREEN_DARK), 0);
+    lv_obj_t *act = lv_scr_act();
+    if (!act || lv_obj_get_child_cnt(act) == 0) return;
+    
+    // If the active screen has a standard buildHeader container, it's child 0 (800x85)
+    lv_obj_t *header = lv_obj_get_child(act, 0);
+    if (!header || lv_obj_get_width(header) != 800 || lv_obj_get_height(header) != 85) return;
+
+    // Find the 180x40 pill container inside the header
+    for (uint32_t i = 0; i < lv_obj_get_child_cnt(header); i++) {
+        lv_obj_t *child = lv_obj_get_child(header, i);
+        if (lv_obj_get_width(child) == 180 && lv_obj_get_height(child) == 40) {
+            if (lv_obj_get_child_cnt(child) > 0) {
+                lv_obj_t *lbl = lv_obj_get_child(child, 0);
+                lv_label_set_text(lbl, connected ? LV_SYMBOL_WIFI " Online" : LV_SYMBOL_WIFI " Offline");
+                lv_obj_set_style_text_color(lbl, rgb(connected ? COLOR_GREEN_MAIN : COLOR_GREEN_DARK), 0);
+            }
+            break;
+        }
+    }
 }
 
 void UIManager::showIdle() {

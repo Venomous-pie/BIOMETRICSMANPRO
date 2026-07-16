@@ -122,15 +122,16 @@ static void ta_event_cb(lv_event_t * e) {
         // Auto-advance if 4 chars typed
         if (s.length() >= 4) {
             if (ta == ta_code1) {
-                lv_obj_add_state(ta_code2, LV_STATE_FOCUSED);
-                lv_obj_clear_state(ta_code1, LV_STATE_FOCUSED);
+                // Properly focus the next field so keyboard input works immediately
+                lv_keyboard_set_textarea(kb_code, ta_code2);
+                lv_event_send(ta_code2, LV_EVENT_CLICKED, NULL);
             } else if (ta == ta_code2) {
-                lv_obj_add_state(ta_code3, LV_STATE_FOCUSED);
-                lv_obj_clear_state(ta_code2, LV_STATE_FOCUSED);
+                lv_keyboard_set_textarea(kb_code, ta_code3);
+                lv_event_send(ta_code3, LV_EVENT_CLICKED, NULL);
             } else if (ta == ta_code3) {
-                // Done entering
+                // Done entering — hide keyboard
                 lv_obj_add_flag(kb_code, LV_OBJ_FLAG_HIDDEN);
-                lv_obj_clear_state(ta_code3, LV_STATE_FOCUSED);
+                lv_event_send(ta_code3, LV_EVENT_CANCEL, NULL);
             }
         }
     } else if (code == LV_EVENT_CANCEL) {

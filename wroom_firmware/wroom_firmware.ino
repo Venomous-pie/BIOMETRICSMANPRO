@@ -391,43 +391,18 @@ void handleCmd(String cmd) {
       delay(100);
       WiFi.begin(ssidStr.c_str(), passStr.c_str());
 
-      unsigned long t = millis();
-      bool connected = false;
-      int lastStatus = -1;
-      
-      while (millis() - t < 15000) {   // 15 s timeout
-        int status = WiFi.status();
-        if (status != lastStatus) {
-            lastStatus = status;
-            Serial.printf("[WIFI] Status changed: %d\n", status);
-        }
-        if (status == WL_CONNECTED) { connected = true; break; }
-        
-        // If router aggressively rejects us (e.g. WPA3 transition or Fast Roaming), re-attempt immediately
-        if (status == WL_CONNECT_FAILED || status == WL_NO_SSID_AVAIL) {
-            Serial.println("[WIFI] Re-attempting begin()...");
-            WiFi.disconnect(true);
-            delay(100);
-            WiFi.mode(WIFI_STA);
-            delay(100);
-            WiFi.begin(ssidStr.c_str(), passStr.c_str());
-            lastStatus = -1; // force status print again
-        }
-        
-        delay(500);
-        Serial.print(".");
-      }
-      Serial.println();
-
+      // The blocking loop was removed here so it doesn't block the fingerprint scanner.
+      // Wi-Fi will attempt to connect asynchronously.
+      bool connected = (WiFi.status() == WL_CONNECTED);
       StaticJsonDocument<128> resp;
       resp["type"]      = "WIFI_STATUS";
       resp["connected"] = connected;
       if (connected) {
         resp["ip"] = WiFi.localIP().toString();
-        Serial.println("[WIFI] Connected! IP: " + WiFi.localIP().toString());
-        syncNTP();  // Sync NTP while WiFi is up, before restoring ESP-NOW
+        Serial.println("[WIFI] Connected immediately! IP: " + WiFi.localIP().toString());
+        syncNTP();
       } else {
-        Serial.println("[WIFI] Connection failed.");
+        Serial.println("[WIFI] Connection initiated. (Asynchronous)");
       }
       // Restore ESP-NOW — WiFi.disconnect(true) at the top of this handler
       // tore down the WiFi radio and silently killed ESP-NOW.
@@ -503,9 +478,16 @@ static void onDataSentToCP(const wifi_tx_info_t *tx_info, esp_now_send_status_t 
 }
 
 void espNowInit() {
-  // WiFi must be in STA mode for ESP-NOW to work.
-  // If WiFi is already in STA mode (from a previous call) this is a no-op.
-  if (WiFi.getMode() == WIFI_OFF) WiFi.mode(WIFI_STA);
+  // Always ensure STA mode is active.
+  WiFi.mode(WIFI_STA);
+
+  // After a failed WiFi.begin() the radio stays parked on the AP's channel.
+  // esp_wifi_set_channel() is silently ignored while the driver is not idle,
+  // so we must force the radio back to a clean disconnected state first.
+  // IMPORTANT: disconnect(false) = disconnect from AP only, radio stays ON.
+  //            disconnect(true)  = wifioff=true → calls esp_wifi_stop() → radio OFF → MAC becomes 00:00:00:00:00:00
+  WiFi.disconnect(false);  // drop any AP association, keep radio alive
+  delay(100);              // let the driver settle before touching the channel
 
   // Lock to the fixed channel BEFORE esp_now_init() so the peer
   // registration uses the correct channel from the start.
@@ -567,7 +549,17 @@ void setup() {
   delay(100);
   if (finger.verifyPassword()) {
     finger.getParameters();
-    Serial.printf("[AS608] Found! Templates stored: %d\n", finger.templateCount);
+    // Many AS608 clones don't implement readSysPara correctly — templateCount
+    // is often stuck at 0 even when templates are stored. Do a live probe of
+    // the index table instead, which always works.
+    int liveCount = 0;
+    if (finger.getTemplateCount() == FINGERPRINT_OK) {
+      liveCount = finger.templateCount;
+    }
+    Serial.printf("[AS608] Found! Templates stored (live count): %d\n", liveCount);
+    Serial.println("[AS608] NOTE: if count=0 but you enrolled before, do NOT re-enroll.");
+    Serial.println("[AS608] Wait for DEVICE_ACTIVATED from CrowPanel, then scan your finger first.");
+
   } else {
     Serial.println("[AS608] NOT FOUND - check wiring!");
   }

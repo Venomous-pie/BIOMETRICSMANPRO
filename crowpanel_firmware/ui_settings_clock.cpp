@@ -11,6 +11,7 @@ static lv_obj_t *dd_wifi = NULL;
 static lv_obj_t *ta_pass = NULL;
 static lv_obj_t *kb_wifi = NULL;
 static lv_obj_t *lbl_conn = NULL;
+static bool user_connecting = false;
 
 LV_FONT_DECLARE(lv_font_montserrat_14);
 LV_FONT_DECLARE(lv_font_montserrat_16);
@@ -60,6 +61,7 @@ static void btn_conn_cb(lv_event_t * e) {
     if (strlen(ssid_buf) == 0 || strcmp(ssid_buf, "Scanning...") == 0) return;
 
     if (lbl_conn) lv_label_set_text(lbl_conn, "Connecting...");
+    user_connecting = true;
 
     StaticJsonDocument<256> doc;
     doc["cmd"]  = "WIFI_CONNECT";
@@ -137,13 +139,17 @@ void uiSettingsUpdateWifiStatus(bool connected) {
     if (!scr || !lbl_conn) return;
     if (connected) {
         lv_label_set_text(lbl_conn, "Connected!");
-        // Save current so we can auto-reconnect later
-        char ssid_buf[64];
-        lv_dropdown_get_selected_str(dd_wifi, ssid_buf, sizeof(ssid_buf));
-        const char *pass = lv_textarea_get_text(ta_pass);
-        DataManager::saveWifiCredentials(String(ssid_buf), String(pass));
+        if (user_connecting) {
+            // Only save if the user manually initiated the connection
+            char ssid_buf[64];
+            lv_dropdown_get_selected_str(dd_wifi, ssid_buf, sizeof(ssid_buf));
+            const char *pass = lv_textarea_get_text(ta_pass);
+            DataManager::saveWifiCredentials(String(ssid_buf), String(pass));
+            user_connecting = false;
+        }
     } else {
         lv_label_set_text(lbl_conn, "Connect");
+        user_connecting = false;
     }
 }
 
