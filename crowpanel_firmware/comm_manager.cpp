@@ -205,9 +205,11 @@ void CommManager::dispatchJson(const String& line) {
         // WROOM has finished the server round-trip for the registration code.
         bool success        = doc["success"] | false;
         const char* err     = doc["err"] | "";
-        if (Serial) Serial.printf("[ACTIVATION] Result from server: success=%d err=%s\n", success, err);
+        const char* token   = doc["device_token"] | "";
+        if (Serial) Serial.printf("[ACTIVATION] Result from server: success=%d err=%s token=%s\n", success, err, token);
 
         if (success) {
+            DataManager::setDeviceToken(String(token));
             DataManager::setActivatedByServer(true);
             sendCommand("{\"cmd\":\"DEVICE_ACTIVATED\"}");  // unlock WROOM scanner
             uiShowIdle();

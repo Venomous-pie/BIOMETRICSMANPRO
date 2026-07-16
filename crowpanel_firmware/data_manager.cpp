@@ -179,6 +179,13 @@ void DataManager::setActivatedByServer(bool state) {
     saveConfig();
 }
 
+// Stores the real device_token received from the server
+void DataManager::setDeviceToken(const String& token) {
+    _activationCode = token;
+    saveConfig();
+}
+
+
 bool DataManager::isLockedOut() {
     if (_lockoutStartTime > 0) {
         if (millis() - _lockoutStartTime >= 600000) { // 10 minutes passed

@@ -82,9 +82,9 @@ void buildSettingsServerScreen() {
     UIManager::styleLabel(lbl_serv, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
     lv_obj_align(lbl_serv, LV_ALIGN_TOP_LEFT, 0, 100);
 
-    lv_obj_t *ta_api = create_input_field(body, "API Server URL", "http://server-ip:8000", 130, 760, 0, false);
+    lv_obj_t *ta_api = create_input_field(body, "API Server URL", "https://demo.manpromanagement.com", 130, 760, 0, false);
     // Show the actual API_BASE_URL hardcoded in wroom_firmware — read-only display
-    lv_textarea_set_text(ta_api, "http://192.168.0.105:8000");
+    lv_textarea_set_text(ta_api, "https://demo.manpromanagement.com");
     lv_obj_clear_flag(ta_api, LV_OBJ_FLAG_CLICKABLE);
 
     lv_obj_t *ta_token = create_input_field(body, "Activation Code (token)", "Enter via Register page", 210, 360, 0, true);

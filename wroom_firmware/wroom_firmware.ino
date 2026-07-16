@@ -43,12 +43,11 @@
 // ============================================================
 // Hardcoded device ID — used as the payload when querying the
 // backend API to verify if this unit has been activated.
-#define DEVICE_ID    "P001-2607-6AEC-YRH5"
+#define DEVICE_ID    "P001-2607-6AEC-Z2GD"
 
 // Base URL of your backend server.
-// Using LAN IP for local mock server testing.
-// Change to your server PC's LAN IP (e.g. http://192.168.1.50:8000) for production.
-#define API_BASE_URL "http://192.168.0.105:8000"
+// Change to your server PC's LAN IP (e.g. http://192.168.1.50:8000) for local testing.
+#define API_BASE_URL "https://demo.manpromanagement.com"
 
 // ============================================================
 // ESP-NOW configuration  (Option A — fixed channel)
@@ -412,44 +411,54 @@ void validateActivationWithServer(const String& registrationCode) {
   Serial.printf("[ACTIVATION] device_id=%s  registration_code=%s\n", DEVICE_ID, registrationCode.c_str());
 
   HTTPClient http;
-  // Matches the endpoint:
-  // POST /api/devices/registerDevice?device_id=<ID>
-  String url = String(API_BASE_URL)
+  // Append query parameters exactly as the real API expects:
+  // /api/devices/registerDevice?device_id=...&registration_code=...
+  String url = String(API_BASE_URL) 
              + "/api/devices/registerDevice"
-             + "?device_id=" + DEVICE_ID;
+             + "?device_id=" + DEVICE_ID 
+             + "&registration_code=" + registrationCode;
 
   http.begin(url);
   http.addHeader("Content-Type", "application/json");
-  // Send the activation code (token) securely via Authorization header
-  http.addHeader("Authorization", "Bearer " + registrationCode);
   
-  int httpCode = http.POST("");   // params are in the URL, body is empty
+  // Send an empty POST body since the data is in the query string
+  int httpCode = http.POST("");
 
   Serial.printf("[ACTIVATION] HTTP %d\n", httpCode);
 
-  StaticJsonDocument<128> result;
+  StaticJsonDocument<256> result; // increased size to fit token
   result["type"] = "ACTIVATION_RESULT";
 
   if (httpCode > 0) {
     String response = http.getString();
     Serial.println("[ACTIVATION] Response: " + response);
 
-    StaticJsonDocument<256> doc;
+    StaticJsonDocument<512> doc;
     DeserializationError err = deserializeJson(doc, response);
 
     bool success = false;
+    String devToken = "";
+    String errMsg = "Code rejected by server";
+
     if (err == DeserializationError::Ok) {
-      // Accept common field names from the server response
-      if      (doc.containsKey("activated"))  success = doc["activated"].as<bool>();
-      else if (doc.containsKey("is_active"))  success = doc["is_active"].as<bool>();
-      else if (doc.containsKey("success"))    success = doc["success"].as<bool>();
-      else if (doc.containsKey("status"))     success = (String(doc["status"] | "") == "active");
+      String statusStr = doc["status"] | "";
+      int statusCode = doc["status"] | 0;
+      if (statusCode == 200 || statusStr.equalsIgnoreCase("success") || statusStr.equalsIgnoreCase("active") || statusStr.equalsIgnoreCase("true") || doc["success"].as<bool>()) {
+        success = true;
+        devToken = doc["device_token"] | "";
+      } else {
+        errMsg = doc["message"] | errMsg;
+      }
     } else {
       Serial.println("[ACTIVATION] Could not parse server response.");
     }
 
     result["success"] = success;
-    if (!success) result["err"] = "Code rejected by server";
+    if (success) {
+      result["device_token"] = devToken;
+    } else {
+      result["err"] = errMsg;
+    }
   } else {
     Serial.printf("[ACTIVATION] HTTP failed: %s\n", http.errorToString(httpCode).c_str());
     result["success"] = false;

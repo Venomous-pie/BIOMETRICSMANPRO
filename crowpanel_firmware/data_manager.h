@@ -7,7 +7,7 @@
 // ── Hardcoded Device ID ───────────────────────────────────────────
 // This must match the DEVICE_ID defined in wroom_firmware.ino.
 // It is sent to the backend API to verify if this unit is activated.
-#define DEVICE_ID_HARDCODED "P001-2607-6AEC-YRH5"
+#define DEVICE_ID_HARDCODED "P001-2607-6AEC-Z2GD"
 
 struct Employee {
     int id;
@@ -31,6 +31,7 @@ public:
     static bool isActivated();
     static void setActivated(bool state);
     static void setActivatedByServer(bool state);  // Called when ACTIVATION_STATUS arrives from WROOM
+    static void setDeviceToken(const String& token); // Save token from real API response
     static String getHardwareCode();               // Short MAC-derived code (XXXX-XXXX)
     static String getDeviceId();                   // Full device ID shown on register screen
     static bool activate(const String& code);
