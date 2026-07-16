@@ -162,6 +162,11 @@ void CommManager::dispatchJson(const String& line) {
         const char* pong = "{\"type\":\"PONG\"}";
         esp_now_send(WROOM_MAC, (const uint8_t*)pong, strlen(pong));
         if (Serial) Serial.println("[PING] Got PING -> sent PONG");
+    } else if (strcmp(type, "WROOM_BOOT") == 0) {
+        if (Serial) Serial.println("[UART] WROOM booted. Checking activation state.");
+        if (DataManager::isActivated()) {
+            sendCommand("{\"cmd\":\"DEVICE_ACTIVATED\"}");
+        }
     } else if (strcmp(type, "WIFI_STATUS") == 0) {
         bool connected = doc["connected"] | false;
         DataManager::setWifiConnected(connected);

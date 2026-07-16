@@ -591,6 +591,9 @@ void setup() {
   Serial.println("  ENROLL:1  -> enroll finger for slot 1 (Alice Santos)");
   Serial.println("  ENROLL:2  -> enroll finger for slot 2 (Bob Cruz)");
   Serial.println("  DELETE:1  -> erase slot 1 from sensor");
+
+  // Signal to CrowPanel that we just booted, in case it is already in the idle/activated state.
+  send("{\"type\":\"WROOM_BOOT\"}");
 }
 
 // ============================================================
