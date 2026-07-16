@@ -13,7 +13,7 @@
 // The WROOM's station MAC address.
 // PLACEHOLDER: Flash the WROOM first and read its "[BOOT] WROOM MAC:" line,
 // then paste those 6 hex bytes here before flashing the CrowPanel.
-static const uint8_t WROOM_MAC[6] = {0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB};
+static const uint8_t WROOM_MAC[6] = {0x30, 0x76, 0xF5, 0x90, 0x6A, 0xEC}; // 30:76:f5:90:6a:ec
 
 class CommManager {
 public:
@@ -23,7 +23,8 @@ public:
 
     // ESP-NOW receive callback — runs in WiFi task (Core 0).
     // Copies payload into the ring buffer; all parsing is done in process().
-    static void onEspNowRecv(const uint8_t* mac, const uint8_t* data, int len);
+    // Arduino Core 3.x (IDF 5.x): recv callback takes esp_now_recv_info_t* not uint8_t* mac
+    static void onEspNowRecv(const esp_now_recv_info_t* recv_info, const uint8_t* data, int len);
 
 private:
     static void dispatchJson(const String& line);

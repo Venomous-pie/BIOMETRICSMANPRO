@@ -47,7 +47,7 @@
 // The CrowPanel's actual station MAC address.
 // PLACEHOLDER: Flash the CrowPanel first and read its "[BOOT] CP MAC:" line,
 // then paste those 6 hex bytes here before flashing the WROOM.
-uint8_t CROWPANEL_MAC[6] = {0xAA, 0xAA, 0xAA, 0xAA, 0xAA, 0xAA};
+uint8_t CROWPANEL_MAC[6] = {0x30, 0xED, 0xA0, 0x31, 0x70, 0xEC}; // 30:ed:a0:31:70:ec
 
 // ESP-NOW payload size limit
 #define ESPNOW_PAYLOAD_MAX 251
@@ -342,7 +342,7 @@ void handleCmd(String cmd) {
     if (strcmp(action, "WIFI_SCAN") == 0) {
       Serial.println("[WIFI] Scanning networks...");
 
-      // Must be in STA mode to scan
+      // WiFi.disconnect(true) temporarily kills ESP-NOW — we re-init after the scan.
       WiFi.disconnect(true);
       WiFi.mode(WIFI_STA);
       delay(100);
@@ -350,36 +350,32 @@ void handleCmd(String cmd) {
       int found = WiFi.scanNetworks(false, true); // blocking, show hidden
       Serial.printf("[WIFI] scanNetworks() returned: %d\n", found);
 
-      StaticJsonDocument<1024> resp;   // 1024 to hold long SSID lists
-      resp["type"] = "WIFI_SCAN_RESULT";
-
-      if (found <= 0) {
-        // -1 = scan running (shouldn't happen in blocking mode)
-        // -2 = scan failed — retry once
-        if (found == -2) {
-          Serial.println("[WIFI] Scan failed, retrying...");
-          delay(500);
-          found = WiFi.scanNetworks(false, true);
-          Serial.printf("[WIFI] Retry returned: %d\n", found);
-        }
-        if (found <= 0) {
-          resp["ssids"] = "";
-          sendDoc(resp);
-          WiFi.scanDelete();
-          return;
-        }
+      // Retry once on failure
+      if (found == -2) {
+        Serial.println("[WIFI] Scan failed, retrying...");
+        delay(500);
+        found = WiFi.scanNetworks(false, true);
+        Serial.printf("[WIFI] Retry returned: %d\n", found);
       }
 
-      Serial.printf("[WIFI] %d networks found\n", found);
+      // Build SSID list before releasing scan data
       String ssidList = "";
-      int limit = min(found, 5); // Cap at 5 — ESP-NOW payload is max 250 bytes
-      for (int i = 0; i < limit; i++) {
-        if (i > 0) ssidList += ",";
-        ssidList += WiFi.SSID(i);
+      if (found > 0) {
+        Serial.printf("[WIFI] %d networks found\n", found);
+        int limit = min(found, 5); // Cap at 5 — ESP-NOW payload is max 250 bytes
+        for (int i = 0; i < limit; i++) {
+          if (i > 0) ssidList += ",";
+          ssidList += WiFi.SSID(i);
+        }
       }
       WiFi.scanDelete();
 
-      resp["ssids"] = ssidList;
+      // Restore ESP-NOW (killed by WiFi.disconnect above) BEFORE sending result
+      espNowInit();
+
+      StaticJsonDocument<1024> resp;
+      resp["type"]  = "WIFI_SCAN_RESULT";
+      resp["ssids"] = ssidList; // empty string if no networks found
       sendDoc(resp);
 
     } else if (strcmp(action, "WIFI_CONNECT") == 0) {
@@ -429,16 +425,21 @@ void handleCmd(String cmd) {
       if (connected) {
         resp["ip"] = WiFi.localIP().toString();
         Serial.println("[WIFI] Connected! IP: " + WiFi.localIP().toString());
-        sendDoc(resp);
-        syncNTP();  // Sync time from NTP on successful connect
+        syncNTP();  // Sync NTP while WiFi is up, before restoring ESP-NOW
       } else {
         Serial.println("[WIFI] Connection failed.");
-        sendDoc(resp);
       }
+      // Restore ESP-NOW — WiFi.disconnect(true) at the top of this handler
+      // tore down the WiFi radio and silently killed ESP-NOW.
+      // Must re-init BEFORE sendDoc() or the reply is dropped.
+      espNowInit();
+      sendDoc(resp);
 
     } else if (strcmp(action, "WIFI_DISCONNECT") == 0) {
       Serial.println("[WIFI] Disconnecting...");
       WiFi.disconnect(true, true);
+      // Restore ESP-NOW immediately — WiFi.disconnect() killed the radio
+      espNowInit();
       StaticJsonDocument<128> resp;
       resp["type"]      = "WIFI_STATUS";
       resp["connected"] = false;
@@ -484,7 +485,8 @@ struct EspNowMsg { char data[ESPNOW_PAYLOAD_MAX]; };
 static EspNowMsg s_cpQueue[ESPNOW_QUEUE_SIZE];
 static volatile uint8_t s_cpQHead = 0, s_cpQTail = 0;
 
-static void onDataRecvFromCP(const uint8_t *mac, const uint8_t *data, int len) {
+// Arduino Core 3.x (IDF 5.x): recv callback takes esp_now_recv_info_t* not uint8_t* mac
+static void onDataRecvFromCP(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len) {
   if (len <= 0 || len >= ESPNOW_PAYLOAD_MAX) return;
   uint8_t next = (s_cpQTail + 1) % ESPNOW_QUEUE_SIZE;
   if (next == s_cpQHead) return; // queue full — drop
@@ -493,7 +495,8 @@ static void onDataRecvFromCP(const uint8_t *mac, const uint8_t *data, int len) {
   s_cpQTail = next;
 }
 
-static void onDataSentToCP(const uint8_t *mac, esp_now_send_status_t status) {
+// Arduino Core 3.x (IDF 5.x): send callback takes wifi_tx_info_t* not uint8_t* mac
+static void onDataSentToCP(const wifi_tx_info_t *tx_info, esp_now_send_status_t status) {
   if (status != ESP_NOW_SEND_SUCCESS) {
     Serial.println("[ESP-NOW] SEND FAIL — CP unreachable or MAC mismatch");
   }
@@ -507,6 +510,11 @@ void espNowInit() {
   // Lock to the fixed channel BEFORE esp_now_init() so the peer
   // registration uses the correct channel from the start.
   esp_wifi_set_channel(ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE);
+
+  // Tear down any previous ESP-NOW state — safe to call even when not initialized.
+  // Required when espNowInit() is called a second time after a WiFi.disconnect(true)
+  // destroyed the radio (WIFI_SCAN / WIFI_CONNECT / WIFI_DISCONNECT handlers).
+  esp_now_deinit();
 
   if (esp_now_init() != ESP_OK) {
     Serial.println("[ESP-NOW] Init FAILED!");

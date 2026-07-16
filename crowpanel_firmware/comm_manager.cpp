@@ -42,7 +42,8 @@ String CommManager::serialBuf = "";
 // ESP-NOW receive callback  (runs in WiFi task, Core 0)
 // Only copies bytes into the ring buffer — zero parsing here.
 // ============================================================
-void CommManager::onEspNowRecv(const uint8_t* mac,
+// Arduino Core 3.x (IDF 5.x): recv callback takes esp_now_recv_info_t* not uint8_t* mac
+void CommManager::onEspNowRecv(const esp_now_recv_info_t* recv_info,
                                 const uint8_t* data, int len) {
     if (len <= 0 || len >= ESPNOW_PAYLOAD_MAX) return;
     uint8_t next = (s_qTail + 1) % ESPNOW_QUEUE_SIZE;
