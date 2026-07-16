@@ -23,6 +23,7 @@
 #include <ArduinoJson.h>
 #include <WiFi.h>
 #include <WiFiUdp.h>
+#include <HTTPClient.h>
 #include <time.h>
 #include <esp_now.h>
 #include <esp_system.h>
@@ -36,6 +37,18 @@
 #define PIN_FP_TOUCH 34   // AS608 T-OUT  HIGH when finger present
 #define PIN_FACTORY_RESET 14 // Factory Reset hardware button (active low)
 #define MAX_SLOTS    127
+
+// ============================================================
+// Device Registration / Activation
+// ============================================================
+// Hardcoded device ID — used as the payload when querying the
+// backend API to verify if this unit has been activated.
+#define DEVICE_ID    "P001-2607-6AEC-YRH5"
+
+// Base URL of your backend server.
+// Using LAN IP for local mock server testing.
+// Change to your server PC's LAN IP (e.g. http://192.168.1.50:8000) for production.
+#define API_BASE_URL "http://192.168.0.105:8000"
 
 // ============================================================
 // ESP-NOW configuration  (Option A — fixed channel)
@@ -71,11 +84,12 @@ RTC_DS3231 rtc;
 // ============================================================
 const char EMPLOYEES_JSON[] = R"([
   {"id":1,"name":"Admin","dept":"Admin","job_title":"System Admin","branch":"Main","fp_enrolled":false},
-  {"id":2,"name":"Alice Santos","dept":"HR","job_title":"HR Manager","branch":"Main","fp_enrolled":false},
-  {"id":3,"name":"Bob Cruz","dept":"IT","job_title":"Developer","branch":"Main","fp_enrolled":false},
-  {"id":4,"name":"Carol Reyes","dept":"Finance","job_title":"Accountant","branch":"Main","fp_enrolled":false},
-  {"id":5,"name":"Dave Lim","dept":"Security","job_title":"Guard","branch":"Main","fp_enrolled":false},
-  {"id":6,"name":"Eve Tan","dept":"Admin","job_title":"Clerk","branch":"Main","fp_enrolled":false}
+  {"id":2,"name":"Claire Jem Dedicatoria","dept":"HR","job_title":"Intern Tech Lead","branch":"Nasya","fp_enrolled":false},
+  {"id":3,"name":"Alice Santos","dept":"HR","job_title":"HR Manager","branch":"Main","fp_enrolled":false},
+  {"id":4,"name":"Bob Cruz","dept":"IT","job_title":"Developer","branch":"Main","fp_enrolled":false},
+  {"id":5,"name":"Carol Reyes","dept":"Finance","job_title":"Accountant","branch":"Main","fp_enrolled":false},
+  {"id":6,"name":"Dave Lim","dept":"Security","job_title":"Guard","branch":"Main","fp_enrolled":false},
+  {"id":7,"name":"Eve Tan","dept":"Admin","job_title":"Clerk","branch":"Main","fp_enrolled":false}
 ])";
 
 struct Employee { int id; String name; String dept; String job_title; String branch; bool fp_enrolled; };
@@ -382,6 +396,71 @@ void handleWifiDisconnect() {
 }
 
 // ============================================================
+// Device Activation — Server Validation (HTTP)
+// ============================================================
+// Called by the VALIDATE_ACTIVATION command from CrowPanel.
+// Posts device_id + registration_code to the server and sends
+// the result back to CrowPanel as ACTIVATION_RESULT.
+void validateActivationWithServer(const String& registrationCode) {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[ACTIVATION] Cannot validate — WiFi not connected.");
+    send("{\"type\":\"ACTIVATION_RESULT\",\"success\":false,\"err\":\"WiFi not connected\"}");
+    return;
+  }
+
+  Serial.println("[ACTIVATION] Validating registration code with server...");
+  Serial.printf("[ACTIVATION] device_id=%s  registration_code=%s\n", DEVICE_ID, registrationCode.c_str());
+
+  HTTPClient http;
+  // Matches the endpoint:
+  // POST /api/devices/registerDevice?device_id=<ID>
+  String url = String(API_BASE_URL)
+             + "/api/devices/registerDevice"
+             + "?device_id=" + DEVICE_ID;
+
+  http.begin(url);
+  http.addHeader("Content-Type", "application/json");
+  // Send the activation code (token) securely via Authorization header
+  http.addHeader("Authorization", "Bearer " + registrationCode);
+  
+  int httpCode = http.POST("");   // params are in the URL, body is empty
+
+  Serial.printf("[ACTIVATION] HTTP %d\n", httpCode);
+
+  StaticJsonDocument<128> result;
+  result["type"] = "ACTIVATION_RESULT";
+
+  if (httpCode > 0) {
+    String response = http.getString();
+    Serial.println("[ACTIVATION] Response: " + response);
+
+    StaticJsonDocument<256> doc;
+    DeserializationError err = deserializeJson(doc, response);
+
+    bool success = false;
+    if (err == DeserializationError::Ok) {
+      // Accept common field names from the server response
+      if      (doc.containsKey("activated"))  success = doc["activated"].as<bool>();
+      else if (doc.containsKey("is_active"))  success = doc["is_active"].as<bool>();
+      else if (doc.containsKey("success"))    success = doc["success"].as<bool>();
+      else if (doc.containsKey("status"))     success = (String(doc["status"] | "") == "active");
+    } else {
+      Serial.println("[ACTIVATION] Could not parse server response.");
+    }
+
+    result["success"] = success;
+    if (!success) result["err"] = "Code rejected by server";
+  } else {
+    Serial.printf("[ACTIVATION] HTTP failed: %s\n", http.errorToString(httpCode).c_str());
+    result["success"] = false;
+    result["err"]     = "Server unreachable";
+  }
+
+  http.end();
+  sendDoc(result);
+}
+
+// ============================================================
 // Fingerprint match
 // ============================================================
 
@@ -573,6 +652,15 @@ void handleCmd(String cmd) {
     } else if (strcmp(action, "SYNC_NTP") == 0) {
       Serial.println("[NTP] Manual sync requested by CrowPanel.");
       syncNTP();
+    } else if (strcmp(action, "VALIDATE_ACTIVATION") == 0) {
+      // CrowPanel is asking us to validate a registration code with the server.
+      String regCode = jcmd["registration_code"] | "";
+      if (regCode.length() == 0) {
+        send("{\"type\":\"ACTIVATION_RESULT\",\"success\":false,\"err\":\"Empty registration code\"}");
+      } else {
+        validateActivationWithServer(regCode);
+      }
+
     } else if (strcmp(action, "DEVICE_ACTIVATED") == 0) {
       activated = true;
       Serial.println("[SYSTEM] CrowPanel signaled DEVICE_ACTIVATED. Fingerprint scanner enabled.");
@@ -805,7 +893,9 @@ void loop() {
       resp["connected"] = true;
       resp["ip"]        = WiFi.localIP().toString();
       sendDoc(resp);
-      syncNTP(); // non-blocking — just fires configTime(), result polled below
+      syncNTP();               // non-blocking — just fires configTime(), result polled below
+      // Note: activation is now user-triggered (VALIDATE_ACTIVATION from CrowPanel),
+      // not auto-checked on WiFi connect.
 
     } else if (millis() - wifiConnectStart > 10000) {
       wifiConnecting = false;

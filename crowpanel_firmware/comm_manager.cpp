@@ -22,6 +22,7 @@ extern void uiSettingsUpdateClock(const char* ts);
 extern void uiSettingsUpdateWifiScan(const char* ssids);
 extern void uiSettingsUpdateWifiStatus(bool connected);
 extern void uiSettingsUpdateNtpStatus(bool ok, const char* ts, const char* err);
+extern void uiActivationResult(bool success, const char* err); // Activation screen result
 
 // ============================================================
 // ESP-NOW ring buffer
@@ -200,10 +201,43 @@ void CommManager::dispatchJson(const String& line) {
         const char* pong = "{\"type\":\"PONG\"}";
         esp_now_send(WROOM_MAC, (const uint8_t*)pong, strlen(pong));
         if (Serial) Serial.println("[PING] Got PING -> sent PONG");
+    } else if (strcmp(type, "ACTIVATION_RESULT") == 0) {
+        // WROOM has finished the server round-trip for the registration code.
+        bool success        = doc["success"] | false;
+        const char* err     = doc["err"] | "";
+        if (Serial) Serial.printf("[ACTIVATION] Result from server: success=%d err=%s\n", success, err);
+
+        if (success) {
+            DataManager::setActivatedByServer(true);
+            sendCommand("{\"cmd\":\"DEVICE_ACTIVATED\"}");  // unlock WROOM scanner
+            uiShowIdle();
+            if (Serial) Serial.println("[ACTIVATION] Device activated. Scanner unlocked.");
+        }
+        // Notify activation screen (clears spinner, re-enables inputs on failure)
+        uiActivationResult(success, err);
+
     } else if (strcmp(type, "WROOM_BOOT") == 0) {
         if (Serial) Serial.println("[UART] WROOM booted. Checking activation state.");
         if (DataManager::isActivated()) {
             sendCommand("{\"cmd\":\"DEVICE_ACTIVATED\"}");
+        }
+    } else if (strcmp(type, "ACTIVATION_STATUS") == 0) {
+        // WROOM performed an HTTP check against the server and reports back here.
+        bool activated = doc["activated"] | false;
+        const char* devId = doc["device_id"] | "";
+        if (Serial) Serial.printf("[ACTIVATION] Server says activated=%d for device_id=%s\n", activated, devId);
+
+        if (activated) {
+            // Persist activated state on CrowPanel so it survives reboot
+            DataManager::setActivatedByServer(true);
+            // Tell WROOM to unlock the fingerprint scanner
+            sendCommand("{\"cmd\":\"DEVICE_ACTIVATED\"}");
+            // Switch to idle screen (device is now live)
+            uiShowIdle();
+            if (Serial) Serial.println("[ACTIVATION] Device activated by server. Fingerprint scanner unlocked.");
+        } else {
+            // Not activated — log it; UI stays on activation screen
+            if (Serial) Serial.println("[ACTIVATION] Server says device is NOT activated.");
         }
     } else if (strcmp(type, "WIFI_STATUS") == 0) {
         bool connected = doc["connected"] | false;

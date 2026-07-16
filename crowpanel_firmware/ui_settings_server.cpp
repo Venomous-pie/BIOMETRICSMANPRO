@@ -69,12 +69,12 @@ void buildSettingsServerScreen() {
     UIManager::styleLabel(lbl_dev_id, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
     lv_obj_align(lbl_dev_id, LV_ALIGN_TOP_LEFT, 0, 0);
 
-    lv_obj_t *ta_dev_name = create_input_field(body, "Device name", "Main office device", 30, 360, 0, false);
+    lv_obj_t *ta_dev_name = create_input_field(body, "Device Name", "ManPro Biometric", 30, 360, 0, false);
     lv_textarea_set_text(ta_dev_name, DataManager::getDeviceName().c_str());
 
-    lv_obj_t *ta_dev_id = create_input_field(body, "Device ID", "ESP32-A1", 30, 360, 400, false);
-    lv_textarea_set_text(ta_dev_id, DataManager::getDeviceId().c_str());
-    lv_obj_clear_flag(ta_dev_id, LV_OBJ_FLAG_CLICKABLE); // Usually Device ID shouldn't be edited by user directly
+    lv_obj_t *ta_dev_id = create_input_field(body, "Device ID", "P001-XXXX-XXXX-XXXX", 30, 360, 400, false);
+    lv_textarea_set_text(ta_dev_id, DataManager::getDeviceId().c_str());  // P001-2607-6AEC-YRH5
+    lv_obj_clear_flag(ta_dev_id, LV_OBJ_FLAG_CLICKABLE); // Device ID is read-only
 
     // Server connection
     lv_obj_t *lbl_serv = lv_label_create(body);
@@ -82,11 +82,13 @@ void buildSettingsServerScreen() {
     UIManager::styleLabel(lbl_serv, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
     lv_obj_align(lbl_serv, LV_ALIGN_TOP_LEFT, 0, 100);
 
-    lv_obj_t *ta_api = create_input_field(body, "API endpoint", "https://api.manpro-attendance.com/v1", 130, 760, 0, false);
-    lv_textarea_set_text(ta_api, "https://api.manpro-attendance.com/v1");
+    lv_obj_t *ta_api = create_input_field(body, "API Server URL", "http://server-ip:8000", 130, 760, 0, false);
+    // Show the actual API_BASE_URL hardcoded in wroom_firmware — read-only display
+    lv_textarea_set_text(ta_api, "http://192.168.0.105:8000");
     lv_obj_clear_flag(ta_api, LV_OBJ_FLAG_CLICKABLE);
 
-    lv_obj_t *ta_token = create_input_field(body, "Device token", "••••••••••••••••••••••••", 210, 360, 0, true);
+    lv_obj_t *ta_token = create_input_field(body, "Activation Code (token)", "Enter via Register page", 210, 360, 0, true);
+    // Show the saved activation code (hidden behind password dots)
     lv_textarea_set_text(ta_token, DataManager::getActivationCode().c_str());
     lv_obj_clear_flag(ta_token, LV_OBJ_FLAG_CLICKABLE);
 

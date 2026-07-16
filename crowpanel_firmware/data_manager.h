@@ -4,6 +4,11 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 
+// ── Hardcoded Device ID ───────────────────────────────────────────
+// This must match the DEVICE_ID defined in wroom_firmware.ino.
+// It is sent to the backend API to verify if this unit is activated.
+#define DEVICE_ID_HARDCODED "P001-2607-6AEC-YRH5"
+
 struct Employee {
     int id;
     String name;
@@ -25,12 +30,13 @@ public:
     static void setWifiConfigured(bool state);
     static bool isActivated();
     static void setActivated(bool state);
-    static String getHardwareCode();
+    static void setActivatedByServer(bool state);  // Called when ACTIVATION_STATUS arrives from WROOM
+    static String getHardwareCode();               // Short MAC-derived code (XXXX-XXXX)
+    static String getDeviceId();                   // Full device ID shown on register screen
     static bool activate(const String& code);
     static void factoryReset();
 
     static String getActivationCode();
-    static String getDeviceId();
     static String getDeviceName();
 
     // WiFi credential persistence

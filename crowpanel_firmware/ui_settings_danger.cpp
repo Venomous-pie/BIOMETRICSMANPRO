@@ -73,12 +73,14 @@ void buildSettingsDangerScreen() {
         lv_obj_align(v, LV_ALIGN_TOP_LEFT, x_ofs, y_ofs + 20);
     };
 
-    add_info_row(card_info, "Firmware version", "v1.0.3", 0, 0);
-    add_info_row(card_info, "Battery level", "98%", 250, 0);
-    add_info_row(card_info, "Last synced", "07/01/2026 8:15 AM", 500, 0);
+    // Firmware version from build macros
+    add_info_row(card_info, "Firmware version", "v1.0.0 (" __DATE__ ")", 0, 0);
+    add_info_row(card_info, "Activation status", DataManager::isActivated() ? "Activated" : "Not Activated", 250, 0);
+    add_info_row(card_info, "WiFi status", DataManager::isWifiConnected() ? "Connected" : "Disconnected", 500, 0);
 
-    String hwCode = DataManager::getHardwareCode();
-    add_info_row(card_info, "Hardware code", hwCode.c_str(), 0, 70);
+    // Show full Device ID (P001-2607-6AEC-YRH5)
+    String devId = DataManager::getDeviceId();
+    add_info_row(card_info, "Device ID", devId.c_str(), 0, 70);
 
     // Danger Zone Card
     lv_obj_t *card_danger = lv_obj_create(body);

@@ -1,6 +1,7 @@
 #include "ui_activation.h"
 #include "ui_manager.h"
 #include "data_manager.h"
+#include "comm_manager.h"
 
 static lv_obj_t *scr_activation = NULL;
 
@@ -21,6 +22,7 @@ static lv_obj_t *ta_code3 = NULL;
 static lv_obj_t *btn_activate = NULL;
 static lv_obj_t *kb_code = NULL;
 static lv_obj_t *lbl_err = NULL;
+static lv_obj_t *lbl_checking = NULL;   // "Checking with server..." spinner label
 static lv_timer_t *lockout_timer = NULL;
 
 extern void uiShowIdle();
@@ -153,12 +155,26 @@ static void btn_activate_cb(lv_event_t * e) {
     }
     
     String fullCode = p1 + p2 + p3;
-    if (DataManager::activate(fullCode)) {
-        if (lockout_timer) { lv_timer_del(lockout_timer); lockout_timer = NULL; }
-        uiShowIdle();
-    } else {
-        update_lockout_ui();
-    }
+
+    // Hide keyboard, disable inputs while waiting for server response
+    lv_obj_add_flag(kb_code, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_state(btn_activate, LV_STATE_DISABLED);
+    lv_obj_add_state(ta_code1, LV_STATE_DISABLED);
+    lv_obj_add_state(ta_code2, LV_STATE_DISABLED);
+    lv_obj_add_state(ta_code3, LV_STATE_DISABLED);
+    lv_label_set_text(lbl_err, "");
+    lv_label_set_text(lbl_checking, LV_SYMBOL_REFRESH " Checking with server...");
+
+    // Build and send VALIDATE_ACTIVATION command to WROOM via ESP-NOW
+    // WROOM will POST device_id + registration_code to the server and
+    // reply with ACTIVATION_RESULT which CommManager handles.
+    StaticJsonDocument<128> cmd;
+    cmd["cmd"]               = "VALIDATE_ACTIVATION";
+    cmd["device_id"]         = DEVICE_ID_HARDCODED;
+    cmd["registration_code"] = fullCode;
+    String out;
+    serializeJson(cmd, out);
+    CommManager::sendCommand(out);
 }
 
 void buildActivationScreen() {
@@ -203,31 +219,34 @@ void buildActivationScreen() {
     lv_obj_clear_flag(view_hw_code, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *lbl_inst1 = lv_label_create(view_hw_code);
-    lv_label_set_text(lbl_inst1, "Go to manpro.app/register and enter the Device Code below,\nthen click \"Next\" to enter your Activation code.");
+    lv_label_set_text(lbl_inst1, "Go to manpro.app/register and enter the Device ID below,\nthen click \"Next\" to enter your Activation code.");
     lv_label_set_long_mode(lbl_inst1, LV_LABEL_LONG_WRAP);
     lv_obj_set_width(lbl_inst1, 660);
     UIManager::styleLabel(lbl_inst1, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
     lv_obj_align(lbl_inst1, LV_ALIGN_TOP_MID, 0, 0);
 
     lv_obj_t *box_device_code = lv_obj_create(view_hw_code);
-    lv_obj_set_size(box_device_code, 350, 120);
+    lv_obj_set_size(box_device_code, 460, 120);
     lv_obj_align(box_device_code, LV_ALIGN_TOP_MID, 0, 60);
     lv_obj_set_style_bg_color(box_device_code, UIManager::rgb(COLOR_GREEN_LIGHT), 0);
     lv_obj_set_style_border_color(box_device_code, UIManager::rgb(COLOR_GREEN_MAIN), 0);
-    lv_obj_set_style_border_width(box_device_code, 1, 0);
-    lv_obj_set_style_radius(box_device_code, 8, 0);
+    lv_obj_set_style_border_width(box_device_code, 2, 0);
+    lv_obj_set_style_radius(box_device_code, 12, 0);
     lv_obj_clear_flag(box_device_code, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *lbl_code_title = lv_label_create(box_device_code);
-    lv_label_set_text(lbl_code_title, "DEVICE CODE:");
-    UIManager::styleLabel(lbl_code_title, COLOR_GREEN_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
-    lv_obj_align(lbl_code_title, LV_ALIGN_TOP_MID, 0, 10);
+    lv_label_set_text(lbl_code_title, "DEVICE ID");
+    UIManager::styleLabel(lbl_code_title, COLOR_GREEN_MAIN, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
+    lv_obj_align(lbl_code_title, LV_ALIGN_TOP_MID, 0, 8);
 
+    // Display the full hardcoded Device ID: P001-2607-6AEC-YRH5
     lv_obj_t *lbl_hw = lv_label_create(box_device_code);
-    String hwText = DataManager::getHardwareCode(); // Now returns XXXX-XXXX
+    String hwText = DataManager::getDeviceId();  // Returns "P001-2607-6AEC-YRH5"
     lv_label_set_text(lbl_hw, hwText.c_str());
-    UIManager::styleLabel(lbl_hw, COLOR_GREEN_MAIN, &lv_font_montserrat_48, LV_TEXT_ALIGN_CENTER);
-    lv_obj_align(lbl_hw, LV_ALIGN_CENTER, 0, 15);
+    lv_label_set_long_mode(lbl_hw, LV_LABEL_LONG_WRAP);
+    lv_obj_set_width(lbl_hw, 430);
+    UIManager::styleLabel(lbl_hw, COLOR_GREEN_MAIN, &lv_font_montserrat_28, LV_TEXT_ALIGN_CENTER);
+    lv_obj_align(lbl_hw, LV_ALIGN_CENTER, 0, 12);
 
     btn_have_code = lv_btn_create(scr_activation);
     lv_obj_set_size(btn_have_code, 280, 45);
@@ -316,6 +335,12 @@ void buildActivationScreen() {
     style_ta(ta_code3);
     lv_obj_align(ta_code3, LV_ALIGN_RIGHT_MID, 0, 0);
 
+    // Checking label (shown while waiting for server reply)
+    lbl_checking = lv_label_create(scr_activation);
+    lv_label_set_text(lbl_checking, "");
+    UIManager::styleLabel(lbl_checking, COLOR_GREEN_MAIN, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
+    lv_obj_align(lbl_checking, LV_ALIGN_BOTTOM_MID, 0, -95);
+
     // Error Label
     lbl_err = lv_label_create(scr_activation);
     lv_label_set_text(lbl_err, "");
@@ -362,5 +387,28 @@ void uiShowActivation() {
     lv_textarea_set_text(ta_code1, "");
     lv_textarea_set_text(ta_code2, "");
     lv_textarea_set_text(ta_code3, "");
+    if (lbl_checking) lv_label_set_text(lbl_checking, "");
     update_lockout_ui();
+}
+
+// Called by CommManager when ACTIVATION_RESULT arrives from WROOM.
+void uiActivationResult(bool success, const char* err) {
+    if (!scr_activation || !lv_obj_is_valid(scr_activation)) return;
+
+    // Always clear the checking label
+    lv_label_set_text(lbl_checking, "");
+
+    if (success) {
+        if (lockout_timer) { lv_timer_del(lockout_timer); lockout_timer = NULL; }
+        // CommManager already called uiShowIdle() — nothing more to do here
+    } else {
+        // Re-enable inputs so the user can correct and retry
+        lv_obj_clear_state(btn_activate, LV_STATE_DISABLED);
+        lv_obj_clear_state(ta_code1, LV_STATE_DISABLED);
+        lv_obj_clear_state(ta_code2, LV_STATE_DISABLED);
+        lv_obj_clear_state(ta_code3, LV_STATE_DISABLED);
+        // Show the server's error reason
+        const char* msg = (err && strlen(err) > 0) ? err : "Invalid activation code. Please try again.";
+        lv_label_set_text(lbl_err, msg);
+    }
 }

@@ -38,11 +38,12 @@ void DataManager::createInitialFilesIfMissing() {
         if (f) {
             f.print(R"([
   {"id":1,"name":"Admin","dept":"Admin","job_title":"System Admin","branch":"Main","fp_enrolled":false},
-  {"id":2,"name":"Alice Santos","dept":"HR","job_title":"HR Manager","branch":"Main","fp_enrolled":false},
-  {"id":3,"name":"Bob Cruz","dept":"IT","job_title":"Developer","branch":"Main","fp_enrolled":false},
-  {"id":4,"name":"Carol Reyes","dept":"Finance","job_title":"Accountant","branch":"Main","fp_enrolled":false},
-  {"id":5,"name":"Dave Lim","dept":"Security","job_title":"Guard","branch":"Main","fp_enrolled":false},
-  {"id":6,"name":"Eve Tan","dept":"Admin","job_title":"Clerk","branch":"Main","fp_enrolled":false}
+  {"id":2,"name":"Claire Jem Dedicatoria","dept":"HR","job_title":"Intern Tech Lead","branch":"Nasya","fp_enrolled":false},
+  {"id":3,"name":"Alice Santos","dept":"HR","job_title":"HR Manager","branch":"Main","fp_enrolled":false},
+  {"id":4,"name":"Bob Cruz","dept":"IT","job_title":"Developer","branch":"Main","fp_enrolled":false},
+  {"id":5,"name":"Carol Reyes","dept":"Finance","job_title":"Accountant","branch":"Main","fp_enrolled":false},
+  {"id":6,"name":"Dave Lim","dept":"Security","job_title":"Guard","branch":"Main","fp_enrolled":false},
+  {"id":7,"name":"Eve Tan","dept":"Admin","job_title":"Clerk","branch":"Main","fp_enrolled":false}
 ])");
             f.close();
         }
@@ -166,6 +167,18 @@ bool DataManager::isWifiConnected() { return _wifiConnected; }
 bool DataManager::isActivated() { return _isActivated; }
 String DataManager::getHardwareCode() { return _hwCode; }
 
+// Returns the full device ID shown on the register page and sent to the API.
+String DataManager::getDeviceId() {
+    return String(DEVICE_ID_HARDCODED);
+}
+
+// Called when WROOM receives ACTIVATION_STATUS:activated=true from the server.
+// Persists activated state so it survives reboot, then notifies WROOM to unlock.
+void DataManager::setActivatedByServer(bool state) {
+    _isActivated = state;
+    saveConfig();
+}
+
 bool DataManager::isLockedOut() {
     if (_lockoutStartTime > 0) {
         if (millis() - _lockoutStartTime >= 600000) { // 10 minutes passed
@@ -220,9 +233,7 @@ String DataManager::getActivationCode() {
     return _activationCode;
 }
 
-String DataManager::getDeviceId() {
-    return "ManPro_Biometric_" + _activationCode + "_" + _hwCode;
-}
+// String DataManager::getDeviceId() is implemented at the top using DEVICE_ID_HARDCODED
 
 String DataManager::getDeviceName() {
     return "ManPro Biometric";
