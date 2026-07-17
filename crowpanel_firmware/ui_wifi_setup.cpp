@@ -609,6 +609,9 @@ void buildWifiSetupScreen() {
     // Extra right padding so typed text doesn't hide under the eye button
     lv_obj_set_style_pad_right(ta_pass, 52, 0);
     lv_obj_add_event_cb(ta_pass, ta_event_cb, LV_EVENT_ALL, NULL);
+    if (DataManager::hasSavedWifi()) {
+        lv_textarea_set_text(ta_pass, DataManager::getWifiPass().c_str());
+    }
 
     // ── Show/Hide password button — overlaid on the right edge of ta_pass ──
     lv_obj_t *btn_show = lv_btn_create(right_panel);
