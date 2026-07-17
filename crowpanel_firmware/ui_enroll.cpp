@@ -16,7 +16,7 @@ static lv_obj_t *lbl_enroll_main_title = NULL;
 static lv_obj_t *lbl_enroll_sub_title = NULL;
 static lv_obj_t *lbl_enroll_instruction = NULL;
 static lv_obj_t *box_scan = NULL;
-static lv_obj_t *lbl_scan_icon = NULL;
+static lv_obj_t *img_scan_icon = NULL;
 static lv_obj_t *lbl_scan_text = NULL;
 static lv_obj_t *lbl_scan_subtext = NULL;
 static lv_obj_t *dot_1 = NULL;
@@ -27,6 +27,9 @@ static lv_obj_t *dot_3 = NULL;
 static int defer_emp_id = 0;
 static String defer_name = "";
 static String defer_dept = "";
+
+extern const lv_img_dsc_t icon_biometrics;
+extern const lv_img_dsc_t icon_check;
 
 const char* getFingerName(int index) {
   switch(index) {
@@ -374,7 +377,7 @@ void buildEnrollScreen() {
 
   // Central Gray Box
   box_scan = lv_obj_create(scr_enroll);
-  lv_obj_set_size(box_scan, 280, 150);
+  lv_obj_set_size(box_scan, 300, 200);
   lv_obj_align(box_scan, LV_ALIGN_CENTER, 0, 30);
   lv_obj_set_style_bg_color(box_scan, UIManager::rgb(0xD9D9D9), 0);
   lv_obj_set_style_border_width(box_scan, 0, 0);
@@ -382,20 +385,19 @@ void buildEnrollScreen() {
   lv_obj_clear_flag(box_scan, LV_OBJ_FLAG_SCROLLABLE);
 
   // Elements inside box
-  lbl_scan_icon = lv_label_create(box_scan);
-  lv_label_set_text(lbl_scan_icon, LV_SYMBOL_WIFI); // Placeholder
-  UIManager::styleLabel(lbl_scan_icon, 0x1A1A1A, &lv_font_montserrat_48, LV_TEXT_ALIGN_CENTER);
-  lv_obj_align(lbl_scan_icon, LV_ALIGN_TOP_MID, 0, 20);
+  img_scan_icon = lv_img_create(box_scan);
+  lv_img_set_src(img_scan_icon, &icon_biometrics);
+  lv_obj_align(img_scan_icon, LV_ALIGN_TOP_MID, 0, 20);
 
   lbl_scan_text = lv_label_create(box_scan);
   lv_label_set_text(lbl_scan_text, "Scan 1 of 3");
   UIManager::styleLabel(lbl_scan_text, 0x333333, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
-  lv_obj_align(lbl_scan_text, LV_ALIGN_CENTER, 0, 10);
+  lv_obj_align(lbl_scan_text, LV_ALIGN_TOP_MID, 0, 100);
 
   lbl_scan_subtext = lv_label_create(box_scan);
   lv_label_set_text(lbl_scan_subtext, "");
   UIManager::styleLabel(lbl_scan_subtext, 0x666666, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
-  lv_obj_align(lbl_scan_subtext, LV_ALIGN_BOTTOM_MID, 0, -10);
+  lv_obj_align(lbl_scan_subtext, LV_ALIGN_TOP_MID, 0, 125);
   lv_obj_add_flag(lbl_scan_subtext, LV_OBJ_FLAG_HIDDEN);
 
   // Dots
@@ -437,8 +439,7 @@ void uiShowEnrollStart(const char *name) {
   inst += " finger on the device sensor";
   lv_label_set_text(lbl_enroll_instruction, inst.c_str());
 
-  lv_label_set_text(lbl_scan_icon, LV_SYMBOL_WIFI); 
-  UIManager::styleLabel(lbl_scan_icon, 0x1A1A1A, &lv_font_montserrat_48, LV_TEXT_ALIGN_CENTER);
+  lv_img_set_src(img_scan_icon, &icon_biometrics);
   
   lv_label_set_text(lbl_scan_text, "Scan 1 of 3");
   UIManager::styleLabel(lbl_scan_text, 0x333333, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
@@ -461,6 +462,13 @@ void uiShowEnrollStep(int step, const char *msg) {
   snprintf(buf, sizeof(buf), "Scan %d of 3", step);
   lv_label_set_text(lbl_scan_text, buf);
 
+  if (msg && strlen(msg) > 0) {
+    lv_label_set_text(lbl_scan_subtext, msg);
+    lv_obj_clear_flag(lbl_scan_subtext, LV_OBJ_FLAG_HIDDEN);
+  } else {
+    lv_obj_add_flag(lbl_scan_subtext, LV_OBJ_FLAG_HIDDEN);
+  }
+
   lv_obj_set_style_bg_color(dot_1, UIManager::rgb(step >= 1 ? 0x00A3FF : 0x999999), 0);
   lv_obj_set_style_bg_color(dot_2, UIManager::rgb(step >= 2 ? 0x00A3FF : 0x999999), 0);
   lv_obj_set_style_bg_color(dot_3, UIManager::rgb(step >= 3 ? 0x00A3FF : 0x999999), 0);
@@ -481,8 +489,7 @@ void uiShowEnrollResult(bool ok, const char *name) {
     lv_label_set_text(lbl_enroll_sub_title, "• • • Done");
     UIManager::styleLabel(lbl_enroll_sub_title, 0x666666, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
 
-    lv_label_set_text(lbl_scan_icon, LV_SYMBOL_OK);
-    UIManager::styleLabel(lbl_scan_icon, 0x2A800F, &lv_font_montserrat_48, LV_TEXT_ALIGN_CENTER);
+    lv_img_set_src(img_scan_icon, &icon_check);
     
     lv_label_set_text(lbl_scan_text, "Fingerprint Enrolled");
     UIManager::styleLabel(lbl_scan_text, 0x1A1A1A, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
@@ -493,8 +500,10 @@ void uiShowEnrollResult(bool ok, const char *name) {
     lv_label_set_text(lbl_scan_subtext, sub.c_str());
 
   } else {
-    lv_label_set_text(lbl_scan_icon, LV_SYMBOL_CLOSE);
-    UIManager::styleLabel(lbl_scan_icon, 0xD32F2F, &lv_font_montserrat_48, LV_TEXT_ALIGN_CENTER);
+    // If you have a failure icon, use it here. For now, keep fallback symbol or just hide it.
+    // Assuming we fallback to the wifi icon or hide it since we don't have icon_close image?
+    // Actually, we can use the same check icon or hide it. Let's just use icon_biometrics for fail.
+    lv_img_set_src(img_scan_icon, &icon_biometrics);
     
     lv_label_set_text(lbl_scan_text, "Enrollment Failed");
     UIManager::styleLabel(lbl_scan_text, 0x1A1A1A, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
