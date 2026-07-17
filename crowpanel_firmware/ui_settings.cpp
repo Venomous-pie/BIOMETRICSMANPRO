@@ -3,10 +3,9 @@
 
 lv_obj_t *scr_settings = NULL;
 
-extern const lv_img_dsc_t icon_settings;
-extern const lv_img_dsc_t icon_schedule; // using schedule as clock icon placeholder
-extern const lv_img_dsc_t icon_people;   // using people as server icon placeholder
-// You can use icon_battery for danger or whatever is available
+extern const lv_img_dsc_t icon_clock_network;
+extern const lv_img_dsc_t icon_server_device;
+extern const lv_img_dsc_t icon_device_info;
 
 extern void uiShowSettingsClock();
 extern void uiShowSettingsServer();
@@ -57,7 +56,7 @@ void buildSettingsScreen() {
     LV_FONT_DECLARE(lv_font_montserrat_20);
     LV_FONT_DECLARE(lv_font_montserrat_14);
 
-    auto create_card = [](lv_obj_t *parent, const char *title, const char *subtitle, lv_event_cb_t cb, bool danger) -> lv_obj_t* {
+    auto create_card = [](lv_obj_t *parent, const lv_img_dsc_t *icon_img, const char *title, const char *subtitle, lv_event_cb_t cb, bool danger) -> lv_obj_t* {
         lv_obj_t *card = lv_obj_create(parent);
         lv_obj_set_size(card, 220, 260);
         lv_obj_set_style_bg_color(card, UIManager::rgb(danger ? 0xffe3e8 : COLOR_GREEN_MAIN), 0);
@@ -67,22 +66,31 @@ void buildSettingsScreen() {
         lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_add_event_cb(card, cb, LV_EVENT_CLICKED, NULL);
 
+        if (icon_img) {
+            lv_obj_t *img = lv_img_create(card);
+            lv_img_set_src(img, icon_img);
+            lv_obj_align(img, LV_ALIGN_TOP_MID, 0, 30);
+            
+            lv_obj_set_style_img_recolor(img, danger ? UIManager::rgb(COLOR_DANGER) : lv_color_white(), 0);
+            lv_obj_set_style_img_recolor_opa(img, LV_OPA_COVER, 0);
+        }
+
         lv_obj_t *lbl_title = lv_label_create(card);
         lv_label_set_text(lbl_title, title);
         UIManager::styleLabel(lbl_title, danger ? COLOR_DANGER : 0xFFFFFF, &lv_font_montserrat_20, LV_TEXT_ALIGN_CENTER);
-        lv_obj_align(lbl_title, LV_ALIGN_CENTER, 0, -20);
+        lv_obj_align(lbl_title, LV_ALIGN_TOP_MID, 0, 150);
 
         lv_obj_t *lbl_sub = lv_label_create(card);
         lv_label_set_text(lbl_sub, subtitle);
         UIManager::styleLabel(lbl_sub, danger ? COLOR_DANGER : 0xFFFFFF, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
-        lv_obj_align(lbl_sub, LV_ALIGN_CENTER, 0, 15);
+        lv_obj_align(lbl_sub, LV_ALIGN_TOP_MID, 0, 190);
 
         return card;
     };
 
-    create_card(cards_cont, "Clock & Network", "Time, Timezone, Wi-Fi", btn_card_clock_cb, false);
-    create_card(cards_cont, "Server & Device", "API, Device Token", btn_card_server_cb, false);
-    create_card(cards_cont, "Device Info", "Status, Factory Reset", btn_card_danger_cb, true);
+    create_card(cards_cont, &icon_clock_network, "Clock & Network", "Time, Timezone, Wi-Fi", btn_card_clock_cb, false);
+    create_card(cards_cont, &icon_server_device, "Server & Device", "API, Device Token", btn_card_server_cb, false);
+    create_card(cards_cont, &icon_device_info, "Device Info", "Status, Factory Reset", btn_card_danger_cb, false);
 }
 
 void uiShowSettings() {

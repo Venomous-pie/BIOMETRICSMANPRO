@@ -39,7 +39,7 @@ void buildMainMenuScreen() {
     // Cards Container (Flex layout)
     lv_obj_t *cards_cont = lv_obj_create(scr_main_menu);
     lv_obj_set_size(cards_cont, 760, 320);
-    lv_obj_align(cards_cont, LV_ALIGN_BOTTOM_MID, 0, -20);
+    lv_obj_align(cards_cont, LV_ALIGN_TOP_MID, 0, 100);
     lv_obj_set_style_bg_opa(cards_cont, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(cards_cont, 0, 0);
     lv_obj_set_style_pad_all(cards_cont, 0, 0);
@@ -51,29 +51,29 @@ void buildMainMenuScreen() {
     // Helper lambda to create a card
     auto create_card = [](lv_obj_t *parent, const lv_img_dsc_t *icon, const char *title, const char *subtitle, lv_event_cb_t cb) -> lv_obj_t* {
         lv_obj_t *card = lv_obj_create(parent);
-        lv_obj_set_size(card, 220, 300);
+        lv_obj_set_size(card, 220, 260);
         lv_obj_set_style_bg_color(card, UIManager::rgb(COLOR_GREEN_MAIN), 0);
         lv_obj_set_style_radius(card, 20, 0);
         lv_obj_set_style_border_width(card, 0, 0);
         lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
         lv_obj_add_event_cb(card, cb, LV_EVENT_CLICKED, NULL);
 
-        // Icon — white recolor, centered in the upper portion of card
+        // Icon — white recolor
         lv_obj_t *img = lv_img_create(card);
         lv_img_set_src(img, icon);
         lv_obj_set_style_img_recolor(img, lv_color_white(), 0);
         lv_obj_set_style_img_recolor_opa(img, LV_OPA_COVER, 0);
-        lv_obj_align(img, LV_ALIGN_CENTER, 0, -40);
+        lv_obj_align(img, LV_ALIGN_TOP_MID, 0, 30);
 
         lv_obj_t *lbl_title = lv_label_create(card);
         lv_label_set_text(lbl_title, title);
         UIManager::styleLabel(lbl_title, 0xFFFFFF, &lv_font_montserrat_20, LV_TEXT_ALIGN_CENTER);
-        lv_obj_align(lbl_title, LV_ALIGN_BOTTOM_MID, 0, -60);
+        lv_obj_align(lbl_title, LV_ALIGN_TOP_MID, 0, 150);
 
         lv_obj_t *lbl_sub = lv_label_create(card);
         lv_label_set_text(lbl_sub, subtitle);
         UIManager::styleLabel(lbl_sub, 0xFFFFFF, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
-        lv_obj_align(lbl_sub, LV_ALIGN_BOTTOM_MID, 0, -30);
+        lv_obj_align(lbl_sub, LV_ALIGN_TOP_MID, 0, 190);
 
         return card;
     };

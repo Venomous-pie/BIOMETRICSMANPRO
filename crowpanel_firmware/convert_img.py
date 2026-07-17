@@ -1,4 +1,5 @@
 import sys
+# pyrefly: ignore [missing-import]
 from PIL import Image
 
 def rgb565(r, g, b):

@@ -34,11 +34,11 @@ void buildResultScreen() {
   lv_obj_set_style_bg_opa(scr_result, LV_OPA_COVER, 0);
   lv_obj_set_scrollbar_mode(scr_result, LV_SCROLLBAR_MODE_OFF);
 
-extern const lv_img_dsc_t icon_people;
+extern const lv_img_dsc_t icon_user_a;
 
   // Avatar Icon
   lbl_avatar = lv_img_create(scr_result);
-  lv_img_set_src(lbl_avatar, &icon_people);
+  lv_img_set_src(lbl_avatar, &icon_user_a);
   lv_obj_set_style_img_recolor(lbl_avatar, UIManager::rgb(0x000000), 0);
   lv_obj_set_style_img_recolor_opa(lbl_avatar, LV_OPA_COVER, 0);
   lv_obj_align(lbl_avatar, LV_ALIGN_TOP_MID, 0, 40);
@@ -47,19 +47,19 @@ extern const lv_img_dsc_t icon_people;
   lv_obj_t *lbl_scan_succ = lv_label_create(scr_result);
   lv_label_set_text(lbl_scan_succ, "SCAN SUCCESSFUL");
   UIManager::styleLabel(lbl_scan_succ, 0x666666, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
-  lv_obj_align(lbl_scan_succ, LV_ALIGN_TOP_MID, 0, 165);
+  lv_obj_align(lbl_scan_succ, LV_ALIGN_TOP_MID, 0, 185);
 
   // "Synced"
   lv_obj_t *lbl_synced = lv_label_create(scr_result);
   lv_label_set_text(lbl_synced, "Synced");
   UIManager::styleLabel(lbl_synced, 0x999999, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
-  lv_obj_align(lbl_synced, LV_ALIGN_TOP_MID, 0, 190);
+  lv_obj_align(lbl_synced, LV_ALIGN_TOP_MID, 0, 210);
 
   // Name
   lbl_emp_name = lv_label_create(scr_result);
   lv_label_set_text(lbl_emp_name, "---");
   UIManager::styleLabel(lbl_emp_name, 0x000000, &lv_font_montserrat_36, LV_TEXT_ALIGN_CENTER);
-  lv_obj_align(lbl_emp_name, LV_ALIGN_TOP_MID, 0, 240);
+  lv_obj_align(lbl_emp_name, LV_ALIGN_TOP_MID, 0, 260);
   lv_obj_set_width(lbl_emp_name, 700);
 #if LVGL_VERSION_MAJOR >= 9
   lv_label_set_long_mode(lbl_emp_name, LV_LABEL_LONG_CLIP);
@@ -71,12 +71,12 @@ extern const lv_img_dsc_t icon_people;
   lbl_emp_dept = lv_label_create(scr_result);
   lv_label_set_text(lbl_emp_dept, "---");
   UIManager::styleLabel(lbl_emp_dept, 0x666666, &lv_font_montserrat_20, LV_TEXT_ALIGN_CENTER);
-  lv_obj_align(lbl_emp_dept, LV_ALIGN_TOP_MID, 0, 290);
+  lv_obj_align(lbl_emp_dept, LV_ALIGN_TOP_MID, 0, 310);
 
   // IN/OUT badge (Pill)
   badge_action = lv_obj_create(scr_result);
   lv_obj_set_size(badge_action, 340, 50);
-  lv_obj_align(badge_action, LV_ALIGN_TOP_MID, 0, 350);
+  lv_obj_align(badge_action, LV_ALIGN_TOP_MID, 0, 370);
   lv_obj_set_style_radius(badge_action, 8, 0);
   lv_obj_set_style_bg_color(badge_action, UIManager::rgb(0xE6F4EA), 0); // Very light green
   lv_obj_set_style_border_color(badge_action, UIManager::rgb(0x2A800F), 0); // Green border
@@ -92,7 +92,7 @@ extern const lv_img_dsc_t icon_people;
   lbl_emp_ts = lv_label_create(scr_result); // Reusing ts for bottom message
   lv_label_set_text(lbl_emp_ts, "Good morning! Have a great shift.");
   UIManager::styleLabel(lbl_emp_ts, 0x666666, &lv_font_montserrat_20, LV_TEXT_ALIGN_CENTER);
-  lv_obj_align(lbl_emp_ts, LV_ALIGN_BOTTOM_MID, 0, -40);
+  lv_obj_align(lbl_emp_ts, LV_ALIGN_BOTTOM_MID, 0, -20);
 }
 
 void uiShowMatch(const char *name, const char *dept, const char *action, const char *ts) {
@@ -117,17 +117,40 @@ void uiShowMatch(const char *name, const char *dept, const char *action, const c
   lv_label_set_text(lbl_emp_name, name   ? name : "Unknown");
   lv_label_set_text(lbl_emp_dept, dept   ? dept : "");
   
+  char formattedTime[32] = "00:00am";
+  int h = 0, m = 0; // Declare h and m at the function level scope
+  if (ts) {
+    const char *timeStart = strchr(ts, ' ');
+    if (timeStart) timeStart++; // skip date if present
+    else timeStart = ts;
+
+    if (sscanf(timeStart, "%d:%d", &h, &m) >= 2) {
+      const char *ampm = (h >= 12) ? "pm" : "am";
+      int h12 = h % 12;
+      if (h12 == 0) h12 = 12;
+      snprintf(formattedTime, sizeof(formattedTime), "%d:%02d%s", h12, m, ampm);
+    } else {
+      strncpy(formattedTime, ts, sizeof(formattedTime) - 1);
+    }
+  }
+
   char pillText[64];
   snprintf(pillText, sizeof(pillText), "%s %s   •   %s", 
            isIn ? LV_SYMBOL_RIGHT : LV_SYMBOL_LEFT, 
            isIn ? "Time in" : "Time out", 
-           ts ? ts : "00:00");
+           formattedTime);
   lv_label_set_text(lbl_action, pillText);
 
   if (isIn) {
-    lv_label_set_text(lbl_emp_ts, "Good morning! Have a great shift.");
+    if (h < 12) {
+      lv_label_set_text(lbl_emp_ts, "Good morning! Have a great shift.");
+    } else if (h < 17) {
+      lv_label_set_text(lbl_emp_ts, "Good afternoon! Have a great shift.");
+    } else {
+      lv_label_set_text(lbl_emp_ts, "Good evening! Have a great shift.");
+    }
   } else {
-    lv_label_set_text(lbl_emp_ts, "Good job today! Have a safe trip.");
+    lv_label_set_text(lbl_emp_ts, "Great work today! Have a safe trip home.");
   }
 
   lv_scr_load_anim(scr_result, LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
