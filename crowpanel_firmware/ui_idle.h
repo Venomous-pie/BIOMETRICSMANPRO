@@ -7,7 +7,6 @@ void buildIdleScreen();
 void uiShowIdle();
 void uiUpdateClock(const char *ts);
 void uiShowPlaceFinger();
-void uiIdleUpdateWifi(bool connected);
 
 extern int pending_action;
 

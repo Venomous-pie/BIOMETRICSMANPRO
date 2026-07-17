@@ -5,14 +5,23 @@ Employee DataManager::empDB[50];
 int DataManager::empCount = 0;
 
 static AttendanceLog mockLogs[] = {
-    {"Mark Jaestin Cabañelis", "8:03 AM", true, true},
-    {"John Rostum Reginio", "12:11 PM", false, false},
-    {"Claire Jem Dedicatoria", "12:01 PM", false, true},
-    {"Kenneth Simbolas", "8:22 AM", true, true},
-    {"Admin", "8:00 AM", true, true},
-    {"Alice Santos", "5:00 PM", false, true},
-    {"Bob Cruz", "8:15 AM", true, true},
-    {"Carol Reyes", "6:00 PM", false, false}
+    {"Christopher G. Francisco", "6/30/2026 7:50 AM", true, true},
+    {"Reden Lamosa", "6/30/2026 7:55 AM", true, true},
+    {"Jean Erica Velasco", "6/30/2026 8:01 AM", true, true},
+    {"Claire Jem Dedicatoria", "6/30/2026 8:05 AM", true, true},
+    {"Jhonnalyn Belano", "6/30/2026 8:15 AM", true, true},
+    {"Christopher G. Francisco", "6/30/2026 5:00 PM", false, true},
+    {"Reden Lamosa", "6/30/2026 5:05 PM", false, true},
+    {"Jean Erica Velasco", "6/30/2026 5:10 PM", false, false},
+    
+    {"Christopher G. Francisco", "7/1/2026 7:45 AM", true, true},
+    {"Reden Lamosa", "7/1/2026 7:50 AM", true, true},
+    {"Maria Alaine Jeanne A. Terante", "7/1/2026 8:00 AM", true, true},
+    {"Kenneth Simbolas", "7/1/2026 8:02 AM", true, true},
+    {"John Rustom Reginio", "7/1/2026 8:10 AM", true, true},
+    {"Sharlene Loria", "7/1/2026 8:15 AM", true, true},
+    {"Mark Jaestin Cabañelis", "7/1/2026 8:30 AM", true, true},
+    {"Jhonnalyn Belano", "7/1/2026 12:15 PM", false, false}
 };
 
 const AttendanceLog* DataManager::getAttendanceLogs() { return mockLogs; }
@@ -63,18 +72,23 @@ void DataManager::begin() {
 }
 
 void DataManager::createInitialFilesIfMissing() {
+    LittleFS.remove("/employees.json"); // Force update for this firmware revision
     if (!LittleFS.exists("/employees.json")) {  // Only create when file is absent
         // Serial.println("[FS] Creating initial employees.json...");
         File f = LittleFS.open("/employees.json", "w");
         if (f) {
             f.print(R"([
   {"id":1,"name":"Admin","dept":"Admin","job_title":"System Admin","branch":"Main","fp_enrolled":false},
-  {"id":2,"name":"Claire Jem Dedicatoria","dept":"HR","job_title":"Intern Tech Lead","branch":"Nasya","fp_enrolled":false},
-  {"id":3,"name":"Alice Santos","dept":"HR","job_title":"HR Manager","branch":"Main","fp_enrolled":false},
-  {"id":4,"name":"Bob Cruz","dept":"IT","job_title":"Developer","branch":"Main","fp_enrolled":false},
-  {"id":5,"name":"Carol Reyes","dept":"Finance","job_title":"Accountant","branch":"Main","fp_enrolled":false},
-  {"id":6,"name":"Dave Lim","dept":"Security","job_title":"Guard","branch":"Main","fp_enrolled":false},
-  {"id":7,"name":"Eve Tan","dept":"Admin","job_title":"Clerk","branch":"Main","fp_enrolled":false}
+  {"id":2,"name":"Christopher G. Francisco","dept":"Executive","job_title":"CIO","branch":"Main","fp_enrolled":false},
+  {"id":3,"name":"Reden Lamosa","dept":"IT","job_title":"Senior Developer","branch":"Main","fp_enrolled":false},
+  {"id":4,"name":"Jean Erica Velasco","dept":"IT","job_title":"Intern Lead","branch":"Main","fp_enrolled":false},
+  {"id":5,"name":"Claire Jem Dedicatoria","dept":"IT","job_title":"Intern Technical Team Lead","branch":"Main","fp_enrolled":false},
+  {"id":6,"name":"Maria Alaine Jeanne A. Terante","dept":"IT","job_title":"Assistant to Technical Team Lead","branch":"Main","fp_enrolled":false},
+  {"id":7,"name":"Jhonnalyn Belano","dept":"IT","job_title":"QA","branch":"Main","fp_enrolled":false},
+  {"id":8,"name":"Kenneth Simbolas","dept":"Hardware","job_title":"PCB Board Designer","branch":"Main","fp_enrolled":false},
+  {"id":9,"name":"John Rustom Reginio","dept":"Hardware","job_title":"PCB Board Designer","branch":"Main","fp_enrolled":false},
+  {"id":10,"name":"Sharlene Loria","dept":"Hardware","job_title":"Hardware","branch":"Main","fp_enrolled":false},
+  {"id":11,"name":"Mark Jaestin Cabañelis","dept":"Design","job_title":"Figma / UI Design","branch":"Main","fp_enrolled":false}
 ])");
             f.close();
         }

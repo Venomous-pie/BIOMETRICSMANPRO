@@ -62,31 +62,42 @@ lv_obj_t* UIManager::buildHeader(lv_obj_t* scr, const char* title, const char* s
             lv_obj_align(lbl_title, LV_ALIGN_CENTER, 0, 0);
         }
     }
-
-    if (show_wifi_pill) {
-        lv_obj_t *pill = lv_obj_create(header);
-        lv_obj_set_size(pill, 180, 40);
-        lv_obj_align(pill, LV_ALIGN_RIGHT_MID, -20, 0);
-        lv_obj_set_style_bg_color(pill, rgb(COLOR_GREEN_LIGHT), 0);
-        lv_obj_set_style_radius(pill, 20, 0);
-        lv_obj_set_style_border_width(pill, 0, 0);
-        lv_obj_clear_flag(pill, LV_OBJ_FLAG_SCROLLABLE);
-
-        bool wifiNow = DataManager::isWifiConnected();
-        lv_obj_t *lbl_status = lv_label_create(pill);
-        lv_label_set_text(lbl_status, wifiNow ? LV_SYMBOL_WIFI " Online" : LV_SYMBOL_WIFI " Offline");
-        styleLabel(lbl_status, wifiNow ? COLOR_GREEN_MAIN : COLOR_GREEN_DARK, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
-        lv_obj_align(lbl_status, LV_ALIGN_LEFT_MID, 15, 0);
-        g_header_wifi_lbl = lbl_status;  // track so we can update it live
-
-        lv_obj_t *batt_img = lv_img_create(pill);
-        lv_img_set_src(batt_img, &icon_battery);
-        lv_obj_set_style_img_recolor(batt_img, rgb(COLOR_GREEN_DARK), 0);
-        lv_obj_set_style_img_recolor_opa(batt_img, LV_OPA_COVER, 0);
-        lv_obj_align(batt_img, LV_ALIGN_RIGHT_MID, -15, 0);
-    }
-
     return header;
+}
+
+static lv_obj_t *g_global_wifi_pill = NULL;
+
+void UIManager::initGlobalPill() {
+    if (g_global_wifi_pill) return;
+    
+    g_global_wifi_pill = lv_obj_create(lv_layer_top());
+    lv_obj_set_size(g_global_wifi_pill, 180, 40);
+    // Align to top-right corner exactly where it was before (Top-right, -20, 22)
+    lv_obj_align(g_global_wifi_pill, LV_ALIGN_TOP_RIGHT, -20, 22);
+    lv_obj_set_style_bg_color(g_global_wifi_pill, rgb(COLOR_GREEN_LIGHT), 0);
+    lv_obj_set_style_radius(g_global_wifi_pill, 20, 0);
+    lv_obj_set_style_border_width(g_global_wifi_pill, 0, 0);
+    lv_obj_clear_flag(g_global_wifi_pill, LV_OBJ_FLAG_SCROLLABLE);
+
+    g_header_wifi_lbl = lv_label_create(g_global_wifi_pill);
+    lv_label_set_text(g_header_wifi_lbl, LV_SYMBOL_WIFI " Offline");
+    styleLabel(g_header_wifi_lbl, COLOR_GREEN_DARK, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
+    lv_obj_align(g_header_wifi_lbl, LV_ALIGN_LEFT_MID, 15, 0);
+
+    lv_obj_t *batt_img = lv_img_create(g_global_wifi_pill);
+    lv_img_set_src(batt_img, &icon_battery);
+    lv_obj_set_style_img_recolor(batt_img, rgb(COLOR_GREEN_DARK), 0);
+    lv_obj_set_style_img_recolor_opa(batt_img, LV_OPA_COVER, 0);
+    lv_obj_align(batt_img, LV_ALIGN_RIGHT_MID, -15, 0);
+}
+
+void UIManager::showGlobalPill(bool show) {
+    if (!g_global_wifi_pill) return;
+    if (show) {
+        lv_obj_clear_flag(g_global_wifi_pill, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_obj_add_flag(g_global_wifi_pill, LV_OBJ_FLAG_HIDDEN);
+    }
 }
 
 // External screen show functions
@@ -97,6 +108,7 @@ extern void uiShowSettings();
 extern void uiShowMainMenu();
 
 void UIManager::begin() {
+    initGlobalPill();
     buildAllScreens();
     if (!DataManager::isWifiConfigured()) {
         uiShowWifiSetup();
@@ -136,45 +148,34 @@ void uiFactoryResetComplete() {
 }
 
 void UIManager::updateHeaderWifi(bool connected) {
-    lv_obj_t *act = lv_scr_act();
-    if (!act || lv_obj_get_child_cnt(act) == 0) return;
-    
-    // If the active screen has a standard buildHeader container, it's child 0 (800x85)
-    lv_obj_t *header = lv_obj_get_child(act, 0);
-    if (!header || lv_obj_get_width(header) != 800 || lv_obj_get_height(header) != 85) return;
-
-    // Find the 180x40 pill container inside the header
-    for (uint32_t i = 0; i < lv_obj_get_child_cnt(header); i++) {
-        lv_obj_t *child = lv_obj_get_child(header, i);
-        if (lv_obj_get_width(child) == 180 && lv_obj_get_height(child) == 40) {
-            if (lv_obj_get_child_cnt(child) > 0) {
-                lv_obj_t *lbl = lv_obj_get_child(child, 0);
-                lv_label_set_text(lbl, connected ? LV_SYMBOL_WIFI " Online" : LV_SYMBOL_WIFI " Offline");
-                lv_obj_set_style_text_color(lbl, rgb(connected ? COLOR_GREEN_MAIN : COLOR_GREEN_DARK), 0);
-            }
-            break;
-        }
-    }
+    if (!g_header_wifi_lbl) return;
+    lv_label_set_text(g_header_wifi_lbl, connected ? LV_SYMBOL_WIFI " Online" : LV_SYMBOL_WIFI " Offline");
+    lv_obj_set_style_text_color(g_header_wifi_lbl, rgb(connected ? COLOR_GREEN_MAIN : COLOR_GREEN_DARK), 0);
 }
 
 void UIManager::showIdle() {
+    showGlobalPill(true);
     uiShowIdle();
 }
 
 void UIManager::showActivation() {
+    showGlobalPill(false);
     uiShowActivation();
 }
 
 void UIManager::showWifiSetup() {
+    showGlobalPill(false);
     uiShowWifiSetup();
 }
 
 extern lv_obj_t *scr_settings;
 
 void UIManager::showSettings() {
+    showGlobalPill(true);
     uiShowSettings();
 }
 
 void UIManager::showMainMenu() {
+    showGlobalPill(true);
     uiShowMainMenu();
 }

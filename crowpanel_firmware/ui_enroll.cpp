@@ -378,6 +378,7 @@ void buildEmpListScreen() {
   lv_obj_set_flex_flow(emp_list_obj, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_layout(emp_list_obj, LV_LAYOUT_FLEX);
   lv_obj_set_scrollbar_mode(emp_list_obj, LV_SCROLLBAR_MODE_OFF);
+  lv_obj_clear_flag(emp_list_obj, LV_OBJ_FLAG_SCROLLABLE);
 
   // Pagination container
   lv_obj_t *pagination_cont = lv_obj_create(scr_emp_list);

@@ -14,7 +14,6 @@ static lv_obj_t *lbl_time   = NULL;
 static lv_obj_t *lbl_ampm   = NULL;
 static lv_obj_t *lbl_date   = NULL;
 static lv_obj_t *lbl_prompt = NULL;
-static lv_obj_t *lbl_wifi_status = NULL;
 static lv_obj_t *btn_time_in  = NULL;
 static lv_obj_t *btn_time_out = NULL;
 
@@ -76,29 +75,7 @@ void buildIdleScreen() {
   lv_obj_set_style_bg_opa(scr_idle, LV_OPA_COVER, 0);
   lv_obj_set_scrollbar_mode(scr_idle, LV_SCROLLBAR_MODE_OFF);
   lv_obj_add_flag(scr_idle, LV_OBJ_FLAG_CLICKABLE);
-
-  // Status pill
-  lv_obj_t *status_pill = lv_obj_create(scr_idle);
-  lv_obj_set_size(status_pill, 180, 40);
-  lv_obj_align(status_pill, LV_ALIGN_TOP_RIGHT, -20, 22);
-  lv_obj_set_style_bg_color(status_pill, UIManager::rgb(COLOR_GREEN_LIGHT), 0);
-  lv_obj_set_style_radius(status_pill, 20, 0);
-  lv_obj_set_style_border_width(status_pill, 0, 0);
-  lv_obj_clear_flag(status_pill, LV_OBJ_FLAG_SCROLLABLE);
-
-  // Wi-Fi label (dynamic — updated by uiIdleUpdateWifi)
-  lbl_wifi_status = lv_label_create(status_pill);
-  bool seededWifi = DataManager::isWifiConnected();
-  lv_label_set_text(lbl_wifi_status, seededWifi ? LV_SYMBOL_WIFI " Online" : LV_SYMBOL_WIFI " Offline");
-  UIManager::styleLabel(lbl_wifi_status, seededWifi ? COLOR_GREEN_MAIN : COLOR_GREEN_DARK, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
-  lv_obj_align(lbl_wifi_status, LV_ALIGN_LEFT_MID, 8, 0);
-
-  // Battery icon (no number — pure icon)
-  lv_obj_t *batt_img = lv_img_create(status_pill);
-  lv_img_set_src(batt_img, &icon_battery);
-  lv_obj_set_style_img_recolor(batt_img, UIManager::rgb(COLOR_GREEN_DARK), 0);
-  lv_obj_set_style_img_recolor_opa(batt_img, LV_OPA_COVER, 0);
-  lv_obj_align(batt_img, LV_ALIGN_RIGHT_MID, -6, 0);
+  // Status pill is now managed globally by UIManager on lv_layer_top()
 
   // ── ManPro Logo ─────────────────────────────────────────
   lv_obj_t *logo = lv_img_create(scr_idle);
@@ -178,13 +155,5 @@ void uiUpdateClock(const char *ts) {
 void uiShowPlaceFinger() {
   if (pending_action != 0) {
     lv_label_set_text(lbl_prompt, "Reading fingerprint...");
-  }
-}
-
-void uiIdleUpdateWifi(bool connected) {
-  if (lbl_wifi_status) {
-    lv_label_set_text(lbl_wifi_status, connected ? LV_SYMBOL_WIFI " Online" : LV_SYMBOL_WIFI " Offline");
-    lv_obj_set_style_text_color(lbl_wifi_status,
-      UIManager::rgb(connected ? COLOR_GREEN_MAIN : COLOR_GREEN_DARK), 0);
   }
 }

@@ -158,6 +158,7 @@ void buildLogsScreen() {
     lv_obj_set_flex_flow(logs_list_obj, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_layout(logs_list_obj, LV_LAYOUT_FLEX);
     lv_obj_set_scrollbar_mode(logs_list_obj, LV_SCROLLBAR_MODE_OFF);
+    lv_obj_clear_flag(logs_list_obj, LV_OBJ_FLAG_SCROLLABLE);
 
     // --- Pagination Bar ---
     lv_obj_t *page_cont = lv_obj_create(scr_logs);
@@ -210,16 +211,18 @@ static void populate_logs_list(const char* name_filter, const char* date_filter)
 
     String nFilt = name_filter ? String(name_filter) : "";
     nFilt.toLowerCase();
+    String dFilt = date_filter ? String(date_filter) : "";
+    dFilt.toLowerCase();
     
-    // Simplistic date filter for mock data (assuming it's used as a generic text filter on name for now since we don't mock dates in the struct)
-    // Real app would filter by timestamp.
-
+    // Simplistic date filter for mock data
     int items_per_page = 4;
     int filtered_count = 0;
 
     for (int i = 0; i < count; i++) {
         String nStr = db[i].name; nStr.toLowerCase();
+        String dStr = db[i].time_str; dStr.toLowerCase();
         if (nFilt.length() > 0 && nStr.indexOf(nFilt) == -1) continue;
+        if (dFilt.length() > 0 && dStr.indexOf(dFilt) == -1) continue;
         filtered_count++;
     }
 
@@ -248,7 +251,9 @@ static void populate_logs_list(const char* name_filter, const char* date_filter)
 
     for (int i = 0; i < count; i++) {
         String nStr = db[i].name; nStr.toLowerCase();
+        String dStr = db[i].time_str; dStr.toLowerCase();
         if (nFilt.length() > 0 && nStr.indexOf(nFilt) == -1) continue;
+        if (dFilt.length() > 0 && dStr.indexOf(dFilt) == -1) continue;
 
         if (current_idx >= start_idx && current_idx < end_idx) {
             lv_obj_t *row = lv_obj_create(logs_list_obj);

@@ -46,6 +46,8 @@ public:
 
     // Shared Header Helper
     static lv_obj_t* buildHeader(lv_obj_t* scr, const char* title, const char* subtitle, lv_event_cb_t back_cb, bool show_wifi_pill);
+    static void initGlobalPill();
+    static void showGlobalPill(bool show);
 
     // Updates the currently visible shared header pill in real time
     static void updateHeaderWifi(bool connected);

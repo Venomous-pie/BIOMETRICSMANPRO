@@ -58,6 +58,7 @@ static void btn_modal_cancel_cb(lv_event_t * e) {
         lv_obj_del_async(modal_overlay);
         modal_overlay = NULL;
     }
+    UIManager::showGlobalPill(true);
 }
 
 static void btn_modal_confirm_cb(lv_event_t * e) {
@@ -69,6 +70,7 @@ static void btn_modal_confirm_cb(lv_event_t * e) {
         lv_obj_del_async(modal_overlay);
         modal_overlay = NULL;
     }
+    UIManager::showGlobalPill(true);
     destroy_screen();
     UIManager::showIdle();
 }
@@ -79,7 +81,7 @@ static void ta_focus_event_cb(lv_event_t * e) {
     lv_obj_t * mod = lv_obj_get_parent(lv_event_get_target(e));
     if (code == LV_EVENT_FOCUSED) {
         lv_obj_clear_flag(kb, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_align(mod, LV_ALIGN_CENTER, 0, -100); // Shift modal up
+        lv_obj_align(mod, LV_ALIGN_CENTER, 0, -150); // Shift modal up
     } else if (code == LV_EVENT_DEFOCUSED) {
         lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN);
         lv_obj_align(mod, LV_ALIGN_CENTER, 0, 0); // Restore modal
@@ -88,6 +90,7 @@ static void ta_focus_event_cb(lv_event_t * e) {
 
 static void btn_factory_reset_cb(lv_event_t * e) {
     if (modal_overlay) return;
+    UIManager::showGlobalPill(false); // Hide the pill so it doesn't overlap the modal overlay
 
     modal_overlay = lv_obj_create(scr);
     lv_obj_set_size(modal_overlay, 800, 480);
@@ -98,7 +101,7 @@ static void btn_factory_reset_cb(lv_event_t * e) {
     lv_obj_clear_flag(modal_overlay, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *modal = lv_obj_create(modal_overlay);
-    lv_obj_set_size(modal, 600, 400); 
+    lv_obj_set_size(modal, 600, 420); 
     lv_obj_align(modal, LV_ALIGN_CENTER, 0, 0);
     lv_obj_set_style_bg_color(modal, lv_color_white(), 0);
     lv_obj_set_style_radius(modal, 16, 0);
@@ -137,28 +140,27 @@ static void btn_factory_reset_cb(lv_event_t * e) {
     lv_obj_align(lbl_desc, LV_ALIGN_TOP_LEFT, 10, 60);
 
     lv_obj_t *lbl_bullets = lv_label_create(modal);
-    // Removed "Unpair it from this server."
     String bulletText = LV_SYMBOL_BULLET "  Erase all " + String(enrolled) + " enrolled fingerprints from the device.\n\n" +
                         LV_SYMBOL_BULLET "  Discard " + String(unsynced) + " unsynced attendance records currently buffered\n     locally";
     lv_label_set_text(lbl_bullets, bulletText.c_str());
     UIManager::styleLabel(lbl_bullets, 0x555555, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
-    lv_obj_align(lbl_bullets, LV_ALIGN_TOP_LEFT, 20, 100);
+    lv_obj_align(lbl_bullets, LV_ALIGN_TOP_LEFT, 20, 95);
 
     lv_obj_t *lbl_note = lv_label_create(modal);
     lv_label_set_text(lbl_note, "Attendance already synced to the server is not affected.");
     UIManager::styleLabel(lbl_note, 0x000000, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
-    lv_obj_align(lbl_note, LV_ALIGN_TOP_LEFT, 10, 190);
+    lv_obj_align(lbl_note, LV_ALIGN_TOP_LEFT, 10, 165);
 
     // Validation Input
     lv_obj_t *lbl_confirm = lv_label_create(modal);
     String confirmTxt = "Type " + devName + " to confirm";
     lv_label_set_text(lbl_confirm, confirmTxt.c_str());
     UIManager::styleLabel(lbl_confirm, 0x333333, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
-    lv_obj_align(lbl_confirm, LV_ALIGN_TOP_LEFT, 10, 240);
+    lv_obj_align(lbl_confirm, LV_ALIGN_TOP_LEFT, 10, 205);
 
     ta_confirm = lv_textarea_create(modal);
     lv_obj_set_size(ta_confirm, 540, 40);
-    lv_obj_align(ta_confirm, LV_ALIGN_TOP_LEFT, 10, 265);
+    lv_obj_align(ta_confirm, LV_ALIGN_TOP_LEFT, 10, 230);
     lv_textarea_set_placeholder_text(ta_confirm, devName.c_str());
     lv_textarea_set_one_line(ta_confirm, true);
     lv_obj_add_event_cb(ta_confirm, ta_confirm_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
@@ -168,16 +170,8 @@ static void btn_factory_reset_cb(lv_event_t * e) {
     lv_keyboard_set_textarea(kb, ta_confirm);
     lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN); // Hidden by default
     
-    // Normal keyboard behavior (no screen shifting)
-    lv_obj_add_event_cb(ta_confirm, [](lv_event_t * e) {
-        lv_event_code_t code = lv_event_get_code(e);
-        lv_obj_t * kb = (lv_obj_t *)lv_event_get_user_data(e);
-        if (code == LV_EVENT_FOCUSED) {
-            lv_obj_clear_flag(kb, LV_OBJ_FLAG_HIDDEN);
-        } else if (code == LV_EVENT_DEFOCUSED) {
-            lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN);
-        }
-    }, LV_EVENT_ALL, kb);
+    // Use ta_focus_event_cb to shift the screen up when the keyboard opens
+    lv_obj_add_event_cb(ta_confirm, ta_focus_event_cb, LV_EVENT_ALL, kb);
 
     // Buttons
     lv_obj_t *btn_cancel = lv_btn_create(modal);

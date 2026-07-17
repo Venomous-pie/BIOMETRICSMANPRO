@@ -15,7 +15,6 @@ extern void uiShowEnrollStart(const char* name);
 extern void uiShowEnrollStep(int step, const char* msg);
 extern void uiShowEnrollResult(bool ok, const char* name);
 extern void uiWifiUpdateStatus(bool connected);
-extern void uiIdleUpdateWifi(bool connected);
 extern void uiWifiUpdateScanResult(const char* ssids);
 extern void uiFactoryResetComplete();
 extern void uiSettingsUpdateClock(const char* ts);
@@ -320,7 +319,6 @@ void CommManager::dispatchJson(const String& line) {
         DataManager::setWifiConnected(connected);
         UIManager::updateHeaderWifi(connected);
         uiWifiUpdateStatus(connected);
-        uiIdleUpdateWifi(connected);
         uiSettingsUpdateWifiStatus(connected);
 
         if (!connected && !s_autoReconnectAttempted && DataManager::hasSavedWifi()) {
