@@ -87,30 +87,31 @@ void buildIdleScreen() {
   // ── ManPro Logo ─────────────────────────────────────────
   lv_obj_t *logo = lv_img_create(scr_idle);
   lv_img_set_src(logo, &manpro_logo);
-  lv_obj_align(logo, LV_ALIGN_TOP_MID, 0, 45);
+  lv_img_set_zoom(logo, 256); // 100% scale
+  lv_obj_align(logo, LV_ALIGN_TOP_MID, 0, 10);
 
   lbl_time = lv_label_create(scr_idle);
   lv_label_set_text(lbl_time, "12:00");
   UIManager::styleLabel(lbl_time, COLOR_STROKE, &lv_font_montserrat_144, LV_TEXT_ALIGN_CENTER);
-  // Time is perfectly centered on the screen
-  lv_obj_align(lbl_time, LV_ALIGN_CENTER, 0, -15);
+  // Time is moved closer to the logo
+  lv_obj_align(lbl_time, LV_ALIGN_CENTER, 0, 15);
 
   // AM/PM superscript — small font, anchored to the right-bottom of the time
   lbl_ampm = lv_label_create(scr_idle);
   lv_label_set_text(lbl_ampm, "PM");
   UIManager::styleLabel(lbl_ampm, COLOR_STROKE, &lv_font_montserrat_28, LV_TEXT_ALIGN_LEFT);
-  lv_obj_align_to(lbl_ampm, lbl_time, LV_ALIGN_OUT_RIGHT_BOTTOM, 6, -16);
+  lv_obj_align_to(lbl_ampm, lbl_time, LV_ALIGN_OUT_RIGHT_BOTTOM, -5, -22);
 
   // ── Date label ───────────────────────────────────────────
   lbl_date = lv_label_create(scr_idle);
   lv_label_set_text(lbl_date, "Wednesday    7/1/2026");
   UIManager::styleLabel(lbl_date, COLOR_STROKE, &lv_font_montserrat_24, LV_TEXT_ALIGN_CENTER);
-  lv_obj_align(lbl_date, LV_ALIGN_CENTER, 0, 80);
+  lv_obj_align(lbl_date, LV_ALIGN_CENTER, 0, 105);
 
   // ── Prompt / Bottom Text Container ───────────────────────
   cont_prompt = lv_obj_create(scr_idle);
   lv_obj_set_size(cont_prompt, 400, 60);
-  lv_obj_align(cont_prompt, LV_ALIGN_BOTTOM_MID, 0, -40);
+  lv_obj_align(cont_prompt, LV_ALIGN_BOTTOM_MID, 0, -30);
   lv_obj_set_style_bg_opa(cont_prompt, LV_OPA_TRANSP, 0);
   lv_obj_set_style_border_width(cont_prompt, 0, 0);
   lv_obj_set_style_pad_all(cont_prompt, 0, 0);

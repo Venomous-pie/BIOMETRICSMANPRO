@@ -23,7 +23,7 @@
 #define COLOR_DIM           0x2a2a50  // dim panel
 
 // New Palette Colors from PDF
-#define COLOR_GREEN_DARK    0x14261C
+#define COLOR_GREEN_DARK    0x0E1B0A
 #define COLOR_GREEN_MAIN    0x2A800F
 #define COLOR_GREEN_LIGHT   0xE4F3E7
 #define COLOR_STROKE        0xE6EEE9
@@ -33,6 +33,7 @@
 class UIManager {
 public:
     static void begin();
+    static void loadInitialScreen();
     static lv_color_t rgb(uint32_t c);
     static void styleLabel(lv_obj_t *obj, uint32_t color, const lv_font_t *font, lv_text_align_t align);
 

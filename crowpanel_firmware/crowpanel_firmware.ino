@@ -19,6 +19,7 @@
 #include "data_manager.h"
 #include "comm_manager.h"
 #include "ui_manager.h"
+#include "manpro_splash.h"
 
 
 // ============================================================
@@ -177,7 +178,14 @@ void setup() {
 
   // (CommManager already initialized above, before lcd.init())
 
-  // Init UI Manager (Builds screens and loads activation or idle)
+  // Show boot splash first and give it the callback to load the actual UI later
+  manpro_show_splash(UIManager::loadInitialScreen);
+
+  // Force LVGL to draw the first frame of the splash screen immediately
+  lv_timer_handler();
+
+  // Now build the screens in the background. The splash animation delays its
+  // movement by 250ms, giving this plenty of time to finish without glitching.
   UIManager::begin();
 }
 

@@ -4,6 +4,7 @@
 #include <esp_wifi.h>
 #include "data_manager.h"
 #include "ui_manager.h"
+#include "manpro_splash.h"
 
 // UI forward declarations
 extern void uiShowIdle();
@@ -290,6 +291,10 @@ void CommManager::dispatchJson(const String& line) {
 
     const char *type = doc["type"];
     if (!type) return;
+
+    if (strcmp(type, "TIME") == 0 || strcmp(type, "WIFI_STATUS") == 0 || strcmp(type, "WROOM_BOOT") == 0) {
+        manpro_set_ready();
+    }
 
     if (strcmp(type, "BACKDOOR") == 0) {
         const char *b_cmd = doc["cmd"] | "";

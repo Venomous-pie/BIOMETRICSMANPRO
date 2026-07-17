@@ -74,6 +74,7 @@ void UIManager::initGlobalPill() {
     if (g_global_wifi_pill) return;
     
     g_global_wifi_pill = lv_obj_create(lv_layer_top());
+    lv_obj_add_flag(g_global_wifi_pill, LV_OBJ_FLAG_HIDDEN);
     lv_obj_set_size(g_global_wifi_pill, 190, 40);
     // Align to top-right corner
     lv_obj_align(g_global_wifi_pill, LV_ALIGN_TOP_RIGHT, -15, 22);
@@ -119,12 +120,15 @@ extern void uiShowMainMenu();
 void UIManager::begin() {
     initGlobalPill();
     buildAllScreens();
+}
+
+void UIManager::loadInitialScreen() {
     if (!DataManager::isWifiConfigured()) {
-        uiShowWifiSetup();
+        showWifiSetup();
     } else if (DataManager::isActivated()) {
-        uiShowIdle();
+        showIdle();
     } else {
-        uiShowActivation();
+        showActivation();
     }
 }
 
