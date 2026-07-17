@@ -10,10 +10,47 @@ LV_FONT_DECLARE(lv_font_montserrat_36);
 LV_FONT_DECLARE(lv_font_montserrat_48);
 
 lv_obj_t *scr_enroll = NULL;
-static lv_obj_t *lbl_enroll_title  = NULL;
-static lv_obj_t *lbl_enroll_msg    = NULL;
-static lv_obj_t *lbl_enroll_step   = NULL;
-static lv_obj_t *bar_enroll        = NULL;
+static lv_obj_t *btn_enroll_back = NULL;
+static lv_obj_t *btn_enroll_done = NULL;
+static lv_obj_t *lbl_enroll_main_title = NULL;
+static lv_obj_t *lbl_enroll_sub_title = NULL;
+static lv_obj_t *lbl_enroll_instruction = NULL;
+static lv_obj_t *box_scan = NULL;
+static lv_obj_t *lbl_scan_icon = NULL;
+static lv_obj_t *lbl_scan_text = NULL;
+static lv_obj_t *lbl_scan_subtext = NULL;
+static lv_obj_t *dot_1 = NULL;
+static lv_obj_t *dot_2 = NULL;
+static lv_obj_t *dot_3 = NULL;
+
+// Deferred state for Choose Finger screen (moved up so enroll can use it)
+static int defer_emp_id = 0;
+static String defer_name = "";
+static String defer_dept = "";
+
+const char* getFingerName(int index) {
+  switch(index) {
+    case 0: return "left pinky";
+    case 1: return "left ring";
+    case 2: return "left middle";
+    case 3: return "left index";
+    case 4: return "left thumb";
+    case 5: return "right thumb";
+    case 6: return "right index";
+    case 7: return "right middle";
+    case 8: return "right ring";
+    case 9: return "right pinky";
+    default: return "unknown";
+  }
+}
+
+static void enroll_back_cb(lv_event_t * e) {
+  uiShowChooseFinger(defer_emp_id, defer_name.c_str(), defer_dept.c_str());
+}
+
+static void enroll_done_cb(lv_event_t * e) {
+  uiShowEmpList();
+}
 
 lv_obj_t *scr_emp_list = NULL;
 lv_obj_t *emp_list_obj = NULL;
@@ -285,89 +322,192 @@ void buildEmpListScreen() {
 }
 
 void buildEnrollScreen() {
-  if (scr_enroll != NULL) return;  // Already built, skip
+  if (scr_enroll != NULL) return;
   scr_enroll = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(scr_enroll, UIManager::rgb(COLOR_BG), 0);
+  lv_obj_set_style_bg_color(scr_enroll, UIManager::rgb(0xFFFFFF), 0);
   lv_obj_set_style_bg_opa(scr_enroll, LV_OPA_COVER, 0);
   lv_obj_set_scrollbar_mode(scr_enroll, LV_SCROLLBAR_MODE_OFF);
 
-  // Title
-  lbl_enroll_title = lv_label_create(scr_enroll);
-  lv_label_set_text(lbl_enroll_title, "FINGERPRINT ENROLLMENT");
-  UIManager::styleLabel(lbl_enroll_title, COLOR_ACCENT, &lv_font_montserrat_28, LV_TEXT_ALIGN_CENTER);
-  lv_obj_align(lbl_enroll_title, LV_ALIGN_TOP_MID, 0, 40);
+  // Top Left Back Button
+  btn_enroll_back = lv_btn_create(scr_enroll);
+  lv_obj_set_size(btn_enroll_back, 56, 44);
+  lv_obj_align(btn_enroll_back, LV_ALIGN_TOP_LEFT, 20, 18);
+  lv_obj_set_style_bg_color(btn_enroll_back, UIManager::rgb(0x2A800F), 0); // Green
+  lv_obj_set_style_radius(btn_enroll_back, 10, 0);
+  lv_obj_add_event_cb(btn_enroll_back, enroll_back_cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_t *lbl_back = lv_label_create(btn_enroll_back);
+  lv_label_set_text(lbl_back, LV_SYMBOL_LEFT);
+  UIManager::styleLabel(lbl_back, 0xFFFFFF, &lv_font_montserrat_20, LV_TEXT_ALIGN_CENTER);
+  lv_obj_center(lbl_back);
 
-  // Employee name
-  lbl_enroll_msg = lv_label_create(scr_enroll);
-  lv_label_set_text(lbl_enroll_msg, "---");
-  UIManager::styleLabel(lbl_enroll_msg, COLOR_TEXT, &lv_font_montserrat_36, LV_TEXT_ALIGN_CENTER);
-  lv_obj_align(lbl_enroll_msg, LV_ALIGN_CENTER, 0, -40);
+  // Top Right Done Button (Hidden by default)
+  btn_enroll_done = lv_btn_create(scr_enroll);
+  lv_obj_set_size(btn_enroll_done, 120, 44);
+  lv_obj_align(btn_enroll_done, LV_ALIGN_TOP_RIGHT, -20, 18);
+  lv_obj_set_style_bg_color(btn_enroll_done, UIManager::rgb(0x2A800F), 0); // Green
+  lv_obj_set_style_radius(btn_enroll_done, 10, 0);
+  lv_obj_add_event_cb(btn_enroll_done, enroll_done_cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_t *lbl_done = lv_label_create(btn_enroll_done);
+  lv_label_set_text(lbl_done, "Done " LV_SYMBOL_RIGHT);
+  UIManager::styleLabel(lbl_done, 0xFFFFFF, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
+  lv_obj_center(lbl_done);
+  lv_obj_add_flag(btn_enroll_done, LV_OBJ_FLAG_HIDDEN);
 
-  // Step instruction
-  lbl_enroll_step = lv_label_create(scr_enroll);
-  lv_label_set_text(lbl_enroll_step, "");
-  UIManager::styleLabel(lbl_enroll_step, COLOR_SUBTEXT, &lv_font_montserrat_24, LV_TEXT_ALIGN_CENTER);
-  lv_obj_align_to(lbl_enroll_step, lbl_enroll_msg, LV_ALIGN_OUT_BOTTOM_MID, 0, 20);
+  // Top Center Titles
+  lbl_enroll_main_title = lv_label_create(scr_enroll);
+  lv_label_set_text(lbl_enroll_main_title, "Enroll fingerprint");
+  UIManager::styleLabel(lbl_enroll_main_title, 0x1A1A1A, &lv_font_montserrat_24, LV_TEXT_ALIGN_CENTER);
+  lv_obj_align(lbl_enroll_main_title, LV_ALIGN_TOP_MID, 0, 15);
 
-  // Progress bar
-  bar_enroll = lv_bar_create(scr_enroll);
-  lv_obj_set_size(bar_enroll, 400, 20);
-  lv_obj_align(bar_enroll, LV_ALIGN_BOTTOM_MID, 0, -60);
-  lv_obj_set_style_bg_color(bar_enroll, UIManager::rgb(COLOR_DIM), 0);
-  lv_obj_set_style_bg_color(bar_enroll, UIManager::rgb(COLOR_ACCENT), LV_PART_INDICATOR);
-  lv_obj_set_style_radius(bar_enroll, 10, 0);
-  lv_obj_set_style_radius(bar_enroll, 10, LV_PART_INDICATOR);
-  lv_bar_set_range(bar_enroll, 0, 3);
-  lv_bar_set_value(bar_enroll, 0, LV_ANIM_OFF);
+  lbl_enroll_sub_title = lv_label_create(scr_enroll);
+  lv_label_set_text(lbl_enroll_sub_title, "• • • Scan finger");
+  UIManager::styleLabel(lbl_enroll_sub_title, 0x666666, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
+  lv_obj_align(lbl_enroll_sub_title, LV_ALIGN_TOP_MID, 0, 45);
+
+  // Instruction Label
+  lbl_enroll_instruction = lv_label_create(scr_enroll);
+  lv_label_set_text(lbl_enroll_instruction, "");
+  UIManager::styleLabel(lbl_enroll_instruction, 0x333333, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
+  lv_label_set_long_mode(lbl_enroll_instruction, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(lbl_enroll_instruction, 700);
+  lv_obj_align(lbl_enroll_instruction, LV_ALIGN_TOP_MID, 0, 100);
+
+  // Central Gray Box
+  box_scan = lv_obj_create(scr_enroll);
+  lv_obj_set_size(box_scan, 280, 150);
+  lv_obj_align(box_scan, LV_ALIGN_CENTER, 0, 30);
+  lv_obj_set_style_bg_color(box_scan, UIManager::rgb(0xD9D9D9), 0);
+  lv_obj_set_style_border_width(box_scan, 0, 0);
+  lv_obj_set_style_radius(box_scan, 0, 0);
+  lv_obj_clear_flag(box_scan, LV_OBJ_FLAG_SCROLLABLE);
+
+  // Elements inside box
+  lbl_scan_icon = lv_label_create(box_scan);
+  lv_label_set_text(lbl_scan_icon, LV_SYMBOL_WIFI); // Placeholder
+  UIManager::styleLabel(lbl_scan_icon, 0x1A1A1A, &lv_font_montserrat_48, LV_TEXT_ALIGN_CENTER);
+  lv_obj_align(lbl_scan_icon, LV_ALIGN_TOP_MID, 0, 20);
+
+  lbl_scan_text = lv_label_create(box_scan);
+  lv_label_set_text(lbl_scan_text, "Scan 1 of 3");
+  UIManager::styleLabel(lbl_scan_text, 0x333333, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
+  lv_obj_align(lbl_scan_text, LV_ALIGN_CENTER, 0, 10);
+
+  lbl_scan_subtext = lv_label_create(box_scan);
+  lv_label_set_text(lbl_scan_subtext, "");
+  UIManager::styleLabel(lbl_scan_subtext, 0x666666, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
+  lv_obj_align(lbl_scan_subtext, LV_ALIGN_BOTTOM_MID, 0, -10);
+  lv_obj_add_flag(lbl_scan_subtext, LV_OBJ_FLAG_HIDDEN);
+
+  // Dots
+  dot_1 = lv_obj_create(box_scan);
+  lv_obj_set_size(dot_1, 6, 6);
+  lv_obj_align(dot_1, LV_ALIGN_BOTTOM_MID, -12, -15);
+  lv_obj_set_style_radius(dot_1, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_border_width(dot_1, 0, 0);
+
+  dot_2 = lv_obj_create(box_scan);
+  lv_obj_set_size(dot_2, 6, 6);
+  lv_obj_align(dot_2, LV_ALIGN_BOTTOM_MID, 0, -15);
+  lv_obj_set_style_radius(dot_2, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_border_width(dot_2, 0, 0);
+
+  dot_3 = lv_obj_create(box_scan);
+  lv_obj_set_size(dot_3, 6, 6);
+  lv_obj_align(dot_3, LV_ALIGN_BOTTOM_MID, 12, -15);
+  lv_obj_set_style_radius(dot_3, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_border_width(dot_3, 0, 0);
 }
 
 void uiShowEnrollStart(const char *name) {
-  if (scr_enroll == NULL) buildEnrollScreen();  // Lazy build on first use
+  if (scr_enroll == NULL) buildEnrollScreen();
   if (returnTimer) { lv_timer_del(returnTimer); returnTimer = NULL; }
   
-  lv_obj_set_style_bg_color(scr_enroll, UIManager::rgb(COLOR_BG), 0);
-  lv_label_set_text(lbl_enroll_title, "FINGERPRINT ENROLLMENT");
-  UIManager::styleLabel(lbl_enroll_title, COLOR_ACCENT, &lv_font_montserrat_28, LV_TEXT_ALIGN_CENTER);
+  lv_obj_clear_flag(btn_enroll_back, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(btn_enroll_done, LV_OBJ_FLAG_HIDDEN);
 
-  lv_label_set_text(lbl_enroll_msg, name ? name : "");
-  lv_label_set_text(lbl_enroll_step, "Preparing...");
-  lv_bar_set_value(bar_enroll, 0, LV_ANIM_OFF);
+  lv_label_set_text(lbl_enroll_sub_title, "• • • Scan finger");
+  UIManager::styleLabel(lbl_enroll_sub_title, 0x666666, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
+
+  String inst = "Have ";
+  inst += defer_name;
+  inst += " from ";
+  inst += defer_dept;
+  inst += " place their ";
+  inst += getFingerName(selected_finger_index);
+  inst += " finger on the device sensor";
+  lv_label_set_text(lbl_enroll_instruction, inst.c_str());
+
+  lv_label_set_text(lbl_scan_icon, LV_SYMBOL_WIFI); 
+  UIManager::styleLabel(lbl_scan_icon, 0x1A1A1A, &lv_font_montserrat_48, LV_TEXT_ALIGN_CENTER);
+  
+  lv_label_set_text(lbl_scan_text, "Scan 1 of 3");
+  UIManager::styleLabel(lbl_scan_text, 0x333333, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
+  
+  lv_obj_add_flag(lbl_scan_subtext, LV_OBJ_FLAG_HIDDEN);
+  
+  lv_obj_clear_flag(dot_1, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_clear_flag(dot_2, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_clear_flag(dot_3, LV_OBJ_FLAG_HIDDEN);
+
+  lv_obj_set_style_bg_color(dot_1, UIManager::rgb(0x00A3FF), 0); // Blue
+  lv_obj_set_style_bg_color(dot_2, UIManager::rgb(0x999999), 0); // Gray
+  lv_obj_set_style_bg_color(dot_3, UIManager::rgb(0x999999), 0); // Gray
+
   lv_scr_load_anim(scr_enroll, LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
 }
 
 void uiShowEnrollStep(int step, const char *msg) {
-  lv_label_set_text(lbl_enroll_step, msg ? msg : "");
-  lv_bar_set_value(bar_enroll, step, LV_ANIM_ON);
+  char buf[32];
+  snprintf(buf, sizeof(buf), "Scan %d of 3", step);
+  lv_label_set_text(lbl_scan_text, buf);
+
+  lv_obj_set_style_bg_color(dot_1, UIManager::rgb(step >= 1 ? 0x00A3FF : 0x999999), 0);
+  lv_obj_set_style_bg_color(dot_2, UIManager::rgb(step >= 2 ? 0x00A3FF : 0x999999), 0);
+  lv_obj_set_style_bg_color(dot_3, UIManager::rgb(step >= 3 ? 0x00A3FF : 0x999999), 0);
 }
 
 void uiShowEnrollResult(bool ok, const char *name) {
+  lv_obj_add_flag(dot_1, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(dot_2, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(dot_3, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_clear_flag(lbl_scan_subtext, LV_OBJ_FLAG_HIDDEN);
+
   if (ok) {
-    // Persist fp_enrolled=true for the employee that was just enrolled so the
-    // badge shows "Enrolled" when the user returns to the employee list.
     DataManager::updateEmployeeFpEnrolled(selected_emp_id, true);
 
-    char buf[64];
-    snprintf(buf, sizeof(buf), "Enrolled: %s", name ? name : "");
-    lv_label_set_text(lbl_enroll_step, buf);
-    lv_bar_set_value(bar_enroll, 3, LV_ANIM_ON);
-    
-    lv_obj_set_style_bg_color(scr_enroll, UIManager::rgb(COLOR_IN), 0);
-    lv_label_set_text(lbl_enroll_title, "SUCCESS!");
-    UIManager::styleLabel(lbl_enroll_title, COLOR_TEXT, &lv_font_montserrat_48, LV_TEXT_ALIGN_CENTER);
-  } else {
-    lv_label_set_text(lbl_enroll_step, "Enrollment failed. Try again.");
-    
-    lv_obj_set_style_bg_color(scr_enroll, UIManager::rgb(COLOR_DANGER), 0);
-    lv_label_set_text(lbl_enroll_title, "FAILED!");
-    UIManager::styleLabel(lbl_enroll_title, COLOR_TEXT, &lv_font_montserrat_48, LV_TEXT_ALIGN_CENTER);
-  }
+    lv_obj_add_flag(btn_enroll_back, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(btn_enroll_done, LV_OBJ_FLAG_HIDDEN);
 
-  if (returnTimer) lv_timer_del(returnTimer);
-  returnTimer = lv_timer_create([](lv_timer_t *t) {
-    uiShowIdle();
-    returnTimer = NULL;
-  }, 3000, NULL);
-  lv_timer_set_repeat_count(returnTimer, 1);
+    lv_label_set_text(lbl_enroll_sub_title, "• • • Done");
+    UIManager::styleLabel(lbl_enroll_sub_title, 0x666666, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
+
+    lv_label_set_text(lbl_scan_icon, LV_SYMBOL_OK);
+    UIManager::styleLabel(lbl_scan_icon, 0x2A800F, &lv_font_montserrat_48, LV_TEXT_ALIGN_CENTER);
+    
+    lv_label_set_text(lbl_scan_text, "Fingerprint Enrolled");
+    UIManager::styleLabel(lbl_scan_text, 0x1A1A1A, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
+    
+    String sub = defer_name;
+    sub += " - ";
+    sub += getFingerName(selected_finger_index);
+    lv_label_set_text(lbl_scan_subtext, sub.c_str());
+
+  } else {
+    lv_label_set_text(lbl_scan_icon, LV_SYMBOL_CLOSE);
+    UIManager::styleLabel(lbl_scan_icon, 0xD32F2F, &lv_font_montserrat_48, LV_TEXT_ALIGN_CENTER);
+    
+    lv_label_set_text(lbl_scan_text, "Enrollment Failed");
+    UIManager::styleLabel(lbl_scan_text, 0x1A1A1A, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
+    
+    lv_label_set_text(lbl_scan_subtext, "Please try again.");
+    
+    if (returnTimer) lv_timer_del(returnTimer);
+    returnTimer = lv_timer_create([](lv_timer_t *t) {
+      uiShowChooseFinger(defer_emp_id, defer_name.c_str(), defer_dept.c_str());
+      returnTimer = NULL;
+    }, 3000, NULL);
+    lv_timer_set_repeat_count(returnTimer, 1);
+  }
 }
 
 static void choose_back_cb(lv_event_t * e) {
@@ -488,10 +628,7 @@ void buildChooseFingerScreen() {
   }
 }
 
-// Deferred state for Choose Finger screen
-static int defer_emp_id = 0;
-static String defer_name = "";
-static String defer_dept = "";
+// (Moved deferred state for Choose Finger screen to top)
 
 void uiShowChooseFinger(int emp_id, const char *name, const char *dept) {
   defer_emp_id = emp_id;
