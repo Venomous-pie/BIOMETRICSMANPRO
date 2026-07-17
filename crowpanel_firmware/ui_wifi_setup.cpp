@@ -120,7 +120,16 @@ static void network_row_cb(lv_event_t *e) {
         if (lbl) {
             const char *name = lv_label_get_text(lbl);
             lv_textarea_set_text(ta_ssid, name);
-            lv_textarea_set_text(ta_pass, "");
+            
+            // Check if we have a saved password for this network
+            String savedPass = "";
+            for (int i = 0; i < DataManager::getSavedWifiCount(); i++) {
+                if (DataManager::getWifiSsid(i) == String(name)) {
+                    savedPass = DataManager::getWifiPass(i);
+                    break;
+                }
+            }
+            lv_textarea_set_text(ta_pass, savedPass.c_str());
 
             for (int i = 0; i < MAX_NETWORKS; i++) {
                 if (network_rows[i]) {

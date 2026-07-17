@@ -301,6 +301,7 @@ void onWiFiEvent(WiFiEvent_t event, arduino_event_info_t info) {
       StaticJsonDocument<128> wstat;
       wstat["type"]      = "WIFI_STATUS";
       wstat["connected"] = true;
+      wstat["ssid"]      = s_savedSsid;
       sendDoc(wstat);
       break;
     }
@@ -748,12 +749,14 @@ void handleCmd(String cmd) {
       StaticJsonDocument<128> wstat;
       wstat["type"]      = "WIFI_STATUS";
       wstat["connected"] = (WiFi.status() == WL_CONNECTED);
+      wstat["ssid"]      = s_savedSsid;
       sendDoc(wstat);
 
     } else if (strcmp(action, "GET_WIFI_STATUS") == 0) {
       StaticJsonDocument<128> wstat;
       wstat["type"]      = "WIFI_STATUS";
       wstat["connected"] = (WiFi.status() == WL_CONNECTED);
+      wstat["ssid"]      = s_savedSsid;
       sendDoc(wstat);
 
     } else if (strcmp(action, "FACTORY_RESET") == 0) {

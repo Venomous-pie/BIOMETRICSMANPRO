@@ -43,7 +43,6 @@ public:
     static void showWifiSetup();
     static void showSettings();
     static void showMainMenu();
-
     // Shared Header Helper
     static lv_obj_t* buildHeader(lv_obj_t* scr, const char* title, const char* subtitle, lv_event_cb_t back_cb, bool show_wifi_pill);
     static void initGlobalPill();
@@ -51,6 +50,9 @@ public:
 
     // Updates the currently visible shared header pill in real time
     static void updateHeaderWifi(bool connected);
+
+    // Global Toast Notification
+    static void showToast(const char* msg, bool is_error = false);
 };
 
 #endif // UI_MANAGER_H

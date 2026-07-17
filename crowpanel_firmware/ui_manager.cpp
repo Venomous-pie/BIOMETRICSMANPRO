@@ -165,6 +165,70 @@ void UIManager::updateHeaderWifi(bool connected) {
     }
 }
 
+static lv_obj_t *g_toast = NULL;
+static lv_timer_t *g_toast_timer = NULL;
+
+static void toast_timer_cb(lv_timer_t *timer) {
+    if (g_toast) {
+        lv_obj_del(g_toast);
+        g_toast = NULL;
+    }
+    g_toast_timer = NULL;
+}
+
+static void toast_close_cb(lv_event_t *e) {
+    if (g_toast_timer) {
+        lv_timer_del(g_toast_timer);
+        g_toast_timer = NULL;
+    }
+    if (g_toast) {
+        lv_obj_del(g_toast);
+        g_toast = NULL;
+    }
+}
+
+void UIManager::showToast(const char* msg, bool is_error) {
+    if (g_toast) {
+        lv_obj_del(g_toast);
+        g_toast = NULL;
+    }
+    if (g_toast_timer) {
+        lv_timer_del(g_toast_timer);
+        g_toast_timer = NULL;
+    }
+
+    g_toast = lv_obj_create(lv_layer_sys());
+    lv_obj_set_size(g_toast, 300, LV_SIZE_CONTENT);
+    lv_obj_align(g_toast, LV_ALIGN_TOP_MID, 0, 20);
+    lv_obj_set_style_bg_color(g_toast, rgb(is_error ? COLOR_DANGER : 0x333333), 0);
+    lv_obj_set_style_radius(g_toast, 20, 0);
+    lv_obj_set_style_border_width(g_toast, 0, 0);
+    lv_obj_set_style_pad_all(g_toast, 10, 0);
+    lv_obj_clear_flag(g_toast, LV_OBJ_FLAG_SCROLLABLE);
+
+    lv_obj_t *lbl = lv_label_create(g_toast);
+    lv_label_set_text(lbl, msg);
+    styleLabel(lbl, 0xFFFFFF, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
+    lv_obj_set_width(lbl, 230); // leave room for close button
+    lv_label_set_long_mode(lbl, LV_LABEL_LONG_WRAP);
+    lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 0, 0);
+
+    lv_obj_t *btn_close = lv_btn_create(g_toast);
+    lv_obj_set_size(btn_close, 30, 30);
+    lv_obj_align(btn_close, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_set_style_bg_opa(btn_close, LV_OPA_TRANSP, 0);
+    lv_obj_set_style_shadow_width(btn_close, 0, 0);
+    lv_obj_add_event_cb(btn_close, toast_close_cb, LV_EVENT_CLICKED, NULL);
+
+    lv_obj_t *lbl_close = lv_label_create(btn_close);
+    lv_label_set_text(lbl_close, LV_SYMBOL_CLOSE);
+    styleLabel(lbl_close, 0xFFFFFF, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
+    lv_obj_center(lbl_close);
+
+    g_toast_timer = lv_timer_create(toast_timer_cb, 3000, NULL);
+    lv_timer_set_repeat_count(g_toast_timer, 1);
+}
+
 void UIManager::showIdle() {
     showGlobalPill(true);
     CommManager::sendCommand("{\"cmd\":\"SET_IDLE\",\"idle\":true}");

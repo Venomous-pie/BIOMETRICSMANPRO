@@ -170,12 +170,24 @@ void CommManager::process() {
         peer.encrypt = false;
         esp_now_add_peer(&peer);
 
-        // Re-request WiFi status: if we rebooted while WROOM was on a non-default channel,
-        // the initial GET_WIFI_STATUS from begin() was never received by WROOM.
-        // Without this, the WiFi indicator stays stuck at "Offline" even after recovery.
+        // Re-request WiFi status and re-sync activation/idle states
+        // This is crucial because if we lost sync due to channel hop during boot,
+        // WROOM might have missed our DEVICE_ACTIVATED and SET_IDLE commands.
+        if (Serial) Serial.println("[ESP-NOW] Resyncing state with WROOM after channel recovery.");
+        
         const char* req = "{\"cmd\":\"GET_WIFI_STATUS\"}";
         esp_now_send(WROOM_MAC, (const uint8_t*)req, strlen(req));
-        if (Serial) Serial.println("[ESP-NOW] Re-requesting WiFi status after channel recovery.");
+        
+        if (DataManager::isActivated()) {
+            sendCommand("{\"cmd\":\"DEVICE_ACTIVATED\"}");
+        }
+        
+        // Let the UIManager / current screen manage idle state if it needs to.
+        // We declare uiIsIdleScreenActive() locally since it's defined in ui_idle.cpp
+        extern bool uiIsIdleScreenActive();
+        if (uiIsIdleScreenActive()) {
+            sendCommand("{\"cmd\":\"SET_IDLE\",\"idle\":true}");
+        }
     }
 
     // Drain all messages deposited by the ESP-NOW callback
@@ -352,7 +364,22 @@ void CommManager::dispatchJson(const String& line) {
         }
     } else if (strcmp(type, "WIFI_STATUS") == 0) {
         bool connected = doc["connected"] | false;
+        String ssid = doc["ssid"] | "";
+        
         DataManager::setWifiConnected(connected);
+        
+        // If WROOM successfully connected, ensure CrowPanel UI knows the SSID
+        if (connected && ssid.length() > 0) {
+            String existingPass = "";
+            for (int i = 0; i < DataManager::getSavedWifiCount(); i++) {
+                if (DataManager::getWifiSsid(i) == ssid) {
+                    existingPass = DataManager::getWifiPass(i);
+                    break;
+                }
+            }
+            DataManager::saveWifiCredentials(ssid, existingPass);
+        }
+
         UIManager::updateHeaderWifi(connected);
         uiWifiUpdateStatus(connected);
         uiSettingsUpdateWifiStatus(connected);
@@ -360,26 +387,35 @@ void CommManager::dispatchJson(const String& line) {
         static bool lastConnected = false;
         if (connected && !lastConnected) {
             sendCommand("{\"cmd\":\"SYNC_NTP\"}");
+            s_autoReconnectAttempted = false;
+            UIManager::showToast("Wi-Fi Connected!", false);
+        } else if (!connected && lastConnected) {
+            UIManager::showToast("Wi-Fi Disconnected", true);
         }
         lastConnected = connected;
 
-        if (!connected && !s_autoReconnectAttempted && DataManager::hasSavedWifi()) {
-            String savedSsid = DataManager::getWifiSsid();
-            String savedPass = DataManager::getWifiPass();
-            // Only auto-reconnect if we have both SSID and a non-empty password
-            if (savedPass.length() > 0) {
-                s_autoReconnectAttempted = true;
-                if (Serial) Serial.println("[WiFi] Auto-reconnecting to: " + savedSsid);
-                StaticJsonDocument<256> req;
-                req["cmd"]  = "WIFI_CONNECT";
-                req["ssid"] = savedSsid;
-                req["pass"] = savedPass;
-                String out; serializeJson(req, out);
-                sendCommand(out);
+        if (!connected && DataManager::hasSavedWifi()) {
+            if (!s_autoReconnectAttempted) {
+                String savedSsid = DataManager::getWifiSsid();
+                String savedPass = DataManager::getWifiPass();
+                // Only auto-reconnect if we have both SSID and a non-empty password
+                if (savedPass.length() > 0) {
+                    s_autoReconnectAttempted = true;
+                    if (Serial) Serial.println("[WiFi] Auto-reconnecting to: " + savedSsid);
+                    UIManager::showToast(("Reconnecting to " + savedSsid + "...").c_str(), false);
+                    StaticJsonDocument<256> req;
+                    req["cmd"]  = "WIFI_CONNECT";
+                    req["ssid"] = savedSsid;
+                    req["pass"] = savedPass;
+                    String out; serializeJson(req, out);
+                    sendCommand(out);
+                } else {
+                    if (Serial) Serial.println("[WiFi] Saved password is empty — skipping auto-reconnect. Trusting WROOM to handle it.");
+                    // Do NOT clear credentials here, because WROOM manages the connection on its own!
+                }
             } else {
-                if (Serial) Serial.println("[WiFi] Saved password is empty — skipping auto-reconnect.");
-                // Clear the bad credential so we don't retry every boot
-                DataManager::clearWifiCredentials();
+                // If s_autoReconnectAttempted is true, we received WIFI_STATUS: false AFTER trying to connect
+                UIManager::showToast("Failed to reconnect to Wi-Fi", true);
             }
         }
     } else if (strcmp(type, "CHANNEL_HOP") == 0) {
