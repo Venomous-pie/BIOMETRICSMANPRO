@@ -20,7 +20,6 @@ static lv_obj_t *btn_time_out = NULL;
 
 extern const lv_img_dsc_t manpro_logo;
 extern const lv_img_dsc_t icon_battery;
-extern const lv_img_dsc_t icon_settings;
 
 int pending_action = 1; // 0=none, 1=IN, 2=OUT
 
@@ -37,12 +36,6 @@ static void prompt_click_cb(lv_event_t * e) {
     lv_label_set_text(lbl_prompt, "< Time - Out >");
   }
   lv_obj_set_style_text_color(lbl_prompt, UIManager::rgb(COLOR_STROKE), 0);
-}
-
-static void btn_settings_cb(lv_event_t * e) {
-  pending_action = 3;
-  lv_label_set_text(lbl_prompt, "Admin Auth Required. Place Finger");
-  lv_obj_set_style_text_color(lbl_prompt, UIManager::rgb(COLOR_DANGER), 0);
 }
 
 static void btn_time_in_cb(lv_event_t * e) {
@@ -83,16 +76,6 @@ void buildIdleScreen() {
   lv_obj_set_style_bg_opa(scr_idle, LV_OPA_COVER, 0);
   lv_obj_set_scrollbar_mode(scr_idle, LV_SCROLLBAR_MODE_OFF);
   lv_obj_add_flag(scr_idle, LV_OBJ_FLAG_CLICKABLE);
-
-  // Settings Gear Icon (Admin)
-  lv_obj_t *btn_settings = lv_img_create(scr_idle);
-  lv_img_set_src(btn_settings, &icon_settings);
-  lv_obj_set_style_img_recolor(btn_settings, lv_color_hex(0xFFFFFF), 0);
-  lv_obj_set_style_img_recolor_opa(btn_settings, LV_OPA_COVER, 0);
-  lv_img_set_zoom(btn_settings, 128); // 128 is 50% scale (256 = 100%)
- lv_obj_align(btn_settings, LV_ALIGN_TOP_LEFT, -10, -18);
-  lv_obj_add_flag(btn_settings, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_event_cb(btn_settings, btn_settings_cb, LV_EVENT_CLICKED, NULL);
 
   // Status pill
   lv_obj_t *status_pill = lv_obj_create(scr_idle);

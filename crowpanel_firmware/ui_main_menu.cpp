@@ -1,6 +1,7 @@
 #include "ui_main_menu.h"
 #include "ui_manager.h"
 #include "ui_enroll.h"
+#include "ui_logs.h"
 #include "data_manager.h"
 
 static lv_obj_t *scr_main_menu = NULL;
@@ -17,7 +18,7 @@ static void btn_emp_cb(lv_event_t * e) {
 }
 
 static void btn_att_cb(lv_event_t * e) {
-    // Placeholder for Attendance Logs screen
+    uiShowLogs();
 }
 
 static void btn_set_cb(lv_event_t * e) {
@@ -105,5 +106,25 @@ void uiShowMainMenu() {
         emp_list_obj = NULL;
         ta_search = NULL;
         kb_search = NULL;
+    }
+
+    extern lv_obj_t *scr_logs;
+    if (scr_logs != NULL) {
+        extern lv_obj_t *logs_list_obj;
+        extern lv_obj_t *ta_search_name;
+        extern lv_obj_t *ta_search_date;
+        extern lv_obj_t *kb_logs;
+        extern lv_timer_t *logs_search_debounce_timer;
+        
+        if (logs_search_debounce_timer) {
+            lv_timer_del(logs_search_debounce_timer);
+            logs_search_debounce_timer = NULL;
+        }
+        lv_obj_del_async(scr_logs);
+        scr_logs = NULL;
+        logs_list_obj = NULL;
+        ta_search_name = NULL;
+        ta_search_date = NULL;
+        kb_logs = NULL;
     }
 }

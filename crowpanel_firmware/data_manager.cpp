@@ -3,6 +3,21 @@
 
 Employee DataManager::empDB[50];
 int DataManager::empCount = 0;
+
+static AttendanceLog mockLogs[] = {
+    {"Mark Jaestin Cabañelis", "8:03 AM", true},
+    {"John Rostum Reginio", "12:11 PM", false},
+    {"Claire Jem Dedicatoria", "12:01 PM", false},
+    {"Kenneth Simbolas", "8:22 AM", true},
+    {"Admin", "8:00 AM", true},
+    {"Alice Santos", "5:00 PM", false},
+    {"Bob Cruz", "8:15 AM", true},
+    {"Carol Reyes", "6:00 PM", false}
+};
+
+const AttendanceLog* DataManager::getAttendanceLogs() { return mockLogs; }
+int DataManager::getAttendanceLogCount() { return sizeof(mockLogs) / sizeof(mockLogs[0]); }
+
 bool DataManager::_isWifiConfigured = false;
 bool DataManager::_isActivated = false;
 String DataManager::_hwCode = "";
