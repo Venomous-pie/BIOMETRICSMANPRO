@@ -48,8 +48,9 @@ bool DataManager::_isActivated = false;
 String DataManager::_hwCode = "";
 int DataManager::_failedAttempts = 0;
 unsigned long DataManager::_lockoutStartTime = 0;
-String DataManager::_wifiSsid = "";
-String DataManager::_wifiPass = "";
+String DataManager::_wifiSsid[5];
+String DataManager::_wifiPass[5];
+int DataManager::_wifiCount = 0;
 String DataManager::_activationCode = "";
 bool   DataManager::_wifiConnected = false;
 
@@ -196,47 +197,82 @@ void DataManager::setWifiConfigured(bool state) {
 
 // ── WiFi credential persistence ────────────────────────────────────────────
 void DataManager::loadWifiCredentials() {
+    _wifiCount = 0;
     if (!LittleFS.exists("/wifi_creds.json")) return;
     File f = LittleFS.open("/wifi_creds.json", "r");
     if (!f) return;
-    StaticJsonDocument<256> doc;
+    StaticJsonDocument<1024> doc;
     if (deserializeJson(doc, f) == DeserializationError::Ok) {
-        _wifiSsid = doc["ssid"] | "";
-        _wifiPass = doc["pass"] | "";
+        if (doc.containsKey("networks")) {
+            JsonArray arr = doc["networks"].as<JsonArray>();
+            for (JsonObject net : arr) {
+                if (_wifiCount >= 5) break;
+                _wifiSsid[_wifiCount] = net["ssid"] | "";
+                _wifiPass[_wifiCount] = net["pass"] | "";
+                _wifiCount++;
+            }
+        } else {
+            // Fallback for old format
+            _wifiSsid[0] = doc["ssid"] | "";
+            _wifiPass[0] = doc["pass"] | "";
+            if (_wifiSsid[0].length() > 0) _wifiCount = 1;
+        }
     }
     f.close();
-    // Serial.printf("[WiFi] Loaded saved credentials for SSID: %s\n", _wifiSsid.c_str());
 }
 
 void DataManager::saveWifiCredentialsToFs() {
     File f = LittleFS.open("/wifi_creds.json", "w");
     if (!f) return;
-    StaticJsonDocument<256> doc;
-    doc["ssid"] = _wifiSsid;
-    doc["pass"] = _wifiPass;
+    StaticJsonDocument<1024> doc;
+    JsonArray arr = doc.createNestedArray("networks");
+    for (int i = 0; i < _wifiCount; i++) {
+        JsonObject net = arr.createNestedObject();
+        net["ssid"] = _wifiSsid[i];
+        net["pass"] = _wifiPass[i];
+    }
     serializeJson(doc, f);
     f.close();
 }
 
 void DataManager::saveWifiCredentials(const String& ssid, const String& pass) {
-    _wifiSsid = ssid;
-    _wifiPass = pass;
+    if (ssid.length() == 0) return;
+    // Check if it already exists, remove it if it does
+    int existing_idx = -1;
+    for (int i = 0; i < _wifiCount; i++) {
+        if (_wifiSsid[i] == ssid) {
+            existing_idx = i;
+            break;
+        }
+    }
+    
+    // Shift elements to make room at the front
+    int shift_start = (existing_idx != -1) ? existing_idx : ((_wifiCount < 5) ? _wifiCount : 4);
+    for (int i = shift_start; i > 0; i--) {
+        _wifiSsid[i] = _wifiSsid[i - 1];
+        _wifiPass[i] = _wifiPass[i - 1];
+    }
+    
+    _wifiSsid[0] = ssid;
+    _wifiPass[0] = pass;
+    if (existing_idx == -1 && _wifiCount < 5) {
+        _wifiCount++;
+    }
+    
     saveWifiCredentialsToFs();
-    // Serial.printf("[WiFi] Credentials saved for SSID: %s\n", ssid.c_str());
 }
 
 void DataManager::clearWifiCredentials() {
-    _wifiSsid = "";
-    _wifiPass = "";
+    _wifiCount = 0;
     if (LittleFS.exists("/wifi_creds.json")) {
         LittleFS.remove("/wifi_creds.json");
     }
-    // Serial.println("[WiFi] Saved credentials cleared (user switched network)");
 }
 
-String DataManager::getWifiSsid() { return _wifiSsid; }
-String DataManager::getWifiPass() { return _wifiPass; }
-bool   DataManager::hasSavedWifi() { return _wifiSsid.length() > 0; }
+String DataManager::getWifiSsid(int index) { return (index >= 0 && index < _wifiCount) ? _wifiSsid[index] : ""; }
+String DataManager::getWifiPass(int index) { return (index >= 0 && index < _wifiCount) ? _wifiPass[index] : ""; }
+int DataManager::getSavedWifiCount() { return _wifiCount; }
+bool   DataManager::hasSavedWifi() { return _wifiCount > 0; }
 
 void DataManager::setWifiConnected(bool connected) { _wifiConnected = connected; }
 bool DataManager::isWifiConnected() { return _wifiConnected; }

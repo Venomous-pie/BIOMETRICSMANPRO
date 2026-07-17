@@ -19,12 +19,14 @@ extern void buildMainMenuScreen();
 LV_FONT_DECLARE(lv_font_montserrat_14);
 LV_FONT_DECLARE(lv_font_montserrat_16);
 LV_FONT_DECLARE(lv_font_montserrat_20);
-extern const lv_img_dsc_t icon_battery;
+extern const lv_img_dsc_t icon_charging;
 
 // The most-recently created shared header pill label.
 // Every screen that calls buildHeader(show_wifi_pill=true) overwrites this pointer,
 // so it always points to the currently visible header's pill.
 static lv_obj_t *g_header_wifi_lbl = NULL;
+static lv_obj_t *g_header_wifi_img = NULL;
+extern const lv_img_dsc_t icon_wifi;
 
 lv_obj_t* UIManager::buildHeader(lv_obj_t* scr, const char* title, const char* subtitle, lv_event_cb_t back_cb, bool show_wifi_pill) {
     lv_obj_t *header = lv_obj_create(scr);
@@ -71,21 +73,27 @@ void UIManager::initGlobalPill() {
     if (g_global_wifi_pill) return;
     
     g_global_wifi_pill = lv_obj_create(lv_layer_top());
-    lv_obj_set_size(g_global_wifi_pill, 180, 40);
-    // Align to top-right corner exactly where it was before (Top-right, -20, 22)
-    lv_obj_align(g_global_wifi_pill, LV_ALIGN_TOP_RIGHT, -20, 22);
+    lv_obj_set_size(g_global_wifi_pill, 190, 40);
+    // Align to top-right corner
+    lv_obj_align(g_global_wifi_pill, LV_ALIGN_TOP_RIGHT, -15, 22);
     lv_obj_set_style_bg_color(g_global_wifi_pill, rgb(COLOR_GREEN_LIGHT), 0);
     lv_obj_set_style_radius(g_global_wifi_pill, 20, 0);
     lv_obj_set_style_border_width(g_global_wifi_pill, 0, 0);
     lv_obj_clear_flag(g_global_wifi_pill, LV_OBJ_FLAG_SCROLLABLE);
 
+    g_header_wifi_img = lv_img_create(g_global_wifi_pill);
+    lv_img_set_src(g_header_wifi_img, &icon_wifi);
+    lv_obj_set_style_img_recolor(g_header_wifi_img, rgb(COLOR_GREEN_DARK), 0);
+    lv_obj_set_style_img_recolor_opa(g_header_wifi_img, LV_OPA_COVER, 0);
+    lv_obj_align(g_header_wifi_img, LV_ALIGN_LEFT_MID, 15, 0);
+
     g_header_wifi_lbl = lv_label_create(g_global_wifi_pill);
-    lv_label_set_text(g_header_wifi_lbl, LV_SYMBOL_WIFI " Offline");
+    lv_label_set_text(g_header_wifi_lbl, "Offline");
     styleLabel(g_header_wifi_lbl, COLOR_GREEN_DARK, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
-    lv_obj_align(g_header_wifi_lbl, LV_ALIGN_LEFT_MID, 15, 0);
+    lv_obj_align_to(g_header_wifi_lbl, g_header_wifi_img, LV_ALIGN_OUT_RIGHT_MID, 6, 0);
 
     lv_obj_t *batt_img = lv_img_create(g_global_wifi_pill);
-    lv_img_set_src(batt_img, &icon_battery);
+    lv_img_set_src(batt_img, &icon_charging);
     lv_obj_set_style_img_recolor(batt_img, rgb(COLOR_GREEN_DARK), 0);
     lv_obj_set_style_img_recolor_opa(batt_img, LV_OPA_COVER, 0);
     lv_obj_align(batt_img, LV_ALIGN_RIGHT_MID, -15, 0);
@@ -149,8 +157,11 @@ void uiFactoryResetComplete() {
 
 void UIManager::updateHeaderWifi(bool connected) {
     if (!g_header_wifi_lbl) return;
-    lv_label_set_text(g_header_wifi_lbl, connected ? LV_SYMBOL_WIFI " Online" : LV_SYMBOL_WIFI " Offline");
+    lv_label_set_text(g_header_wifi_lbl, connected ? "Online" : "Offline");
     lv_obj_set_style_text_color(g_header_wifi_lbl, rgb(connected ? COLOR_GREEN_MAIN : COLOR_GREEN_DARK), 0);
+    if (g_header_wifi_img) {
+        lv_obj_set_style_img_recolor(g_header_wifi_img, rgb(connected ? COLOR_GREEN_MAIN : COLOR_GREEN_DARK), 0);
+    }
 }
 
 void UIManager::showIdle() {

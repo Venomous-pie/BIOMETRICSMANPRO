@@ -5,7 +5,7 @@
 
 static lv_obj_t *scr_activation = NULL;
 
-extern const lv_img_dsc_t icon_battery;
+extern const lv_img_dsc_t icon_charging;
 
 static lv_obj_t *lbl_title = NULL;
 static lv_obj_t *lbl_step = NULL;
@@ -190,8 +190,8 @@ void buildActivationScreen() {
 
     // ── Status Pill ──
     lv_obj_t *pill = lv_obj_create(scr_activation);
-    lv_obj_set_size(pill, 160, 40);
-    lv_obj_align(pill, LV_ALIGN_TOP_RIGHT, -20, 16);
+    lv_obj_set_size(pill, 190, 40);
+    lv_obj_align(pill, LV_ALIGN_TOP_RIGHT, -15, 16);
     lv_obj_set_style_bg_color(pill, UIManager::rgb(COLOR_GREEN_LIGHT), 0);
     lv_obj_set_style_radius(pill, 20, 0);
     lv_obj_set_style_border_width(pill, 0, 0);
@@ -200,13 +200,13 @@ void buildActivationScreen() {
     lv_obj_t *lbl_status = lv_label_create(pill);
     lv_label_set_text(lbl_status, LV_SYMBOL_WIFI " Online");
     UIManager::styleLabel(lbl_status, COLOR_GREEN_DARK, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
-    lv_obj_align(lbl_status, LV_ALIGN_LEFT_MID, 5, 0);
+    lv_obj_align(lbl_status, LV_ALIGN_LEFT_MID, 15, 0);
 
     lv_obj_t *batt_img = lv_img_create(pill);
-    lv_img_set_src(batt_img, &icon_battery);
+    lv_img_set_src(batt_img, &icon_charging);
     lv_obj_set_style_img_recolor(batt_img, UIManager::rgb(COLOR_GREEN_DARK), 0);
     lv_obj_set_style_img_recolor_opa(batt_img, LV_OPA_COVER, 0);
-    lv_obj_align(batt_img, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_align(batt_img, LV_ALIGN_RIGHT_MID, -15, 0);
 
     // ==============================================================
     // VIEW 1: Hardware Code

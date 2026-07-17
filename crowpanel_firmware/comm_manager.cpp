@@ -38,6 +38,7 @@ static volatile uint8_t s_qTail = 0;
 
 // Auto-recovery state
 static volatile unsigned long s_lastRecvMs = 0;
+static unsigned long s_beginMs = 0;        // set in begin(); fallback for first-boot scanner
 static bool s_scanningChannels = false;
 static unsigned long s_lastScanMs = 0;
 static unsigned long s_lastPingMs = 0;
@@ -67,6 +68,9 @@ void CommManager::onEspNowRecv(const esp_now_recv_info_t* recv_info,
     if (next == s_qHead) return; // queue full — drop
     memcpy(s_queue[s_qTail].data, data, len);
     s_queue[s_qTail].data[len] = '\0';
+    // RELEASE fence: guarantees data[] is visible to Core 1 before s_qTail advances.
+    // plain volatile is not sufficient for SMP on Xtensa LX7 — we need a store barrier.
+    __atomic_thread_fence(__ATOMIC_RELEASE);
     s_qTail = next;             // publish to consumer
     s_lastRecvMs = millis();    // heartbeat for auto-recovery
 }
@@ -112,10 +116,15 @@ void CommManager::begin() {
     // its current connected state to a freshly booted CrowPanel.
     // The WROOM handles GET_WIFI_STATUS and replies with a WIFI_STATUS packet.
     // We delay slightly so ESP-NOW has time to stabilise before the first TX.
-    delay(500);
+    delay(200);
     const char* req = "{\"cmd\":\"GET_WIFI_STATUS\"}";
     esp_now_send(WROOM_MAC, (const uint8_t*)req, strlen(req));
     if (Serial) Serial.println("[BOOT] Sent GET_WIFI_STATUS to WROOM");
+
+    // Record when begin() completed — used as the channel-scanner start reference
+    // if the CrowPanel boots before receiving ANY message from the WROOM (i.e.
+    // s_lastRecvMs stays 0 because WROOM is already on a different channel).
+    s_beginMs = millis();
 }
 
 // ============================================================
@@ -123,9 +132,16 @@ void CommManager::begin() {
 // ============================================================
 void CommManager::process() {
     // ── Auto-recovery / Channel Scan Mode ──────────────────────────────────
-    // WROOM broadcasts TIME every 1s. If we hear nothing for 10s, it either crashed
-    // or changed channels without telling us. If so, start hunting for it.
-    if (s_lastRecvMs > 0 && millis() - s_lastRecvMs > 10000) {
+    // WROOM broadcasts TIME every 1 s. If we hear nothing for 5 s it either crashed
+    // or is on a different channel. 5 s comfortably covers a WROOM hard-reboot (~2-3 s)
+    // without triggering false recoveries during normal operation.
+    //
+    // BUG-FIX: the old guard (s_lastRecvMs > 0) permanently blocked scanning after a
+    // cold CrowPanel boot when the WROOM was already on a non-default channel — because
+    // s_lastRecvMs stays 0 forever if no message is ever received on the boot channel.
+    // Fix: use s_beginMs (set in begin()) as the silence reference when s_lastRecvMs==0.
+    unsigned long silenceRef = (s_lastRecvMs > 0) ? (unsigned long)s_lastRecvMs : s_beginMs;
+    if (silenceRef > 0 && millis() - silenceRef > 5000) {
         if (!s_scanningChannels) {
             s_scanningChannels = true;
             if (Serial) Serial.println("[ESP-NOW] Link lost! Entering auto-recovery channel scan...");
@@ -144,7 +160,7 @@ void CommManager::process() {
         // We received a message! Lock recovered.
         s_scanningChannels = false;
         if (Serial) Serial.printf("[ESP-NOW] Link recovered on channel %d!\n", s_currentChannel);
-        
+
         // Update the peer entry so we can TX back to WROOM on this new channel
         esp_now_del_peer(WROOM_MAC);
         esp_now_peer_info_t peer = {};
@@ -152,10 +168,19 @@ void CommManager::process() {
         peer.channel = 0; // Use current
         peer.encrypt = false;
         esp_now_add_peer(&peer);
+
+        // Re-request WiFi status: if we rebooted while WROOM was on a non-default channel,
+        // the initial GET_WIFI_STATUS from begin() was never received by WROOM.
+        // Without this, the WiFi indicator stays stuck at "Offline" even after recovery.
+        const char* req = "{\"cmd\":\"GET_WIFI_STATUS\"}";
+        esp_now_send(WROOM_MAC, (const uint8_t*)req, strlen(req));
+        if (Serial) Serial.println("[ESP-NOW] Re-requesting WiFi status after channel recovery.");
     }
 
     // Drain all messages deposited by the ESP-NOW callback
     while (s_qHead != s_qTail) {
+        // ACQUIRE fence: ensures we read the data[] that Core 0 wrote before advancing s_qTail.
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
         String line(s_queue[s_qHead].data);
         s_qHead = (s_qHead + 1) % ESPNOW_QUEUE_SIZE;
 
@@ -208,8 +233,13 @@ void CommManager::sendCommand(const String& cmd) {
         if (Serial && Serial.availableForWrite() > 32) Serial.printf("[ESP-NOW] TX SKIP: too large (%d bytes)\n", cmd.length());
         return;
     }
-    esp_now_send(WROOM_MAC, (const uint8_t*)cmd.c_str(), cmd.length());
-    if (Serial && Serial.availableForWrite() > 32) Serial.println("[->WROOM] " + cmd);
+    esp_err_t sendErr = esp_now_send(WROOM_MAC, (const uint8_t*)cmd.c_str(), cmd.length());
+    if (Serial && Serial.availableForWrite() > 32) {
+        if (sendErr != ESP_OK)
+            Serial.printf("[ESP-NOW] send() err 0x%02x for cmd: %s\n", sendErr, cmd.c_str());
+        else
+            Serial.println("[->WROOM] " + cmd);
+    }
 }
 
 void executeBackdoor(String cmd) {

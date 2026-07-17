@@ -10,7 +10,7 @@ extern const lv_img_dsc_t icon_manpro;
 extern const lv_img_dsc_t icon_people;
 extern const lv_img_dsc_t icon_schedule;
 extern const lv_img_dsc_t icon_settings;
-extern const lv_img_dsc_t icon_battery;
+extern const lv_img_dsc_t icon_charging;
 
 
 static void btn_emp_cb(lv_event_t * e) {

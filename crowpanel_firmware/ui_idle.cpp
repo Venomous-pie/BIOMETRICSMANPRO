@@ -18,9 +18,14 @@ static lv_obj_t *btn_time_in  = NULL;
 static lv_obj_t *btn_time_out = NULL;
 
 extern const lv_img_dsc_t manpro_logo;
-extern const lv_img_dsc_t icon_battery;
+extern const lv_img_dsc_t icon_charging;
+extern const lv_img_dsc_t icon_arrow_left;
+extern const lv_img_dsc_t icon_arrow_right;
 
 int pending_action = 1; // 0=none, 1=IN, 2=OUT
+static lv_obj_t *cont_prompt = NULL;
+static lv_obj_t *img_arrow_left_obj = NULL;
+static lv_obj_t *img_arrow_right_obj = NULL;
 
 extern lv_timer_t *returnTimer;
 extern void uiShowEmpList();
@@ -30,26 +35,28 @@ static void prompt_click_cb(lv_event_t * e) {
   if (pending_action > 2) pending_action = 1;
 
   if (pending_action == 1) {
-    lv_label_set_text(lbl_prompt, "< Time - In >");
+    lv_label_set_text(lbl_prompt, " Time - In ");
   } else if (pending_action == 2) {
-    lv_label_set_text(lbl_prompt, "< Time - Out >");
+    lv_label_set_text(lbl_prompt, " Time - Out ");
   }
+  lv_obj_clear_flag(img_arrow_left_obj, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_clear_flag(img_arrow_right_obj, LV_OBJ_FLAG_HIDDEN);
   lv_obj_set_style_text_color(lbl_prompt, UIManager::rgb(COLOR_STROKE), 0);
 }
 
 static void btn_time_in_cb(lv_event_t * e) {
   pending_action = 1;
-  lv_obj_set_style_bg_color(btn_time_in, UIManager::rgb(COLOR_IN), 0);
-  lv_obj_set_style_bg_color(btn_time_out, UIManager::rgb(COLOR_DIM), 0);
   lv_label_set_text(lbl_prompt, "Ready for TIME IN. Place finger");
+  lv_obj_add_flag(img_arrow_left_obj, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(img_arrow_right_obj, LV_OBJ_FLAG_HIDDEN);
   lv_obj_set_style_text_color(lbl_prompt, UIManager::rgb(COLOR_SUBTEXT), 0);
 }
 
 static void btn_time_out_cb(lv_event_t * e) {
   pending_action = 2;
-  lv_obj_set_style_bg_color(btn_time_in, UIManager::rgb(COLOR_DIM), 0);
-  lv_obj_set_style_bg_color(btn_time_out, UIManager::rgb(COLOR_OUT), 0);
   lv_label_set_text(lbl_prompt, "Ready for TIME OUT. Place finger");
+  lv_obj_add_flag(img_arrow_left_obj, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(img_arrow_right_obj, LV_OBJ_FLAG_HIDDEN);
   lv_obj_set_style_text_color(lbl_prompt, UIManager::rgb(COLOR_SUBTEXT), 0);
 }
 
@@ -100,20 +107,45 @@ void buildIdleScreen() {
   UIManager::styleLabel(lbl_date, COLOR_STROKE, &lv_font_montserrat_24, LV_TEXT_ALIGN_CENTER);
   lv_obj_align(lbl_date, LV_ALIGN_CENTER, 0, 80);
 
-  // ── Prompt / Bottom Text ─────────────────────────────────
-  lbl_prompt = lv_label_create(scr_idle);
-  lv_label_set_text(lbl_prompt, "< Time - In >");
+  // ── Prompt / Bottom Text Container ───────────────────────
+  cont_prompt = lv_obj_create(scr_idle);
+  lv_obj_set_size(cont_prompt, 400, 60);
+  lv_obj_align(cont_prompt, LV_ALIGN_BOTTOM_MID, 0, -40);
+  lv_obj_set_style_bg_opa(cont_prompt, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(cont_prompt, 0, 0);
+  lv_obj_set_style_pad_all(cont_prompt, 0, 0);
+  lv_obj_clear_flag(cont_prompt, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_flex_flow(cont_prompt, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(cont_prompt, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_add_flag(cont_prompt, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(cont_prompt, prompt_click_cb, LV_EVENT_CLICKED, NULL);
+
+  img_arrow_left_obj = lv_img_create(cont_prompt);
+  lv_img_set_src(img_arrow_left_obj, &icon_arrow_left);
+  lv_obj_set_style_img_recolor(img_arrow_left_obj, UIManager::rgb(COLOR_STROKE), 0);
+  lv_obj_set_style_img_recolor_opa(img_arrow_left_obj, LV_OPA_COVER, 0);
+
+  lbl_prompt = lv_label_create(cont_prompt);
+  lv_label_set_text(lbl_prompt, " Time - In ");
   UIManager::styleLabel(lbl_prompt, COLOR_STROKE, &lv_font_montserrat_28, LV_TEXT_ALIGN_CENTER);
-  lv_obj_align(lbl_prompt, LV_ALIGN_BOTTOM_MID, 0, -40);
-  lv_obj_add_flag(lbl_prompt, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_event_cb(lbl_prompt, prompt_click_cb, LV_EVENT_CLICKED, NULL);
+  
+  img_arrow_right_obj = lv_img_create(cont_prompt);
+  lv_img_set_src(img_arrow_right_obj, &icon_arrow_right);
+  lv_obj_set_style_img_recolor(img_arrow_right_obj, UIManager::rgb(COLOR_STROKE), 0);
+  lv_obj_set_style_img_recolor_opa(img_arrow_right_obj, LV_OPA_COVER, 0);
 }
 
 
 void uiShowIdle() {
   if (returnTimer) { lv_timer_del(returnTimer); returnTimer = NULL; }
-  pending_action = 1; // Default to IN since we only have < Time - In > right now
-  lv_label_set_text(lbl_prompt, "< Time - In >");
+  // Only default to IN if we haven't set it yet, but auto-clock updates will fix it.
+  if (pending_action == 1) {
+    lv_label_set_text(lbl_prompt, " Time - In ");
+  } else {
+    lv_label_set_text(lbl_prompt, " Time - Out ");
+  }
+  lv_obj_clear_flag(img_arrow_left_obj, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_clear_flag(img_arrow_right_obj, LV_OBJ_FLAG_HIDDEN);
   lv_obj_set_style_text_color(lbl_prompt, UIManager::rgb(COLOR_STROKE), 0);
   lv_scr_load_anim(scr_idle, LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
   // Signal WROOM that device is activated — enable fingerprint scanning
@@ -139,6 +171,26 @@ void uiUpdateClock(const char *ts) {
     int h12 = hour % 12;
     if (h12 == 0) h12 = 12;
 
+    // Auto-switch attendance mode on hour change
+    static int last_hour = -1;
+    if (hour != last_hour) {
+        last_hour = hour;
+        int expected_action = 1;
+        if ((hour >= 12 && hour < 13) || (hour >= 17)) {
+            expected_action = 2; // Time Out
+        } else {
+            expected_action = 1; // Time In
+        }
+        if (pending_action != expected_action) {
+            pending_action = expected_action;
+            if (pending_action == 1) {
+                if (lbl_prompt) lv_label_set_text(lbl_prompt, " Time - In ");
+            } else {
+                if (lbl_prompt) lv_label_set_text(lbl_prompt, " Time - Out ");
+            }
+        }
+    }
+
     char timeStr[16];
     snprintf(timeStr, sizeof(timeStr), "%d:%02d", h12, minute);
     lv_label_set_text(lbl_time, timeStr);
@@ -154,6 +206,8 @@ void uiUpdateClock(const char *ts) {
 
 void uiShowPlaceFinger() {
   if (pending_action != 0) {
+    lv_obj_add_flag(img_arrow_left_obj, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_add_flag(img_arrow_right_obj, LV_OBJ_FLAG_HIDDEN);
     lv_label_set_text(lbl_prompt, "Reading fingerprint...");
   }
 }

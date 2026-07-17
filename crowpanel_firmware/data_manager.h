@@ -58,9 +58,10 @@ public:
 
     // WiFi credential persistence
     static void saveWifiCredentials(const String& ssid, const String& pass);
-    static void clearWifiCredentials();
-    static String getWifiSsid();
-    static String getWifiPass();
+    static void clearWifiCredentials(); // Only clears currently connected one if called? Wait, I will just leave it. Or maybe clear all? Let's just clear all.
+    static String getWifiSsid(int index = 0);
+    static String getWifiPass(int index = 0);
+    static int getSavedWifiCount();
     static bool hasSavedWifi();
 
     // Live runtime Wi-Fi state (not persisted — updated by CommManager on every WIFI_STATUS event)
@@ -84,8 +85,9 @@ private:
     static String _hwCode;
     static int _failedAttempts;
     static unsigned long _lockoutStartTime;
-    static String _wifiSsid;
-    static String _wifiPass;
+    static String _wifiSsid[5];
+    static String _wifiPass[5];
+    static int _wifiCount;
     static String _activationCode;
     static bool _wifiConnected;
     static void loadWifiCredentials();

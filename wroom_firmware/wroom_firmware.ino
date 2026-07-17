@@ -115,6 +115,26 @@ bool wifiConnecting = false;
 unsigned long wifiConnectStart = 0;
 uint8_t lastKnownChannel = ESPNOW_CHANNEL;
 
+// Saved AP credentials — persisted for auto-reconnect on unexpected AP drop
+static String s_savedSsid = "";
+static String s_savedPass = "";
+
+// Auto-reconnect exponential-backoff state
+static bool           s_wifiDropped       = false;  // true when AP dropped unexpectedly
+// BUG-FIX: replaced bool s_intentionalDisc with a timestamp window.
+// A bool is consumed by the FIRST STA_DISCONNECTED event; subsequent events
+// fired during the same connect sequence (WiFi.disconnect inside handleWifiConnect,
+// events during scanNetworks, etc.) all see it as false and log spurious
+// "Unexpected drop" messages. A time window naturally covers all of them.
+static unsigned long  s_intentionalDiscUntilMs = 0; // ignore STA_DISCONNECTED until this time
+static unsigned long  s_wifiDropTime      = 0;
+static uint32_t       s_wifiBackoffMs     = 5000;
+static const uint32_t WIFI_MAX_BACKOFF_MS = 60000UL;
+
+// Async WiFi scan state (non-blocking handleWifiScan)
+static bool          s_wifiScanPending = false;
+static unsigned long s_wifiScanStartMs = 0;
+
 // NTP sync state (non-blocking)
 bool ntpSyncPending = false;
 unsigned long ntpSyncStart = 0;
@@ -195,33 +215,38 @@ void resyncEspNow(bool force = false) {
   uint8_t curCh = WiFi.channel();
   if (curCh == 0) curCh = ESPNOW_CHANNEL; // fallback
 
-  if (curCh != lastKnownChannel || force) {
-    if (curCh != lastKnownChannel) {
-      Serial.printf("[ESP-NOW] Radio channel secretly changed from %d to %d (e.g. by scan). Pre-hopping peer.\n", lastKnownChannel, curCh);
-      
-      // Temporarily switch radio BACK to CrowPanel's known channel so it can hear us
-      esp_wifi_set_channel(lastKnownChannel, WIFI_SECOND_CHAN_NONE);
-      
+  // BUG-FIX: capture oldChannel BEFORE any assignment — the original code
+  // assigned lastKnownChannel = curCh then checked (force && curCh == lastKnownChannel)
+  // which was always true, sending spurious CHANNEL_HOP packets on every forced resync.
+  uint8_t oldChannel = lastKnownChannel;
+
+  if (curCh != oldChannel || force) {
+    if (curCh != oldChannel) {
+      Serial.printf("[ESP-NOW] Radio channel changed from %d to %d. Pre-hopping CrowPanel.\n", oldChannel, curCh);
+
+      // Temporarily switch back to CrowPanel's known channel so it can hear us
+      esp_wifi_set_channel(oldChannel, WIFI_SECOND_CHAN_NONE);
+
       StaticJsonDocument<64> hop;
       hop["type"] = "CHANNEL_HOP";
       hop["ch"]   = curCh;
       String hopOut; serializeJson(hop, hopOut);
-      
-      // Add peer temporarily on old channel to dispatch hop
+
+      // Re-add peer on old channel to dispatch the hop notification
       esp_now_del_peer(CROWPANEL_MAC);
       esp_now_peer_info_t peerOld = {};
       memcpy(peerOld.peer_addr, CROWPANEL_MAC, 6);
-      peerOld.channel = lastKnownChannel;
+      peerOld.channel = oldChannel;
       peerOld.encrypt = false;
       esp_now_add_peer(&peerOld);
-      
+
       send(hopOut);
       delay(100); // Give ESP-NOW time to physically transmit
     } else {
-      Serial.printf("[ESP-NOW] Forcing ESP-NOW resync on channel %d\n", curCh);
+      Serial.printf("[ESP-NOW] Forcing ESP-NOW resync on channel %d (no channel change)\n", curCh);
     }
-    
-    // Now switch to the new actual channel
+
+    // Switch radio to the actual current channel and re-register peer
     lastKnownChannel = curCh;
     esp_wifi_set_channel(curCh, WIFI_SECOND_CHAN_NONE);
     esp_now_del_peer(CROWPANEL_MAC);
@@ -232,10 +257,12 @@ void resyncEspNow(bool force = false) {
     peerInfo.encrypt = false;
     esp_now_add_peer(&peerInfo);
 
-    if (force && curCh == lastKnownChannel) {
+    // Only broadcast a second CHANNEL_HOP when the channel actually changed.
+    // (force=true with same channel just re-registers the peer — no hop needed.)
+    if (curCh != oldChannel) {
       StaticJsonDocument<64> hop;
       hop["type"] = "CHANNEL_HOP";
-      hop["ch"] = curCh;
+      hop["ch"]   = curCh;
       String hopOut; serializeJson(hop, hopOut);
       send(hopOut);
     }
@@ -245,17 +272,50 @@ void resyncEspNow(bool force = false) {
 // ============================================================
 // WiFi Event Handler
 // ============================================================
-void onWiFiEvent(WiFiEvent_t event) {
+void onWiFiEvent(WiFiEvent_t event, arduino_event_info_t info) {
   switch (event) {
-    case ARDUINO_EVENT_WIFI_STA_CONNECTED:
-      Serial.println("[WIFI] Connected to AP");
-      resyncEspNow(); // Channel usually changes on connect
+    case ARDUINO_EVENT_WIFI_STA_CONNECTED: {
+      // Read the real AP channel from the event info struct — WiFi.channel() can
+      // return 0 briefly right after connect, so this is the authoritative source.
+      uint8_t apChannel = info.wifi_sta_connected.channel;
+      Serial.printf("[WIFI] Connected to AP on channel %d\n", apChannel);
+      s_wifiDropped   = false;   // clear drop flag — connection succeeded
+      s_wifiBackoffMs = 5000;    // reset backoff for next drop
+      // Pre-load lastKnownChannel so resyncEspNow() computes the delta correctly
+      lastKnownChannel = apChannel;
+      resyncEspNow();
+      // Push WIFI_STATUS immediately so the CrowPanel indicator updates without delay
+      StaticJsonDocument<128> wstat;
+      wstat["type"]      = "WIFI_STATUS";
+      wstat["connected"] = true;
+      sendDoc(wstat);
       break;
+    }
     case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
       Serial.println("[WIFI] STA Disconnected");
-      // Force back to default channel when disconnected
+      // Restore radio to the fixed fallback channel so ESP-NOW keeps working
       esp_wifi_set_channel(ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE);
-      resyncEspNow(); 
+      lastKnownChannel = ESPNOW_CHANNEL;
+      // Re-register CrowPanel peer on the fallback channel
+      esp_now_del_peer(CROWPANEL_MAC);
+      {
+        esp_now_peer_info_t peer = {};
+        memcpy(peer.peer_addr, CROWPANEL_MAC, 6);
+        peer.channel = 0; // 0 = use current radio channel
+        peer.encrypt = false;
+        esp_now_add_peer(&peer);
+      }
+      // Push WIFI_STATUS: false so the CrowPanel indicator updates immediately
+      send("{\"type\":\"WIFI_STATUS\",\"connected\":false}");
+      // Schedule auto-reconnect — only for genuine unexpected drops.
+      // Suppressed for 3 s after any intentional disconnect call to cover all
+      // STA_DISCONNECTED events fired during a single connect/scan sequence.
+      if (millis() >= s_intentionalDiscUntilMs && s_savedSsid.length() > 0) {
+        s_wifiDropped  = true;
+        s_wifiDropTime = millis();
+        Serial.printf("[WIFI] Unexpected drop — auto-reconnect in %lu ms\n", s_wifiBackoffMs);
+      }
+      // (no explicit reset — s_intentionalDiscUntilMs expires naturally)
       break;
     default:
       break;
@@ -266,45 +326,30 @@ void onWiFiEvent(WiFiEvent_t event) {
 // WiFi Command Handlers
 // ============================================================
 void handleWifiScan() {
-  Serial.println("[WIFI] Scanning networks...");
+  // FIX: converted to async (non-blocking) scan. The old blocking scanNetworks(false)
+  // stalled loop() for 2-5 s, during which the CrowPanel's ESP-NOW PINGs went
+  // unanswered and triggered its 10 s channel-recovery scanner unnecessarily.
+  Serial.println("[WIFI] Starting async WiFi scan...");
 
-  // Soft disconnect to prepare for scan
+  // Soft-disconnect keeps the radio alive but drops any AP association,
+  // which is required before scanning.
   WiFi.disconnect(false);
-  delay(100);
 
-  int found = WiFi.scanNetworks(false, true); // blocking, show hidden
-  Serial.printf("[WIFI] scanNetworks() returned: %d\n", found);
-
-  if (found == -2) {
-    Serial.println("[WIFI] Scan failed, retrying...");
-    delay(500);
-    found = WiFi.scanNetworks(false, true);
-    Serial.printf("[WIFI] Retry returned: %d\n", found);
-  }
-
-  String ssidList = "";
-  if (found > 0) {
-    Serial.printf("[WIFI] %d networks found\n", found);
-    int limit = min(found, 5); // Cap at 5
-    for (int i = 0; i < limit; i++) {
-      if (i > 0) ssidList += ",";
-      ssidList += WiFi.SSID(i);
-    }
-  }
-  WiFi.scanDelete();
-
-  // Re-sync ESP-NOW FIRST in case scanNetworks silently desynced the radio,
-  // otherwise sendDoc will transmit on the wrong channel and CrowPanel will never hear it!
-  resyncEspNow(true);
-
-  StaticJsonDocument<1024> resp;
-  resp["type"]  = "WIFI_SCAN_RESULT";
-  resp["ssids"] = ssidList;
-  sendDoc(resp);
+  // async=true, show_hidden=true — returns immediately; result polled in loop()
+  WiFi.scanNetworks(/*async=*/true, /*show_hidden=*/true);
+  s_wifiScanPending = true;
+  s_wifiScanStartMs = millis();
 }
 
 void handleWifiConnect(const String& ssidStr, const String& passStr) {
   Serial.printf("[WIFI] Connecting to: '%s'\n", ssidStr.c_str());
+
+  // Persist credentials for auto-reconnect on unexpected future AP drop
+  s_savedSsid = ssidStr;
+  s_savedPass = passStr;
+  // Open a 3 s suppression window: all STA_DISCONNECTED events fired during
+  // WiFi.disconnect() + scanNetworks() + WiFi.begin() are treated as intentional.
+  s_intentionalDiscUntilMs = millis() + 3000;
 
   WiFi.disconnect(false);
   delay(100);
@@ -359,7 +404,13 @@ void handleWifiConnect(const String& ssidStr, const String& passStr) {
 void handleWifiDisconnect() {
   Serial.println("[WIFI] Disconnecting...");
 
-  // If we are on a non-default channel, tell CrowPanel to go back to default BEFORE we turn off the radio.
+  // Open a 3 s suppression window so the STA_DISCONNECTED fired by
+  // WiFi.disconnect(true, true) below does NOT arm auto-reconnect.
+  s_intentionalDiscUntilMs = millis() + 3000;
+  s_wifiDropped            = false; // clear any pending backoff
+
+  // If we are on a non-default channel, tell CrowPanel to go back to default
+  // BEFORE we turn off the radio so the hop message can be sent.
   if (lastKnownChannel != ESPNOW_CHANNEL) {
     Serial.printf("[ESP-NOW] Pre-hopping CrowPanel back to default channel (%d).\n", ESPNOW_CHANNEL);
     StaticJsonDocument<64> hop;
@@ -368,19 +419,19 @@ void handleWifiDisconnect() {
     String hopOut; serializeJson(hop, hopOut);
     send(hopOut);
     delay(100);
-    lastKnownChannel = ESPNOW_CHANNEL;
   }
 
-  WiFi.disconnect(true, true);
+  WiFi.disconnect(true, true);  // wifioff=true — kills radio + clears NVS credentials
   delay(100);
-  
-  // Re-init ESP-NOW after full radio off
+
+  // Re-init ESP-NOW after the full radio-off (esp_wifi_stop was called above)
   extern void espNowInit();
   espNowInit();
-  
-  // Force channel back and notify
+
+  // FIX: directly restore channel + update tracking instead of calling
+  // resyncEspNow() which reads WiFi.channel()=0 post-stop and does nothing.
+  lastKnownChannel = ESPNOW_CHANNEL;
   esp_wifi_set_channel(ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE);
-  resyncEspNow();
 
   StaticJsonDocument<128> resp;
   resp["type"]      = "WIFI_STATUS";
@@ -719,8 +770,29 @@ static void onDataRecvFromCP(const esp_now_recv_info_t *recv_info, const uint8_t
 
 // Arduino Core 3.x (IDF 5.x): send callback takes wifi_tx_info_t* not uint8_t* mac
 static void onDataSentToCP(const wifi_tx_info_t *tx_info, esp_now_send_status_t status) {
+  // Static counters so we can throttle log spam when CrowPanel reboots to ch 1
+  // while we're locked on a different WiFi channel (common after CP power-cycle).
+  static uint32_t s_failCount     = 0;
+  static uint32_t s_lastFailLogMs = 0;
+
   if (status != ESP_NOW_SEND_SUCCESS) {
-    Serial.println("[ESP-NOW] SEND FAIL — CP unreachable or MAC mismatch");
+    s_failCount++;
+    uint32_t now = (uint32_t)millis();
+    // Print first failure immediately, then throttle to once every 10 s.
+    // The CrowPanel's 15 s channel scanner will find us automatically.
+    if (s_failCount == 1 || now - s_lastFailLogMs >= 10000) {
+      Serial.printf("[ESP-NOW] SEND FAIL #%u on ch %d — CP may have rebooted to ch %d. "
+                    "CP scanner will recover in ~5 s.\n",
+                    s_failCount, lastKnownChannel, ESPNOW_CHANNEL);
+      s_lastFailLogMs = now;
+    }
+  } else {
+    if (s_failCount > 0) {
+      // Log recovery so we know the channel scanner did its job
+      Serial.printf("[ESP-NOW] Send recovered after %u failure(s) on ch %d\n",
+                    s_failCount, lastKnownChannel);
+      s_failCount = 0;
+    }
   }
 }
 
@@ -752,6 +824,7 @@ void espNowInit() {
 
   esp_now_register_recv_cb(onDataRecvFromCP);
   esp_now_register_send_cb(onDataSentToCP);
+  WiFi.onEvent(onWiFiEvent); // channel sync + WIFI_STATUS push on connect/disconnect
 
   esp_now_peer_info_t peer = {};
   memcpy(peer.peer_addr, CROWPANEL_MAC, 6);
@@ -882,24 +955,89 @@ void loop() {
   }
 
 
-  // Asynchronous Wi-Fi connection monitoring
+  // ── Asynchronous Wi-Fi connection monitoring ────────────────────────────────
   if (wifiConnecting) {
     if (WiFi.status() == WL_CONNECTED) {
-      wifiConnecting = false;
+      wifiConnecting  = false;
+      s_wifiDropped   = false;  // connection succeeded — clear drop flag
+      s_wifiBackoffMs = 5000;   // reset backoff for next drop
       Serial.println("[WIFI] Connected! IP: " + WiFi.localIP().toString());
       StaticJsonDocument<128> resp;
       resp["type"]      = "WIFI_STATUS";
       resp["connected"] = true;
       resp["ip"]        = WiFi.localIP().toString();
       sendDoc(resp);
-      syncNTP();               // non-blocking — just fires configTime(), result polled below
-      // Note: activation is now user-triggered (VALIDATE_ACTIVATION from CrowPanel),
-      // not auto-checked on WiFi connect.
+      syncNTP(); // non-blocking — just fires configTime(), result polled below
 
     } else if (millis() - wifiConnectStart > 10000) {
+      // FIX: timeout — light cleanup only. Do NOT call handleWifiDisconnect() which
+      // clears s_wifiDropped and stops retries. Just restore ESP-NOW state and let
+      // the backoff loop reschedule the next attempt.
       wifiConnecting = false;
+      // Open suppression window: the STA_DISCONNECTED from WiFi.disconnect() below
+      // is intentional — don't let it re-arm the drop timer or log "Unexpected drop".
+      s_intentionalDiscUntilMs = millis() + 3000;
       Serial.println("[WIFI] Connection timed out.");
-      handleWifiDisconnect();
+      WiFi.disconnect(false);
+      delay(50);
+      esp_wifi_set_channel(ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE);
+      lastKnownChannel = ESPNOW_CHANNEL;
+      esp_now_del_peer(CROWPANEL_MAC);
+      {
+        esp_now_peer_info_t p = {};
+        memcpy(p.peer_addr, CROWPANEL_MAC, 6);
+        p.channel = 0;
+        p.encrypt = false;
+        esp_now_add_peer(&p);
+      }
+      // Send WIFI_STATUS here: the STA_DISCONNECTED handler is suppressed above,
+      // so this is the only place that sends it.
+      send("{\"type\":\"WIFI_STATUS\",\"connected\":false}");
+      // s_wifiDropped remains true — backoff loop will retry
+    }
+  }
+
+  // ── Async WiFi scan result polling ──────────────────────────────────────────
+  if (s_wifiScanPending) {
+    int  found      = WiFi.scanComplete();
+    bool scanDone   = (found >= 0 || found == WIFI_SCAN_FAILED);
+    bool scanTimeout = (!scanDone && millis() - s_wifiScanStartMs > 10000);
+
+    if (scanDone || scanTimeout) {
+      s_wifiScanPending = false;
+      String ssidList = "";
+      if (found > 0) {
+        int limit = min(found, 5);
+        for (int i = 0; i < limit; i++) {
+          if (i > 0) ssidList += ",";
+          ssidList += WiFi.SSID(i);
+        }
+        Serial.printf("[WIFI] Scan complete: %d networks found\n", found);
+      } else {
+        Serial.printf("[WIFI] Scan complete: no networks (code %d)\n", found);
+      }
+      WiFi.scanDelete();
+      // Re-sync ESP-NOW — the async scan silently hops channels internally
+      resyncEspNow(true);
+
+      StaticJsonDocument<1024> resp;
+      resp["type"]  = "WIFI_SCAN_RESULT";
+      resp["ssids"] = ssidList;
+      sendDoc(resp);
+    }
+  }
+
+  // ── Exponential-backoff auto-reconnect after unexpected AP drop ─────────────
+  // Only runs when: AP dropped unexpectedly, not currently connecting/scanning,
+  // and we have saved credentials to reconnect with.
+  if (s_wifiDropped && !wifiConnecting && !s_wifiScanPending &&
+      WiFi.status() != WL_CONNECTED && s_savedSsid.length() > 0) {
+    if (millis() - s_wifiDropTime >= s_wifiBackoffMs) {
+      Serial.printf("[WIFI] Auto-reconnect to '%s' (backoff=%lu ms)\n",
+                    s_savedSsid.c_str(), s_wifiBackoffMs);
+      s_wifiBackoffMs = min((uint32_t)(s_wifiBackoffMs * 2), WIFI_MAX_BACKOFF_MS);
+      s_wifiDropTime  = millis(); // reset timer for next attempt
+      handleWifiConnect(s_savedSsid, s_savedPass);
     }
   }
 
