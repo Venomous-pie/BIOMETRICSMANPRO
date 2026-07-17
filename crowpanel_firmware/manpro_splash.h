@@ -24,4 +24,9 @@ void manpro_show_splash(void (*on_complete)(void));
  */
 void manpro_set_ready(void);
 
+/**
+ * Returns true if the splash screen is currently active.
+ */
+bool manpro_is_splash_active(void);
+
 #endif

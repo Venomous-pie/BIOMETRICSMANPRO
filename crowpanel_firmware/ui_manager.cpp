@@ -6,6 +6,7 @@
 #include "ui_result.h"
 #include "ui_main_menu.h"
 #include "comm_manager.h"
+#include "manpro_splash.h"
 
 // External screen builders
 extern void buildActivationScreen();
@@ -192,6 +193,8 @@ static void toast_close_cb(lv_event_t *e) {
 }
 
 void UIManager::showToast(const char* msg, bool is_error) {
+    if (manpro_is_splash_active()) return;
+
     if (g_toast) {
         lv_obj_del(g_toast);
         g_toast = NULL;
@@ -209,17 +212,18 @@ void UIManager::showToast(const char* msg, bool is_error) {
     lv_obj_set_style_border_width(g_toast, 0, 0);
     lv_obj_set_style_pad_all(g_toast, 10, 0);
     lv_obj_clear_flag(g_toast, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_layout(g_toast, LV_LAYOUT_FLEX);
+    lv_obj_set_flex_flow(g_toast, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(g_toast, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
     lv_obj_t *lbl = lv_label_create(g_toast);
     lv_label_set_text(lbl, msg);
     styleLabel(lbl, 0xFFFFFF, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
-    lv_obj_set_width(lbl, 230); // leave room for close button
+    lv_obj_set_width(lbl, 230); // flex sizing handles the rest
     lv_label_set_long_mode(lbl, LV_LABEL_LONG_WRAP);
-    lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 0, 0);
 
     lv_obj_t *btn_close = lv_btn_create(g_toast);
     lv_obj_set_size(btn_close, 30, 30);
-    lv_obj_align(btn_close, LV_ALIGN_RIGHT_MID, 0, 0);
     lv_obj_set_style_bg_opa(btn_close, LV_OPA_TRANSP, 0);
     lv_obj_set_style_shadow_width(btn_close, 0, 0);
     lv_obj_add_event_cb(btn_close, toast_close_cb, LV_EVENT_CLICKED, NULL);

@@ -39,6 +39,10 @@ void manpro_set_ready(void) {
   g_system_ready = true;
 }
 
+bool manpro_is_splash_active(void) {
+  return g_splash_scr != NULL;
+}
+
 static void splash_done_timer_cb(lv_timer_t *t) {
   g_splash_elapsed_ms += 100;
   
