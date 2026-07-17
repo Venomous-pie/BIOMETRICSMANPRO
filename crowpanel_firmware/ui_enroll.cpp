@@ -577,7 +577,7 @@ void uiShowEnrollResult(bool ok, const char *name) {
   lv_obj_clear_flag(lbl_scan_subtext, LV_OBJ_FLAG_HIDDEN);
 
   if (ok) {
-    DataManager::updateEmployeeFpEnrolled(selected_emp_id, true);
+    DataManager::updateEmployeeFpEnrolled(selected_emp_id, true, selected_finger_index);
 
     lv_obj_add_flag(btn_enroll_back, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(btn_enroll_done, LV_OBJ_FLAG_HIDDEN);
@@ -623,10 +623,29 @@ static void finger_click_cb(lv_event_t * e) {
   int f_idx = (int)(intptr_t)lv_event_get_user_data(e);
   selected_finger_index = f_idx;
   
-  for (int i=0; i<10; i++) {
-    lv_obj_set_style_bg_color(finger_objs[i], UIManager::rgb(0xE8F5E9), 0); // Light green
+  int current_enrolled = -1;
+  const Employee* db = DataManager::getEmployees();
+  for (int i=0; i<DataManager::getEmployeeCount(); i++) {
+    if (db[i].id == selected_emp_id) {
+      current_enrolled = db[i].enrolled_finger;
+      break;
+    }
   }
-  lv_obj_set_style_bg_color(finger_objs[f_idx], UIManager::rgb(0x2E7D32), 0); // Dark green
+
+  for (int i=0; i<10; i++) {
+    if (!finger_objs[i]) continue;
+    lv_obj_t *lbl = lv_obj_get_child(finger_objs[i], 0);
+    if (i == f_idx) {
+      lv_obj_set_style_bg_color(finger_objs[i], UIManager::rgb(0x2E7D32), 0); // Dark green (selected)
+      lv_obj_set_style_text_color(lbl, UIManager::rgb(0xFFFFFF), 0); // White text
+    } else if (i == current_enrolled) {
+      lv_obj_set_style_bg_color(finger_objs[i], UIManager::rgb(0x60A5FA), 0); // Blue (already enrolled)
+      lv_obj_set_style_text_color(lbl, UIManager::rgb(0xFFFFFF), 0); // White text
+    } else {
+      lv_obj_set_style_bg_color(finger_objs[i], UIManager::rgb(0xE8F5E9), 0); // Light green (unselected)
+      lv_obj_set_style_text_color(lbl, UIManager::rgb(0x166534), 0); // Dark green text
+    }
+  }
   
   if (btn_start_scan) {
     lv_obj_clear_state(btn_start_scan, LV_STATE_DISABLED);
@@ -778,9 +797,25 @@ void uiShowChooseFinger(int emp_id, const char *name, const char *dept) {
       lv_obj_set_style_bg_color(btn_start_scan, UIManager::rgb(0x2A800F), 0);
     }
 
+    int current_enrolled = -1;
+    const Employee* db = DataManager::getEmployees();
+    for (int i=0; i<DataManager::getEmployeeCount(); i++) {
+      if (db[i].id == selected_emp_id) {
+        current_enrolled = db[i].enrolled_finger;
+        break;
+      }
+    }
+
     for (int i = 0; i < 10; i++) {
       if (finger_objs[i]) {
-        lv_obj_set_style_bg_color(finger_objs[i], UIManager::rgb(0xE4F3E7), 0);
+        lv_obj_t *lbl = lv_obj_get_child(finger_objs[i], 0);
+        if (i == current_enrolled) {
+          lv_obj_set_style_bg_color(finger_objs[i], UIManager::rgb(0x60A5FA), 0); // Blue for already enrolled
+          lv_obj_set_style_text_color(lbl, UIManager::rgb(0xFFFFFF), 0); // White text
+        } else {
+          lv_obj_set_style_bg_color(finger_objs[i], UIManager::rgb(0xE4F3E7), 0); // Light green for unenrolled
+          lv_obj_set_style_text_color(lbl, UIManager::rgb(0x166534), 0); // Dark green text
+        }
       }
     }
 

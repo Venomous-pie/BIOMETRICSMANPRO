@@ -16,6 +16,7 @@ struct Employee {
     String job_title;
     String branch;
     bool fp_enrolled;
+    int enrolled_finger;
 };
 
 struct AttendanceLog {
@@ -34,7 +35,7 @@ public:
     static int getEmployeeCount();
     static int getEnrolledFingerprintCount();
     static void saveEmployees();                              // Persist empDB to LittleFS
-    static void updateEmployeeFpEnrolled(int emp_id, bool enrolled); // Update flag + save
+    static void updateEmployeeFpEnrolled(int emp_id, bool enrolled, int finger_index = -1); // Update flag + save
 
     // Attendance Log Data
     static const AttendanceLog* getAttendanceLogs();

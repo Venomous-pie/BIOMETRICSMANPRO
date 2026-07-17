@@ -144,6 +144,7 @@ void DataManager::loadEmployees() {
             empDB[empCount].job_title   = e.containsKey("job_title") ? e["job_title"].as<String>() : "";
             empDB[empCount].branch      = e.containsKey("branch") ? e["branch"].as<String>() : "";
             empDB[empCount].fp_enrolled = e.containsKey("fp_enrolled") ? e["fp_enrolled"].as<bool>() : false;
+            empDB[empCount].enrolled_finger = e.containsKey("enrolled_finger") ? e["enrolled_finger"].as<int>() : -1;
             empCount++;
         }
         // Serial.printf("[DB] %d employees loaded from LittleFS\n", empCount);
@@ -160,32 +161,32 @@ int DataManager::getEmployeeCount() { return empCount; }
 void DataManager::saveEmployees() {
     File f = LittleFS.open("/employees.json", "w");
     if (!f) return;
-    f.print("[");
+    StaticJsonDocument<4096> doc;
+    JsonArray arr = doc.to<JsonArray>();
     for (int i = 0; i < empCount; i++) {
-        if (i > 0) f.print(",");
-        StaticJsonDocument<256> e;
+        JsonObject e = arr.createNestedObject();
         e["id"]          = empDB[i].id;
         e["name"]        = empDB[i].name;
         e["dept"]        = empDB[i].dept;
         e["job_title"]   = empDB[i].job_title;
         e["branch"]      = empDB[i].branch;
         e["fp_enrolled"] = empDB[i].fp_enrolled;
-        String row; serializeJson(e, row);
-        f.print(row);
+        e["enrolled_finger"] = empDB[i].enrolled_finger;
     }
-    f.print("]");
+    serializeJson(doc, f);
     f.close();
 }
 
 // Update a single employee's fp_enrolled flag in RAM and persist to flash.
-void DataManager::updateEmployeeFpEnrolled(int emp_id, bool enrolled) {
+void DataManager::updateEmployeeFpEnrolled(int emp_id, bool enrolled, int finger_index) {
     for (int i = 0; i < empCount; i++) {
         if (empDB[i].id == emp_id) {
             empDB[i].fp_enrolled = enrolled;
-            break;
+            empDB[i].enrolled_finger = finger_index;
+            saveEmployees();
+            return;
         }
     }
-    saveEmployees();
 }
 
 bool DataManager::isWifiConfigured() { return _isWifiConfigured; }

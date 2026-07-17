@@ -149,18 +149,18 @@ static void btn_factory_reset_cb(lv_event_t * e) {
     lv_obj_t *lbl_note = lv_label_create(modal);
     lv_label_set_text(lbl_note, "Attendance already synced to the server is not affected.");
     UIManager::styleLabel(lbl_note, 0x000000, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
-    lv_obj_align(lbl_note, LV_ALIGN_TOP_LEFT, 10, 165);
+    lv_obj_align(lbl_note, LV_ALIGN_TOP_LEFT, 10, 190);
 
     // Validation Input
     lv_obj_t *lbl_confirm = lv_label_create(modal);
     String confirmTxt = "Type " + devName + " to confirm";
     lv_label_set_text(lbl_confirm, confirmTxt.c_str());
     UIManager::styleLabel(lbl_confirm, 0x333333, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
-    lv_obj_align(lbl_confirm, LV_ALIGN_TOP_LEFT, 10, 205);
+    lv_obj_align(lbl_confirm, LV_ALIGN_TOP_LEFT, 10, 230);
 
     ta_confirm = lv_textarea_create(modal);
     lv_obj_set_size(ta_confirm, 540, 40);
-    lv_obj_align(ta_confirm, LV_ALIGN_TOP_LEFT, 10, 230);
+    lv_obj_align(ta_confirm, LV_ALIGN_TOP_LEFT, 10, 255);
     lv_textarea_set_placeholder_text(ta_confirm, devName.c_str());
     lv_textarea_set_one_line(ta_confirm, true);
     lv_obj_add_event_cb(ta_confirm, ta_confirm_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
