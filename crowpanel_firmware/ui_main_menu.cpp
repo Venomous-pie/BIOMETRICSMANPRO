@@ -63,17 +63,17 @@ void buildMainMenuScreen() {
         lv_img_set_src(img, icon);
         lv_obj_set_style_img_recolor(img, lv_color_white(), 0);
         lv_obj_set_style_img_recolor_opa(img, LV_OPA_COVER, 0);
-        lv_obj_align(img, LV_ALIGN_TOP_MID, 0, 30);
+        lv_obj_align(img, LV_ALIGN_TOP_MID, 0, 15);
 
         lv_obj_t *lbl_title = lv_label_create(card);
         lv_label_set_text(lbl_title, title);
         UIManager::styleLabel(lbl_title, 0xFFFFFF, &lv_font_montserrat_20, LV_TEXT_ALIGN_CENTER);
-        lv_obj_align(lbl_title, LV_ALIGN_TOP_MID, 0, 150);
+        lv_obj_align(lbl_title, LV_ALIGN_TOP_MID, 0, 155);
 
         lv_obj_t *lbl_sub = lv_label_create(card);
         lv_label_set_text(lbl_sub, subtitle);
         UIManager::styleLabel(lbl_sub, 0xFFFFFF, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
-        lv_obj_align(lbl_sub, LV_ALIGN_TOP_MID, 0, 190);
+        lv_obj_align(lbl_sub, LV_ALIGN_TOP_MID, 0, 195);
 
         return card;
     };
