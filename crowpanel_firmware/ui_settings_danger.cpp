@@ -98,6 +98,7 @@ static void btn_factory_reset_cb(lv_event_t * e) {
     lv_obj_set_style_bg_opa(modal_overlay, LV_OPA_50, 0);
     lv_obj_set_style_border_width(modal_overlay, 0, 0);
     lv_obj_set_style_radius(modal_overlay, 0, 0);
+    lv_obj_set_style_pad_all(modal_overlay, 0, 0);
     lv_obj_clear_flag(modal_overlay, LV_OBJ_FLAG_SCROLLABLE);
 
     lv_obj_t *modal = lv_obj_create(modal_overlay);
