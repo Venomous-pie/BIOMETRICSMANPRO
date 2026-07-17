@@ -199,9 +199,13 @@ static void populate_emp_list(const char* name_filter, const char* dept_filter) 
 
       // Job Title
       lv_obj_t *lbl_job = lv_label_create(row);
-      lv_label_set_long_mode(lbl_job, LV_LABEL_LONG_DOT);
+      lv_label_set_long_mode(lbl_job, LV_LABEL_LONG_CLIP);
       lv_obj_set_width(lbl_job, 170);
-      lv_label_set_text(lbl_job, db[i].job_title.c_str());
+      String displayJob = db[i].job_title;
+      if (displayJob.length() > 15) {
+          displayJob = displayJob.substring(0, 15) + "...";
+      }
+      lv_label_set_text(lbl_job, displayJob.c_str());
       UIManager::styleLabel(lbl_job, 0x666666, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
       lv_obj_align(lbl_job, LV_ALIGN_LEFT_MID, 200, 0);
 
@@ -427,22 +431,22 @@ void buildEnrollScreen() {
   lv_obj_set_style_bg_opa(scr_enroll, LV_OPA_COVER, 0);
   lv_obj_set_scrollbar_mode(scr_enroll, LV_SCROLLBAR_MODE_OFF);
 
-  // Top Left Back Button
+  // Bottom Left Cancel Button
   btn_enroll_back = lv_btn_create(scr_enroll);
-  lv_obj_set_size(btn_enroll_back, 56, 44);
-  lv_obj_align(btn_enroll_back, LV_ALIGN_TOP_LEFT, 20, 18);
-  lv_obj_set_style_bg_color(btn_enroll_back, UIManager::rgb(0x2A800F), 0); // Green
+  lv_obj_set_size(btn_enroll_back, 120, 44);
+  lv_obj_align(btn_enroll_back, LV_ALIGN_BOTTOM_LEFT, 20, -30);
+  lv_obj_set_style_bg_color(btn_enroll_back, UIManager::rgb(0x6B7280), 0); // Gray for cancel
   lv_obj_set_style_radius(btn_enroll_back, 10, 0);
   lv_obj_add_event_cb(btn_enroll_back, enroll_back_cb, LV_EVENT_CLICKED, NULL);
   lv_obj_t *lbl_back = lv_label_create(btn_enroll_back);
-  lv_label_set_text(lbl_back, LV_SYMBOL_LEFT);
-  UIManager::styleLabel(lbl_back, 0xFFFFFF, &lv_font_montserrat_20, LV_TEXT_ALIGN_CENTER);
+  lv_label_set_text(lbl_back, "Cancel");
+  UIManager::styleLabel(lbl_back, 0xFFFFFF, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
   lv_obj_center(lbl_back);
 
-  // Top Right Done Button (Hidden by default)
+  // Bottom Right Done Button (Hidden by default)
   btn_enroll_done = lv_btn_create(scr_enroll);
   lv_obj_set_size(btn_enroll_done, 120, 44);
-  lv_obj_align(btn_enroll_done, LV_ALIGN_TOP_RIGHT, -20, 18);
+  lv_obj_align(btn_enroll_done, LV_ALIGN_BOTTOM_RIGHT, -20, -30);
   lv_obj_set_style_bg_color(btn_enroll_done, UIManager::rgb(0x2A800F), 0); // Green
   lv_obj_set_style_radius(btn_enroll_done, 10, 0);
   lv_obj_add_event_cb(btn_enroll_done, enroll_done_cb, LV_EVENT_CLICKED, NULL);
@@ -473,45 +477,46 @@ void buildEnrollScreen() {
 
   // Central Gray Box
   box_scan = lv_obj_create(scr_enroll);
-  lv_obj_set_size(box_scan, 300, 200);
+  lv_obj_set_size(box_scan, 320, 240);
   lv_obj_align(box_scan, LV_ALIGN_CENTER, 0, 30);
   lv_obj_set_style_bg_color(box_scan, UIManager::rgb(0xD9D9D9), 0);
   lv_obj_set_style_border_width(box_scan, 0, 0);
-  lv_obj_set_style_radius(box_scan, 0, 0);
+  lv_obj_set_style_radius(box_scan, 16, 0);
+  lv_obj_set_style_pad_all(box_scan, 0, 0);
   lv_obj_clear_flag(box_scan, LV_OBJ_FLAG_SCROLLABLE);
 
   // Elements inside box
   img_scan_icon = lv_img_create(box_scan);
   lv_img_set_src(img_scan_icon, &icon_biometrics);
-  lv_obj_align(img_scan_icon, LV_ALIGN_TOP_MID, 0, 20);
+  lv_obj_align(img_scan_icon, LV_ALIGN_TOP_MID, 0, 30);
 
   lbl_scan_text = lv_label_create(box_scan);
   lv_label_set_text(lbl_scan_text, "Scan 1 of 3");
   UIManager::styleLabel(lbl_scan_text, 0x333333, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
-  lv_obj_align(lbl_scan_text, LV_ALIGN_TOP_MID, 0, 100);
+  lv_obj_align(lbl_scan_text, LV_ALIGN_TOP_MID, 0, 130);
 
   lbl_scan_subtext = lv_label_create(box_scan);
   lv_label_set_text(lbl_scan_subtext, "");
   UIManager::styleLabel(lbl_scan_subtext, 0x666666, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
-  lv_obj_align(lbl_scan_subtext, LV_ALIGN_TOP_MID, 0, 125);
+  lv_obj_align(lbl_scan_subtext, LV_ALIGN_TOP_MID, 0, 160);
   lv_obj_add_flag(lbl_scan_subtext, LV_OBJ_FLAG_HIDDEN);
 
   // Dots
   dot_1 = lv_obj_create(box_scan);
   lv_obj_set_size(dot_1, 6, 6);
-  lv_obj_align(dot_1, LV_ALIGN_BOTTOM_MID, -12, -15);
+  lv_obj_align(dot_1, LV_ALIGN_BOTTOM_MID, -12, -25);
   lv_obj_set_style_radius(dot_1, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_border_width(dot_1, 0, 0);
 
   dot_2 = lv_obj_create(box_scan);
   lv_obj_set_size(dot_2, 6, 6);
-  lv_obj_align(dot_2, LV_ALIGN_BOTTOM_MID, 0, -15);
+  lv_obj_align(dot_2, LV_ALIGN_BOTTOM_MID, 0, -25);
   lv_obj_set_style_radius(dot_2, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_border_width(dot_2, 0, 0);
 
   dot_3 = lv_obj_create(box_scan);
   lv_obj_set_size(dot_3, 6, 6);
-  lv_obj_align(dot_3, LV_ALIGN_BOTTOM_MID, 12, -15);
+  lv_obj_align(dot_3, LV_ALIGN_BOTTOM_MID, 12, -25);
   lv_obj_set_style_radius(dot_3, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_border_width(dot_3, 0, 0);
 }

@@ -72,7 +72,6 @@ void DataManager::begin() {
 }
 
 void DataManager::createInitialFilesIfMissing() {
-    LittleFS.remove("/employees.json"); // Force update for this firmware revision
     if (!LittleFS.exists("/employees.json")) {  // Only create when file is absent
         // Serial.println("[FS] Creating initial employees.json...");
         File f = LittleFS.open("/employees.json", "w");
