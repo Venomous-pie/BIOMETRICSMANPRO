@@ -399,46 +399,17 @@ static void start_scan_cb(lv_event_t * e) {
 
 void buildChooseFingerScreen() {
   if (scr_choose_finger != NULL) return;
+  
   scr_choose_finger = lv_obj_create(NULL);
-  lv_obj_set_style_bg_color(scr_choose_finger, UIManager::rgb(0x1A1A1A), 0);
+  lv_obj_set_style_bg_color(scr_choose_finger, UIManager::rgb(0xF8FAF9), 0); // Standard light background
 
-  lv_obj_t *lbl_top_title = lv_label_create(scr_choose_finger);
-  lv_label_set_text(lbl_top_title, "Choose finger");
-  UIManager::styleLabel(lbl_top_title, 0x6B7280, &lv_font_montserrat_20, LV_TEXT_ALIGN_LEFT);
-  lv_obj_align(lbl_top_title, LV_ALIGN_TOP_LEFT, 30, 20);
+  // 1. Standard Header (Handles title, subtitle, back button, and Wifi/Battery pill!)
+  UIManager::buildHeader(scr_choose_finger, "Enroll fingerprint", "Select finger", choose_back_cb, true);
 
-  lv_obj_t *main_panel = lv_obj_create(scr_choose_finger);
-  lv_obj_set_size(main_panel, 740, 380);
-  lv_obj_align(main_panel, LV_ALIGN_BOTTOM_MID, 0, -20);
-  lv_obj_set_style_bg_color(main_panel, UIManager::rgb(0xF8FAF9), 0);
-  lv_obj_set_style_radius(main_panel, 12, 0);
-  lv_obj_set_style_border_width(main_panel, 0, 0);
-  lv_obj_clear_flag(main_panel, LV_OBJ_FLAG_SCROLLABLE);
-
-  lv_obj_t *btn_back = lv_btn_create(main_panel);
-  lv_obj_set_size(btn_back, 60, 44);
-  lv_obj_align(btn_back, LV_ALIGN_TOP_LEFT, 20, 20);
-  lv_obj_set_style_bg_color(btn_back, UIManager::rgb(0x2A800F), 0);
-  lv_obj_set_style_radius(btn_back, 8, 0);
-  lv_obj_add_event_cb(btn_back, choose_back_cb, LV_EVENT_CLICKED, NULL);
-  lv_obj_t *lbl_back = lv_label_create(btn_back);
-  lv_label_set_text(lbl_back, LV_SYMBOL_LEFT);
-  UIManager::styleLabel(lbl_back, 0xFFFFFF, &lv_font_montserrat_20, LV_TEXT_ALIGN_CENTER);
-  lv_obj_center(lbl_back);
-
-  lv_obj_t *lbl_title = lv_label_create(main_panel);
-  lv_label_set_text(lbl_title, "Enroll fingerprint");
-  UIManager::styleLabel(lbl_title, 0x1A1A1A, &lv_font_montserrat_24, LV_TEXT_ALIGN_CENTER);
-  lv_obj_align(lbl_title, LV_ALIGN_TOP_MID, 0, 15);
-
-  lv_obj_t *lbl_subtitle = lv_label_create(main_panel);
-  lv_label_set_text(lbl_subtitle, "Select finger");
-  UIManager::styleLabel(lbl_subtitle, 0x6B7280, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
-  lv_obj_align(lbl_subtitle, LV_ALIGN_TOP_MID, 0, 45);
-
-  btn_start_scan = lv_btn_create(main_panel);
+  // 2. Start Scan Button
+  btn_start_scan = lv_btn_create(scr_choose_finger);
   lv_obj_set_size(btn_start_scan, 140, 44);
-  lv_obj_align(btn_start_scan, LV_ALIGN_TOP_RIGHT, -20, 20);
+  lv_obj_align(btn_start_scan, LV_ALIGN_TOP_RIGHT, -30, 95);
   lv_obj_set_style_bg_color(btn_start_scan, UIManager::rgb(0x2A800F), LV_STATE_DEFAULT);
   lv_obj_set_style_bg_color(btn_start_scan, UIManager::rgb(0x6B7280), LV_STATE_DISABLED);
   lv_obj_set_style_radius(btn_start_scan, 8, 0);
@@ -449,15 +420,16 @@ void buildChooseFingerScreen() {
   UIManager::styleLabel(lbl_start, 0xFFFFFF, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
   lv_obj_center(lbl_start);
 
-  lbl_choose_info = lv_label_create(main_panel);
+  // 3. Dynamic Info Label (who we are enrolling)
+  lbl_choose_info = lv_label_create(scr_choose_finger);
   lv_label_set_text(lbl_choose_info, "");
   UIManager::styleLabel(lbl_choose_info, 0x1A1A1A, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
-  lv_obj_align(lbl_choose_info, LV_ALIGN_TOP_LEFT, 30, 90);
+  lv_obj_align(lbl_choose_info, LV_ALIGN_TOP_LEFT, 50, 105);
 
-  // Draw Hands
-  lv_obj_t *left_palm = lv_obj_create(main_panel);
+  // 4. Draw Hands
+  lv_obj_t *left_palm = lv_obj_create(scr_choose_finger);
   lv_obj_set_size(left_palm, 210, 100);
-  lv_obj_align(left_palm, LV_ALIGN_BOTTOM_LEFT, 40, -20);
+  lv_obj_align(left_palm, LV_ALIGN_BOTTOM_LEFT, 70, -40);
   lv_obj_set_style_bg_color(left_palm, UIManager::rgb(0xE4F3E7), 0);
   lv_obj_set_style_radius(left_palm, 16, 0);
   lv_obj_set_style_border_width(left_palm, 0, 0);
@@ -467,9 +439,9 @@ void buildChooseFingerScreen() {
   UIManager::styleLabel(lbl_lp, 0x166534, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
   lv_obj_align(lbl_lp, LV_ALIGN_BOTTOM_MID, 0, -20);
 
-  lv_obj_t *right_palm = lv_obj_create(main_panel);
+  lv_obj_t *right_palm = lv_obj_create(scr_choose_finger);
   lv_obj_set_size(right_palm, 210, 100);
-  lv_obj_align(right_palm, LV_ALIGN_BOTTOM_RIGHT, -40, -20);
+  lv_obj_align(right_palm, LV_ALIGN_BOTTOM_RIGHT, -70, -40);
   lv_obj_set_style_bg_color(right_palm, UIManager::rgb(0xE4F3E7), 0);
   lv_obj_set_style_radius(right_palm, 16, 0);
   lv_obj_set_style_border_width(right_palm, 0, 0);
@@ -479,20 +451,20 @@ void buildChooseFingerScreen() {
   UIManager::styleLabel(lbl_rp, 0x166534, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
   lv_obj_align(lbl_rp, LV_ALIGN_BOTTOM_MID, 0, -20);
 
-  // Fingers Left Hand: LP(0), LR(1), LM(2), LI(3), LT(4)
-  int lx[5] = {40, 90, 140, 190, 260};
-  int ly[5] = {190, 130, 120, 130, 230};
+  // 5. Fingers
+  // Translated +30 X and +80 Y to match the old main_panel offset relative to the full screen.
+  int lx[5] = {70, 120, 170, 220, 290};
+  int ly[5] = {270, 210, 200, 210, 310};
   int lh[5] = {100, 160, 170, 160, 90};
   const char* l_labels[5] = {"LP", "LR", "LM", "LI", "LT"};
 
-  // Right Hand: RT(5), RI(6), RM(7), RR(8), RP(9)
-  int rx[5] = {440, 510, 560, 610, 660};
-  int ry[5] = {230, 130, 120, 130, 190};
+  int rx[5] = {470, 540, 590, 640, 690};
+  int ry[5] = {310, 210, 200, 210, 270};
   int rh[5] = {90, 160, 170, 160, 100};
   const char* r_labels[5] = {"RT", "RI", "RM", "RR", "RP"};
 
   for (int i = 0; i < 10; i++) {
-    finger_objs[i] = lv_obj_create(main_panel);
+    finger_objs[i] = lv_obj_create(scr_choose_finger);
     lv_obj_set_size(finger_objs[i], 36, i < 5 ? lh[i] : rh[i-5]);
     lv_obj_align(finger_objs[i], LV_ALIGN_TOP_LEFT, i < 5 ? lx[i] : rx[i-5], i < 5 ? ly[i] : ry[i-5]);
     lv_obj_set_style_bg_color(finger_objs[i], UIManager::rgb(0xE4F3E7), 0);
