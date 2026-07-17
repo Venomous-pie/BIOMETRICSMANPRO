@@ -247,28 +247,7 @@ void buildSettingsClockScreen() {
     UIManager::styleLabel(lbl_manage, 0xFFFFFF, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
     lv_obj_center(lbl_manage);
 
-    // ── Bottom action bar ─────────────────────────────────────────────────
-    lv_obj_t *bottom = lv_obj_create(body);
-    lv_obj_set_size(bottom, 760, 60);
-    lv_obj_align(bottom, LV_ALIGN_BOTTOM_MID, 0, 0);
-    lv_obj_set_style_bg_opa(bottom, LV_OPA_TRANSP, 0);
-    lv_obj_set_style_border_width(bottom, 0, 0);
-    lv_obj_set_style_pad_all(bottom, 0, 0);
-    lv_obj_clear_flag(bottom, LV_OBJ_FLAG_SCROLLABLE);
-
-    lv_obj_t *btn_cancel = lv_btn_create(bottom);
-    lv_obj_set_size(btn_cancel, 760, 40);
-    lv_obj_align(btn_cancel, LV_ALIGN_LEFT_MID, 0, 0);
-    lv_obj_set_style_bg_color(btn_cancel, lv_color_white(), 0);
-    lv_obj_set_style_border_color(btn_cancel, UIManager::rgb(COLOR_STROKE), 0);
-    lv_obj_set_style_border_width(btn_cancel, 1, 0);
-    lv_obj_set_style_radius(btn_cancel, 8, 0);
-    lv_obj_add_event_cb(btn_cancel, btn_back_cb, LV_EVENT_CLICKED, NULL);
-
-    lv_obj_t *lbl_cancel = lv_label_create(btn_cancel);
-    lv_label_set_text(lbl_cancel, "Back to Device Settings");
-    UIManager::styleLabel(lbl_cancel, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
-    lv_obj_center(lbl_cancel);
+    // Removed redundant bottom action bar
 }
 
 void uiShowSettingsClock() {

@@ -82,7 +82,7 @@ void buildMainMenuScreen() {
     lv_obj_t *emp_card = create_card(cards_cont, &icon_employees, "EMPLOYEES", "", btn_emp_cb);
     lbl_emp_subtitle = lv_obj_get_child(emp_card, 2);
     create_card(cards_cont, &icon_attendance, "ATTENDANCE LOGS", "Search logs", btn_att_cb);
-    create_card(cards_cont, &icon_settings_gear, "DEVICE SETTINGS", "Wi-Fi and server", btn_set_cb);
+    create_card(cards_cont, &icon_settings_gear, "DEVICE SETTINGS", "Wi-Fi, server, and clock", btn_set_cb);
 }
 
 void uiShowMainMenu() {
