@@ -1,30 +1,23 @@
 import sys
 import os
+import argparse
 
 sys.path.append(r"c:\Users\alain\BIOMETRICSMANPRO\crowpanel_firmware")
-from convert_img import convert_image
+import convert_img
 
-convert_image(
-    r"c:\Users\alain\BIOMETRICSMANPRO\data\icons\icon_clock_network.png", 
-    r"c:\Users\alain\BIOMETRICSMANPRO\crowpanel_firmware\icon_clock_network.c",
-    "icon_clock_network",
-    96, 96
-)
-convert_image(
-    r"c:\Users\alain\BIOMETRICSMANPRO\data\icons\icon_device_info.png", 
-    r"c:\Users\alain\BIOMETRICSMANPRO\crowpanel_firmware\icon_device_info.c",
-    "icon_device_info",
-    96, 96
-)
-convert_image(
-    r"c:\Users\alain\BIOMETRICSMANPRO\data\icons\icon_server_device.png", 
-    r"c:\Users\alain\BIOMETRICSMANPRO\crowpanel_firmware\icon_server_device.c",
-    "icon_server_device",
-    96, 96
-)
-convert_image(
-    r"c:\Users\alain\BIOMETRICSMANPRO\data\icons\icon_user_a.png", 
-    r"c:\Users\alain\BIOMETRICSMANPRO\crowpanel_firmware\icon_user_a.c",
-    "icon_user_a",
-    128, 128
-)
+def main():
+    parser = argparse.ArgumentParser(description="Convert PNG to LVGL C array")
+    parser.add_argument("input_path", help="Path to input PNG file")
+    parser.add_argument("array_name", help="Name of the LVGL array (e.g., icon_calendar)")
+    parser.add_argument("width", type=int, help="Target width")
+    parser.add_argument("height", type=int, help="Target height")
+    
+    args = parser.parse_args()
+    
+    out_path = f"c:\\Users\\alain\\BIOMETRICSMANPRO\\crowpanel_firmware\\{args.array_name}.c"
+    print(f"Converting {args.input_path} -> {out_path} ({args.width}x{args.height})...")
+    convert_img.convert_image(args.input_path, out_path, args.array_name, args.width, args.height)
+    print(f"Done {args.array_name}.")
+
+if __name__ == "__main__":
+    main()
