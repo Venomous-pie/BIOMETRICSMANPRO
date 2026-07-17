@@ -32,8 +32,8 @@
 // ============================================================
 // Pin definitions
 // ============================================================
-#define PIN_FP_RX    17   // AS608 TX  -> WROOM (UART1 RX)
-#define PIN_FP_TX    16   // AS608 RX  <- WROOM (UART1 TX)
+#define PIN_FP_RX    27   // AS608 TX  -> WROOM (UART1 RX)
+#define PIN_FP_TX    26   // AS608 RX  <- WROOM (UART1 TX)
 #define PIN_FP_TOUCH 34   // AS608 T-OUT  HIGH when finger present
 #define PIN_FACTORY_RESET 14 // Factory Reset hardware button (active low)
 #define MAX_SLOTS    127

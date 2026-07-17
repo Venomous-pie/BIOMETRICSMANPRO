@@ -43,6 +43,10 @@ static bool s_scanningChannels = false;
 static unsigned long s_lastScanMs = 0;
 static uint8_t s_currentChannel = ESPNOW_CHANNEL;
 
+// WiFi auto-reconnect state — file-scope so WROOM_BOOT can reset it
+// when the WROOM reboots independently of the CrowPanel.
+static bool s_autoReconnectAttempted = false;
+
 // Static member definitions
 String CommManager::serialBuf = "";
 
@@ -96,6 +100,17 @@ void CommManager::begin() {
         Serial.printf("[BOOT] CP MAC: %s\n", WiFi.macAddress().c_str());
         Serial.println("[UART] CommManager ready");
     }
+
+    // Request real WiFi status from WROOM immediately on boot.
+    // Without this, the CrowPanel UI always starts as "Offline" after a
+    // one-sided reboot because the WROOM has no unprompted trigger to push
+    // its current connected state to a freshly booted CrowPanel.
+    // The WROOM handles GET_WIFI_STATUS and replies with a WIFI_STATUS packet.
+    // We delay slightly so ESP-NOW has time to stabilise before the first TX.
+    delay(500);
+    const char* req = "{\"cmd\":\"GET_WIFI_STATUS\"}";
+    esp_now_send(WROOM_MAC, (const uint8_t*)req, strlen(req));
+    if (Serial) Serial.println("[BOOT] Sent GET_WIFI_STATUS to WROOM");
 }
 
 // ============================================================
@@ -223,6 +238,25 @@ void CommManager::dispatchJson(const String& line) {
         if (DataManager::isActivated()) {
             sendCommand("{\"cmd\":\"DEVICE_ACTIVATED\"}");
         }
+        // WROOM just rebooted — its WiFi is disconnected.
+        // Reset the reconnect flag so the attempt fires fresh, then immediately
+        // send WIFI_CONNECT if we have saved credentials (don't wait for a
+        // WIFI_STATUS round-trip, which adds several seconds of delay).
+        s_autoReconnectAttempted = false;
+        if (DataManager::hasSavedWifi()) {
+            String savedSsid = DataManager::getWifiSsid();
+            String savedPass = DataManager::getWifiPass();
+            if (savedPass.length() > 0) {
+                s_autoReconnectAttempted = true;  // mark done; WIFI_STATUS path won't double-send
+                if (Serial) Serial.println("[WiFi] WROOM rebooted — auto-reconnecting to: " + savedSsid);
+                StaticJsonDocument<256> req;
+                req["cmd"]  = "WIFI_CONNECT";
+                req["ssid"] = savedSsid;
+                req["pass"] = savedPass;
+                String out; serializeJson(req, out);
+                sendCommand(out);
+            }
+        }
     } else if (strcmp(type, "ACTIVATION_STATUS") == 0) {
         // WROOM performed an HTTP check against the server and reports back here.
         bool activated = doc["activated"] | false;
@@ -249,13 +283,12 @@ void CommManager::dispatchJson(const String& line) {
         uiIdleUpdateWifi(connected);
         uiSettingsUpdateWifiStatus(connected);
 
-        static bool autoReconnectAttempted = false;
-        if (!connected && !autoReconnectAttempted && DataManager::hasSavedWifi()) {
+        if (!connected && !s_autoReconnectAttempted && DataManager::hasSavedWifi()) {
             String savedSsid = DataManager::getWifiSsid();
             String savedPass = DataManager::getWifiPass();
             // Only auto-reconnect if we have both SSID and a non-empty password
             if (savedPass.length() > 0) {
-                autoReconnectAttempted = true;
+                s_autoReconnectAttempted = true;
                 if (Serial) Serial.println("[WiFi] Auto-reconnecting to: " + savedSsid);
                 StaticJsonDocument<256> req;
                 req["cmd"]  = "WIFI_CONNECT";

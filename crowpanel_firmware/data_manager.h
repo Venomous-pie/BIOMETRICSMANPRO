@@ -25,6 +25,8 @@ public:
     // Employee Data
     static const Employee* getEmployees();
     static int getEmployeeCount();
+    static void saveEmployees();                              // Persist empDB to LittleFS
+    static void updateEmployeeFpEnrolled(int emp_id, bool enrolled); // Update flag + save
     
     static bool isWifiConfigured();
     static void setWifiConfigured(bool state);

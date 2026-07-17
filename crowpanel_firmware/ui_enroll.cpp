@@ -10,9 +10,10 @@ static lv_obj_t *lbl_enroll_step   = NULL;
 static lv_obj_t *bar_enroll        = NULL;
 
 lv_obj_t *scr_emp_list = NULL;
-static lv_obj_t *emp_list_obj = NULL;
-static lv_obj_t *ta_search = NULL;
-static lv_obj_t *kb_search = NULL;
+lv_obj_t *emp_list_obj = NULL;
+lv_obj_t *ta_search = NULL;
+lv_obj_t *kb_search = NULL;
+lv_timer_t *search_debounce_timer = NULL;  // fires 400 ms after last keystroke
 
 lv_obj_t *scr_choose_finger = NULL;
 static int selected_emp_id = 0;
@@ -128,12 +129,27 @@ static void populate_emp_list(const char* name_filter, const char* dept_filter) 
 
 static lv_obj_t *ta_dept_search = NULL;
 
+// Debounce timer callback — runs 400 ms after the last keystroke
+static void search_debounce_cb(lv_timer_t *t) {
+    lv_timer_del(search_debounce_timer);
+    search_debounce_timer = NULL;
+    const char *n = ta_search       ? lv_textarea_get_text(ta_search)       : "";
+    const char *d = ta_dept_search  ? lv_textarea_get_text(ta_dept_search)  : "";
+    populate_emp_list(n, d);
+}
+
 static void search_ta_event_cb(lv_event_t * e) {
     lv_event_code_t code = lv_event_get_code(e);
     if (code == LV_EVENT_VALUE_CHANGED) {
-        const char *n = lv_textarea_get_text(ta_search);
-        const char *d = ta_dept_search ? lv_textarea_get_text(ta_dept_search) : "";
-        populate_emp_list(n, d);
+        // Debounce: reset 400 ms timer on every keystroke instead of
+        // calling populate_emp_list() (which does lv_obj_clean + full
+        // widget recreate) on every single character typed.
+        if (search_debounce_timer) {
+            lv_timer_reset(search_debounce_timer);
+        } else {
+            search_debounce_timer = lv_timer_create(search_debounce_cb, 400, NULL);
+            lv_timer_set_repeat_count(search_debounce_timer, 1);
+        }
     } else if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
         // Dismiss keyboard, restore full list height
         lv_obj_add_flag(kb_search, LV_OBJ_FLAG_HIDDEN);
@@ -255,9 +271,9 @@ void buildEmpListScreen() {
   kb_search = lv_keyboard_create(scr_emp_list);
   lv_keyboard_set_textarea(kb_search, ta_search);
   lv_obj_add_flag(kb_search, LV_OBJ_FLAG_HIDDEN);
-
-  // Initial population
-  populate_emp_list("", "");
+  // NOTE: do NOT call populate_emp_list() here.
+  // Ownership of initial population belongs to uiShowEmpList(), which defers
+  // it to after the screen is active so it never runs inside an event callback.
 }
 
 void buildEnrollScreen() {
@@ -318,6 +334,10 @@ void uiShowEnrollStep(int step, const char *msg) {
 
 void uiShowEnrollResult(bool ok, const char *name) {
   if (ok) {
+    // Persist fp_enrolled=true for the employee that was just enrolled so the
+    // badge shows "Enrolled" when the user returns to the employee list.
+    DataManager::updateEmployeeFpEnrolled(selected_emp_id, true);
+
     char buf[64];
     snprintf(buf, sizeof(buf), "Enrolled: %s", name ? name : "");
     lv_label_set_text(lbl_enroll_step, buf);
@@ -343,7 +363,7 @@ void uiShowEnrollResult(bool ok, const char *name) {
 }
 
 static void choose_back_cb(lv_event_t * e) {
-  lv_scr_load_anim(scr_emp_list, LV_SCR_LOAD_ANIM_MOVE_RIGHT, 300, 0, false);
+  uiShowEmpList();
 }
 
 static void finger_click_cb(lv_event_t * e) {
@@ -488,25 +508,109 @@ void buildChooseFingerScreen() {
   }
 }
 
+// Deferred state for Choose Finger screen
+static int defer_emp_id = 0;
+static String defer_name = "";
+static String defer_dept = "";
+
 void uiShowChooseFinger(int emp_id, const char *name, const char *dept) {
-  // Always destroy and rebuild to prevent stale LVGL references causing a freeze
-  if (scr_choose_finger != NULL) {
-    lv_obj_del(scr_choose_finger);
-    scr_choose_finger = NULL;
-    btn_start_scan = NULL;
-    lbl_choose_info = NULL;
-    for (int i = 0; i < 10; i++) finger_objs[i] = NULL;
-  }
-  buildChooseFingerScreen();
+  defer_emp_id = emp_id;
+  defer_name = name;
+  defer_dept = dept;
 
-  selected_emp_id = emp_id;
-  selected_finger_index = -1;
+  lv_timer_t *defer_timer = lv_timer_create([](lv_timer_t *t) {
+    // 1. Create a tiny temporary screen and make it active.
+    // This allows us to safely delete the heavy Employee screen without crashing LVGL.
+    lv_obj_t *temp_scr = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(temp_scr, UIManager::rgb(0x1A1A1A), 0);
+    lv_scr_load_anim(temp_scr, LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
 
-  char buf[256];
-  snprintf(buf, sizeof(buf), "Enrolling %s from %s -- pick a finger", name, dept);
-  lv_label_set_text(lbl_choose_info, buf);
+    // 2. Synchronously delete the heavy Employee List screen to completely free RAM.
+    if (scr_emp_list != NULL) {
+      if (search_debounce_timer) {
+        lv_timer_del(search_debounce_timer);
+        search_debounce_timer = NULL;
+      }
+      lv_obj_del(scr_emp_list);
+      scr_emp_list = NULL;
+      emp_list_obj = NULL;
+      ta_search = NULL;
+      kb_search = NULL;
+    }
 
-  lv_obj_add_state(btn_start_scan, LV_STATE_DISABLED);
+    // 3. Now that we have plenty of RAM, build the new Choose Finger screen.
+    if (scr_choose_finger == NULL) {
+      buildChooseFingerScreen();
+    }
 
-  lv_scr_load_anim(scr_choose_finger, LV_SCR_LOAD_ANIM_FADE_ON, 200, 0, false);
+    selected_emp_id = defer_emp_id;
+    selected_finger_index = -1;
+
+    char buf[256];
+    snprintf(buf, sizeof(buf), "Enrolling %s from %s -- pick a finger", defer_name.c_str(), defer_dept.c_str());
+    lv_label_set_text(lbl_choose_info, buf);
+
+    if (btn_start_scan) {
+      lv_obj_add_state(btn_start_scan, LV_STATE_DISABLED);
+      lv_obj_set_style_bg_color(btn_start_scan, UIManager::rgb(0x2A800F), 0);
+    }
+
+    for (int i = 0; i < 10; i++) {
+      if (finger_objs[i]) {
+        lv_obj_set_style_bg_color(finger_objs[i], UIManager::rgb(0xE4F3E7), 0);
+      }
+    }
+
+    // 4. Load the new screen and auto-delete the temporary screen.
+    lv_scr_load_anim(scr_choose_finger, LV_SCR_LOAD_ANIM_NONE, 0, 0, true);
+  }, 10, NULL);
+  
+  lv_timer_set_repeat_count(defer_timer, 1);
 }
+
+// Show the employee list screen with a clean, up-to-date state.
+// Called on first entry from Main Menu, and when navigating back from Choose Finger.
+void uiShowEmpList() {
+  if (search_debounce_timer) {
+    lv_timer_del(search_debounce_timer);
+    search_debounce_timer = NULL;
+  }
+
+  lv_timer_t *defer = lv_timer_create([](lv_timer_t *t) {
+    // 1. Create a tiny temporary screen and make it active.
+    lv_obj_t *temp_scr = lv_obj_create(NULL);
+    lv_obj_set_style_bg_color(temp_scr, UIManager::rgb(0x1A1A1A), 0);
+    lv_scr_load_anim(temp_scr, LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
+
+    // 2. Synchronously delete the heavy Choose Finger screen to completely free RAM.
+    if (scr_choose_finger != NULL) {
+      lv_obj_del(scr_choose_finger);
+      scr_choose_finger = NULL;
+      btn_start_scan = NULL;
+      lbl_choose_info = NULL;
+      for (int i = 0; i < 10; i++) finger_objs[i] = NULL;
+    }
+
+    // 3. Now that we have plenty of RAM, build the Employee List screen.
+    if (scr_emp_list == NULL) {
+      buildEmpListScreen();
+    }
+
+    if (ta_search)      { lv_obj_clear_state(ta_search, LV_STATE_FOCUSED);      lv_textarea_set_text(ta_search, ""); }
+    if (ta_dept_search) { lv_obj_clear_state(ta_dept_search, LV_STATE_FOCUSED); lv_textarea_set_text(ta_dept_search, ""); }
+
+    if (kb_search) lv_obj_add_flag(kb_search, LV_OBJ_FLAG_HIDDEN);
+    if (emp_list_obj) {
+      lv_obj_set_height(emp_list_obj, 270);
+      lv_obj_align(emp_list_obj, LV_ALIGN_BOTTOM_MID, 0, -10);
+    }
+
+    // 4. Load the Employee List screen and auto-delete the temporary screen.
+    lv_scr_load_anim(scr_emp_list, LV_SCR_LOAD_ANIM_NONE, 0, 0, true);
+    
+    populate_emp_list("", "");
+  }, 10, NULL);
+  
+  lv_timer_set_repeat_count(defer, 1);
+}
+

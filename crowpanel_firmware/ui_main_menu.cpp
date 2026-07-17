@@ -11,12 +11,9 @@ extern const lv_img_dsc_t icon_schedule;
 extern const lv_img_dsc_t icon_settings;
 extern const lv_img_dsc_t icon_battery;
 
-extern lv_obj_t *scr_emp_list;
 
 static void btn_emp_cb(lv_event_t * e) {
-    // Lazy-build the emp list screen if it hasn't been built yet
-    if (scr_emp_list == NULL) buildEmpListScreen();
-    lv_scr_load_anim(scr_emp_list, LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
+    uiShowEmpList();
 }
 
 static void btn_att_cb(lv_event_t * e) {
@@ -90,4 +87,23 @@ void uiShowMainMenu() {
     lv_scr_load_anim(scr_main_menu, LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
     // Refresh WiFi status to show current connection state
     UIManager::updateHeaderWifi(DataManager::isWifiConnected());
+
+    // Safely delete heavy screens async when returning to main menu to keep RAM free globally
+    extern lv_obj_t *scr_emp_list;
+    if (scr_emp_list != NULL) {
+        extern lv_obj_t *emp_list_obj;
+        extern lv_obj_t *ta_search;
+        extern lv_obj_t *kb_search;
+        extern lv_timer_t *search_debounce_timer;
+        
+        if (search_debounce_timer) {
+            lv_timer_del(search_debounce_timer);
+            search_debounce_timer = NULL;
+        }
+        lv_obj_del_async(scr_emp_list);
+        scr_emp_list = NULL;
+        emp_list_obj = NULL;
+        ta_search = NULL;
+        kb_search = NULL;
+    }
 }

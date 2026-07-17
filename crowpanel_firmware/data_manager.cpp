@@ -32,7 +32,7 @@ void DataManager::begin() {
 }
 
 void DataManager::createInitialFilesIfMissing() {
-    if (true) { // Force overwrite for testing
+    if (!LittleFS.exists("/employees.json")) {  // Only create when file is absent
         // Serial.println("[FS] Creating initial employees.json...");
         File f = LittleFS.open("/employees.json", "w");
         if (f) {
@@ -110,6 +110,38 @@ void DataManager::loadEmployees() {
 
 const Employee* DataManager::getEmployees() { return empDB; }
 int DataManager::getEmployeeCount() { return empCount; }
+
+// Serialise the current in-RAM empDB back to /employees.json on LittleFS.
+void DataManager::saveEmployees() {
+    File f = LittleFS.open("/employees.json", "w");
+    if (!f) return;
+    f.print("[");
+    for (int i = 0; i < empCount; i++) {
+        if (i > 0) f.print(",");
+        StaticJsonDocument<256> e;
+        e["id"]          = empDB[i].id;
+        e["name"]        = empDB[i].name;
+        e["dept"]        = empDB[i].dept;
+        e["job_title"]   = empDB[i].job_title;
+        e["branch"]      = empDB[i].branch;
+        e["fp_enrolled"] = empDB[i].fp_enrolled;
+        String row; serializeJson(e, row);
+        f.print(row);
+    }
+    f.print("]");
+    f.close();
+}
+
+// Update a single employee's fp_enrolled flag in RAM and persist to flash.
+void DataManager::updateEmployeeFpEnrolled(int emp_id, bool enrolled) {
+    for (int i = 0; i < empCount; i++) {
+        if (empDB[i].id == emp_id) {
+            empDB[i].fp_enrolled = enrolled;
+            break;
+        }
+    }
+    saveEmployees();
+}
 
 bool DataManager::isWifiConfigured() { return _isWifiConfigured; }
 void DataManager::setWifiConfigured(bool state) { 
