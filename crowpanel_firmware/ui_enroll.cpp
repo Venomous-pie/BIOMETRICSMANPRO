@@ -58,8 +58,32 @@ static void enroll_done_cb(lv_event_t * e) {
 lv_obj_t *scr_emp_list = NULL;
 lv_obj_t *emp_list_obj = NULL;
 lv_obj_t *ta_search = NULL;
+lv_obj_t *ta_dept_search = NULL;
 lv_obj_t *kb_search = NULL;
 lv_timer_t *search_debounce_timer = NULL;  // fires 400 ms after last keystroke
+
+static int current_page = 0;
+static lv_obj_t *lbl_page_info = NULL;
+static lv_obj_t *btn_prev_page = NULL;
+static lv_obj_t *btn_next_page = NULL;
+
+static void populate_emp_list(const char* name_filter, const char* dept_filter);
+
+static void prev_page_cb(lv_event_t * e) {
+    if (current_page > 0) {
+        current_page--;
+        const char *n = ta_search       ? lv_textarea_get_text(ta_search)       : "";
+        const char *d = ta_dept_search  ? lv_textarea_get_text(ta_dept_search)  : "";
+        populate_emp_list(n, d);
+    }
+}
+
+static void next_page_cb(lv_event_t * e) {
+    current_page++;
+    const char *n = ta_search       ? lv_textarea_get_text(ta_search)       : "";
+    const char *d = ta_dept_search  ? lv_textarea_get_text(ta_dept_search)  : "";
+    populate_emp_list(n, d);
+}
 
 lv_obj_t *scr_choose_finger = NULL;
 static int selected_emp_id = 0;
@@ -104,6 +128,39 @@ static void populate_emp_list(const char* name_filter, const char* dept_filter) 
   nFilt.toLowerCase();
   dFilt.toLowerCase();
 
+  int items_per_page = 4;
+  int filtered_count = 0;
+
+  for (int i = 0; i < count; i++) {
+    String nStr = db[i].name; nStr.toLowerCase();
+    String dStr = db[i].dept; dStr.toLowerCase();
+    if (nFilt.length() > 0 && nStr.indexOf(nFilt) == -1) continue;
+    if (dFilt.length() > 0 && dStr.indexOf(dFilt) == -1) continue;
+    filtered_count++;
+  }
+
+  int total_pages = (filtered_count + items_per_page - 1) / items_per_page;
+  if (total_pages == 0) total_pages = 1;
+  if (current_page >= total_pages) current_page = total_pages - 1;
+
+  if (lbl_page_info) {
+    char buf[32];
+    snprintf(buf, sizeof(buf), "Page %d of %d", current_page + 1, total_pages);
+    lv_label_set_text(lbl_page_info, buf);
+  }
+  if (btn_prev_page) {
+    if (current_page == 0) lv_obj_add_state(btn_prev_page, LV_STATE_DISABLED);
+    else lv_obj_clear_state(btn_prev_page, LV_STATE_DISABLED);
+  }
+  if (btn_next_page) {
+    if (current_page >= total_pages - 1) lv_obj_add_state(btn_next_page, LV_STATE_DISABLED);
+    else lv_obj_clear_state(btn_next_page, LV_STATE_DISABLED);
+  }
+
+  int start_idx = current_page * items_per_page;
+  int end_idx = start_idx + items_per_page;
+  int current_idx = 0;
+
   for (int i = 0; i < count; i++) {
     String nStr = db[i].name; nStr.toLowerCase();
     String dStr = db[i].dept; dStr.toLowerCase();
@@ -111,9 +168,10 @@ static void populate_emp_list(const char* name_filter, const char* dept_filter) 
     if (nFilt.length() > 0 && nStr.indexOf(nFilt) == -1) continue;
     if (dFilt.length() > 0 && dStr.indexOf(dFilt) == -1) continue;
 
-    bool enrolled = db[i].fp_enrolled;
+    if (current_idx >= start_idx && current_idx < end_idx) {
+      bool enrolled = db[i].fp_enrolled;
 
-    // Row container
+      // Row container
     lv_obj_t *row = lv_obj_create(emp_list_obj);
     if (!row) break; // If OOM, stop creating rows instead of crashing
     lv_obj_set_size(row, lv_pct(100), 52);
@@ -127,39 +185,43 @@ static void populate_emp_list(const char* name_filter, const char* dept_filter) 
     lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(row, btn_emp_click_cb, LV_EVENT_CLICKED, (void*)(intptr_t)db[i].id);
 
-    // Name
-    lv_obj_t *lbl_name = lv_label_create(row);
-    lv_label_set_text(lbl_name, db[i].name.c_str());
-    UIManager::styleLabel(lbl_name, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
-    lv_obj_set_size(lbl_name, 170, 52);
-    lv_label_set_long_mode(lbl_name, LV_LABEL_LONG_CLIP);
-    lv_obj_align(lbl_name, LV_ALIGN_LEFT_MID, 20, 0);
+      // Name
+      lv_obj_t *lbl_name = lv_label_create(row);
+      lv_label_set_long_mode(lbl_name, LV_LABEL_LONG_CLIP); // Handled by string truncation
+      lv_obj_set_width(lbl_name, 170);
+      String displayName = db[i].name;
+      if (displayName.length() > 15) {
+          displayName = displayName.substring(0, 15) + "...";
+      }
+      lv_label_set_text(lbl_name, displayName.c_str());
+      UIManager::styleLabel(lbl_name, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
+      lv_obj_align(lbl_name, LV_ALIGN_LEFT_MID, 20, 0);
 
-    // Job Title
-    lv_obj_t *lbl_job = lv_label_create(row);
-    lv_label_set_text(lbl_job, db[i].job_title.c_str());
-    UIManager::styleLabel(lbl_job, 0x666666, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
-    lv_obj_set_size(lbl_job, 170, 52);
-    lv_label_set_long_mode(lbl_job, LV_LABEL_LONG_CLIP);
-    lv_obj_align(lbl_job, LV_ALIGN_LEFT_MID, 200, 0);
+      // Job Title
+      lv_obj_t *lbl_job = lv_label_create(row);
+      lv_label_set_long_mode(lbl_job, LV_LABEL_LONG_DOT);
+      lv_obj_set_width(lbl_job, 170);
+      lv_label_set_text(lbl_job, db[i].job_title.c_str());
+      UIManager::styleLabel(lbl_job, 0x666666, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
+      lv_obj_align(lbl_job, LV_ALIGN_LEFT_MID, 200, 0);
 
-    // Branch
-    lv_obj_t *lbl_branch = lv_label_create(row);
-    lv_label_set_text(lbl_branch, db[i].branch.c_str());
-    UIManager::styleLabel(lbl_branch, 0x666666, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
-    lv_obj_set_size(lbl_branch, 130, 52);
-    lv_label_set_long_mode(lbl_branch, LV_LABEL_LONG_CLIP);
-    lv_obj_align(lbl_branch, LV_ALIGN_LEFT_MID, 380, 0);
+      // Branch
+      lv_obj_t *lbl_branch = lv_label_create(row);
+      lv_label_set_long_mode(lbl_branch, LV_LABEL_LONG_DOT);
+      lv_obj_set_width(lbl_branch, 130);
+      lv_label_set_text(lbl_branch, db[i].branch.c_str());
+      UIManager::styleLabel(lbl_branch, 0x666666, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
+      lv_obj_align(lbl_branch, LV_ALIGN_LEFT_MID, 380, 0);
 
-    // Dept
-    lv_obj_t *lbl_dept = lv_label_create(row);
-    lv_label_set_text(lbl_dept, db[i].dept.c_str());
-    UIManager::styleLabel(lbl_dept, 0x666666, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
-    lv_obj_set_size(lbl_dept, 120, 52);
-    lv_label_set_long_mode(lbl_dept, LV_LABEL_LONG_CLIP);
-    lv_obj_align(lbl_dept, LV_ALIGN_LEFT_MID, 520, 0);
+      // Dept
+      lv_obj_t *lbl_dept = lv_label_create(row);
+      lv_label_set_long_mode(lbl_dept, LV_LABEL_LONG_DOT);
+      lv_obj_set_width(lbl_dept, 120);
+      lv_label_set_text(lbl_dept, db[i].dept.c_str());
+      UIManager::styleLabel(lbl_dept, 0x666666, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
+      lv_obj_align(lbl_dept, LV_ALIGN_LEFT_MID, 520, 0);
 
-    // Status badge
+      // Status badge
     lv_obj_t *badge = lv_obj_create(row);
     lv_obj_set_size(badge, 100, 30);
     lv_obj_align(badge, LV_ALIGN_RIGHT_MID, -20, 0);
@@ -168,19 +230,20 @@ static void populate_emp_list(const char* name_filter, const char* dept_filter) 
     lv_obj_clear_flag(badge, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_style_bg_color(badge, UIManager::rgb(enrolled ? 0xD4EDDA : 0xE0E0E0), 0);
 
-    lv_obj_t *lbl_status = lv_label_create(badge);
-    lv_label_set_text(lbl_status, enrolled ? "Enrolled" : "Unenrolled");
-    UIManager::styleLabel(lbl_status, enrolled ? 0x155724 : 0x666666, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
-    lv_obj_center(lbl_status);
+      lv_obj_t *lbl_status = lv_label_create(badge);
+      lv_label_set_text(lbl_status, enrolled ? "Enrolled" : "Unenrolled");
+      UIManager::styleLabel(lbl_status, enrolled ? 0x155724 : 0x666666, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
+      lv_obj_center(lbl_status);
+    }
+    current_idx++;
   }
 }
-
-static lv_obj_t *ta_dept_search = NULL;
 
 // Debounce timer callback — runs 400 ms after the last keystroke
 static void search_debounce_cb(lv_timer_t *t) {
     lv_timer_del(search_debounce_timer);
     search_debounce_timer = NULL;
+    current_page = 0;
     const char *n = ta_search       ? lv_textarea_get_text(ta_search)       : "";
     const char *d = ta_dept_search  ? lv_textarea_get_text(ta_dept_search)  : "";
     populate_emp_list(n, d);
@@ -201,15 +264,15 @@ static void search_ta_event_cb(lv_event_t * e) {
     } else if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
         // Dismiss keyboard, restore full list height
         lv_obj_add_flag(kb_search, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_set_height(emp_list_obj, 270);
-        lv_obj_align(emp_list_obj, LV_ALIGN_BOTTOM_MID, 0, -10);
+        lv_obj_set_height(emp_list_obj, 210); // Fits 4 rows perfectly (4*52 + 2 border)
+        lv_obj_align(emp_list_obj, LV_ALIGN_TOP_MID, 0, 185);
     } else if (code == LV_EVENT_FOCUSED) {
         // Show keyboard but keep list visible above it (keyboard ~200px tall)
         lv_keyboard_set_textarea(kb_search, (lv_obj_t*)lv_event_get_target(e));
         lv_obj_clear_flag(kb_search, LV_OBJ_FLAG_HIDDEN);
         // Shrink list so it fits above the keyboard
         lv_obj_set_height(emp_list_obj, 140);
-        lv_obj_align(emp_list_obj, LV_ALIGN_TOP_MID, 0, 200);
+        lv_obj_align(emp_list_obj, LV_ALIGN_TOP_MID, 0, 185);
     }
 }
 
@@ -302,18 +365,50 @@ void buildEmpListScreen() {
   UIManager::styleLabel(ch_status, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_RIGHT);
   lv_obj_align(ch_status, LV_ALIGN_RIGHT_MID, -30, 0);
 
-  // â”€â”€ Employee List Container â”€â”€
+  // ─── Employee List Container ───
   emp_list_obj = lv_obj_create(scr_emp_list);
-  lv_obj_set_size(emp_list_obj, 760, 270);
-  lv_obj_align(emp_list_obj, LV_ALIGN_BOTTOM_MID, 0, -10);
+  lv_obj_set_size(emp_list_obj, 760, 210); // 4 rows perfectly (4*52 + 2 border)
+  lv_obj_align(emp_list_obj, LV_ALIGN_TOP_MID, 0, 185);
   lv_obj_set_style_bg_color(emp_list_obj, UIManager::rgb(0xFFFFFF), 0);
   lv_obj_set_style_border_color(emp_list_obj, UIManager::rgb(0xE0E0E0), 0);
   lv_obj_set_style_border_width(emp_list_obj, 1, 0);
   lv_obj_set_style_radius(emp_list_obj, 10, 0);
   lv_obj_set_style_pad_all(emp_list_obj, 0, 0);
+  lv_obj_set_style_pad_row(emp_list_obj, 0, 0);
   lv_obj_set_flex_flow(emp_list_obj, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_layout(emp_list_obj, LV_LAYOUT_FLEX);
-  lv_obj_set_scrollbar_mode(emp_list_obj, LV_SCROLLBAR_MODE_AUTO);
+  lv_obj_set_scrollbar_mode(emp_list_obj, LV_SCROLLBAR_MODE_OFF);
+
+  // Pagination container
+  lv_obj_t *pagination_cont = lv_obj_create(scr_emp_list);
+  lv_obj_set_size(pagination_cont, 760, 50);
+  lv_obj_align(pagination_cont, LV_ALIGN_TOP_MID, 0, 410); // Center in empty bottom gap
+  lv_obj_set_style_bg_color(pagination_cont, UIManager::rgb(0xFFFFFF), 0);
+  lv_obj_set_style_border_width(pagination_cont, 0, 0);
+  lv_obj_clear_flag(pagination_cont, LV_OBJ_FLAG_SCROLLABLE);
+
+  btn_prev_page = lv_btn_create(pagination_cont);
+  lv_obj_set_size(btn_prev_page, 120, 40);
+  lv_obj_align(btn_prev_page, LV_ALIGN_LEFT_MID, 0, 0);
+  lv_obj_set_style_bg_color(btn_prev_page, UIManager::rgb(COLOR_GREEN_MAIN), 0);
+  lv_obj_add_event_cb(btn_prev_page, prev_page_cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_t *lbl_prev = lv_label_create(btn_prev_page);
+  lv_label_set_text(lbl_prev, "Previous");
+  lv_obj_center(lbl_prev);
+
+  btn_next_page = lv_btn_create(pagination_cont);
+  lv_obj_set_size(btn_next_page, 120, 40);
+  lv_obj_align(btn_next_page, LV_ALIGN_RIGHT_MID, 0, 0);
+  lv_obj_set_style_bg_color(btn_next_page, UIManager::rgb(COLOR_GREEN_MAIN), 0);
+  lv_obj_add_event_cb(btn_next_page, next_page_cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_t *lbl_next = lv_label_create(btn_next_page);
+  lv_label_set_text(lbl_next, "Next");
+  lv_obj_center(lbl_next);
+
+  lbl_page_info = lv_label_create(pagination_cont);
+  lv_label_set_text(lbl_page_info, "Page 1 of 1");
+  UIManager::styleLabel(lbl_page_info, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
+  lv_obj_center(lbl_page_info);
 
   // Keyboard (hidden initially)
   kb_search = lv_keyboard_create(scr_emp_list);
@@ -726,9 +821,10 @@ void uiShowEmpList() {
     if (ta_dept_search) { lv_obj_clear_state(ta_dept_search, LV_STATE_FOCUSED); lv_textarea_set_text(ta_dept_search, ""); }
 
     if (kb_search) lv_obj_add_flag(kb_search, LV_OBJ_FLAG_HIDDEN);
+    current_page = 0;
     if (emp_list_obj) {
-      lv_obj_set_height(emp_list_obj, 270);
-      lv_obj_align(emp_list_obj, LV_ALIGN_BOTTOM_MID, 0, -10);
+      lv_obj_set_height(emp_list_obj, 208);
+      lv_obj_align(emp_list_obj, LV_ALIGN_TOP_MID, 0, 185);
     }
 
     // 4. Load the Employee List screen and auto-delete the temporary screen.
