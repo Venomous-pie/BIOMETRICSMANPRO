@@ -47,6 +47,9 @@ static void debounce_timer_cb(lv_timer_t * timer) {
     const char *d = ta_search_date ? lv_textarea_get_text(ta_search_date) : "";
     current_page_logs = 0;
     populate_logs_list(n, d);
+    // The timer has repeat_count=1, so LVGL will auto-delete it after this callback.
+    // We MUST null our reference so we don't try to lv_timer_del() it later (e.g. on exit)
+    logs_search_debounce_timer = NULL;
 }
 
 static void logs_search_cb(lv_event_t * e) {

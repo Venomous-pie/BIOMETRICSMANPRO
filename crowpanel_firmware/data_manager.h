@@ -22,6 +22,7 @@ struct AttendanceLog {
     String name;
     String time_str;
     bool is_time_in;
+    bool synced;
 };
 
 class DataManager {
@@ -31,12 +32,14 @@ public:
     // Employee Data
     static const Employee* getEmployees();
     static int getEmployeeCount();
+    static int getEnrolledFingerprintCount();
     static void saveEmployees();                              // Persist empDB to LittleFS
     static void updateEmployeeFpEnrolled(int emp_id, bool enrolled); // Update flag + save
 
     // Attendance Log Data
     static const AttendanceLog* getAttendanceLogs();
     static int getAttendanceLogCount();
+    static int getUnsyncedAttendanceCount();
     
     static bool isWifiConfigured();
     static void setWifiConfigured(bool state);

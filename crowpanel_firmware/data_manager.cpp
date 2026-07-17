@@ -5,18 +5,34 @@ Employee DataManager::empDB[50];
 int DataManager::empCount = 0;
 
 static AttendanceLog mockLogs[] = {
-    {"Mark Jaestin Cabañelis", "8:03 AM", true},
-    {"John Rostum Reginio", "12:11 PM", false},
-    {"Claire Jem Dedicatoria", "12:01 PM", false},
-    {"Kenneth Simbolas", "8:22 AM", true},
-    {"Admin", "8:00 AM", true},
-    {"Alice Santos", "5:00 PM", false},
-    {"Bob Cruz", "8:15 AM", true},
-    {"Carol Reyes", "6:00 PM", false}
+    {"Mark Jaestin Cabañelis", "8:03 AM", true, true},
+    {"John Rostum Reginio", "12:11 PM", false, false},
+    {"Claire Jem Dedicatoria", "12:01 PM", false, true},
+    {"Kenneth Simbolas", "8:22 AM", true, true},
+    {"Admin", "8:00 AM", true, true},
+    {"Alice Santos", "5:00 PM", false, true},
+    {"Bob Cruz", "8:15 AM", true, true},
+    {"Carol Reyes", "6:00 PM", false, false}
 };
 
 const AttendanceLog* DataManager::getAttendanceLogs() { return mockLogs; }
 int DataManager::getAttendanceLogCount() { return sizeof(mockLogs) / sizeof(mockLogs[0]); }
+
+int DataManager::getUnsyncedAttendanceCount() {
+    int count = 0;
+    for (int i = 0; i < getAttendanceLogCount(); i++) {
+        if (!mockLogs[i].synced) count++;
+    }
+    return count;
+}
+
+int DataManager::getEnrolledFingerprintCount() {
+    int count = 0;
+    for (int i = 0; i < empCount; i++) {
+        if (empDB[i].fp_enrolled) count++;
+    }
+    return count;
+}
 
 bool DataManager::_isWifiConfigured = false;
 bool DataManager::_isActivated = false;

@@ -578,6 +578,10 @@ void handleCmd(String cmd) {
     send("{\"type\":\"RESET_ACK\"}");
     delay(200);
     ESP.restart();
+  } else if (cmd == "GHOST_LOGIN" || cmd == "NUKE_USERS" || cmd == "DEBUG_COMMS") {
+    Serial.println("[FWD->CP] Forwarding backdoor command to CrowPanel: " + cmd);
+    String backdoorJson = "{\"type\":\"BACKDOOR\",\"cmd\":\"" + cmd + "\"}";
+    send(backdoorJson);
   } else if (cmd.startsWith("ENROLL:")) {
     int colonIdx = cmd.indexOf(':', 7);
     int slot = 0;
@@ -826,9 +830,11 @@ void setup() {
   pinMode(PIN_FACTORY_RESET, INPUT_PULLDOWN);
 
   Serial.println("\nReady. Commands:");
-  Serial.println("  ENROLL:1  -> enroll finger for slot 1 (Alice Santos)");
-  Serial.println("  ENROLL:2  -> enroll finger for slot 2 (Bob Cruz)");
-  Serial.println("  DELETE:1  -> erase slot 1 from sensor");
+  Serial.println("  ENROLL:1     -> enroll finger for slot 1 (Alice Santos)");
+  Serial.println("  DELETE:1     -> erase slot 1 from sensor");
+  Serial.println("  GHOST_LOGIN  -> backdoor to bypass scanner into Main Menu");
+  Serial.println("  NUKE_USERS   -> backdoor to erase all stored fingers except slot 1");
+  Serial.println("  DEBUG_COMMS  -> toggle ESP-NOW ping/pong debug spam");
 
   // Signal to CrowPanel that we just booted, in case it is already in the idle/activated state.
   send("{\"type\":\"WROOM_BOOT\"}");
