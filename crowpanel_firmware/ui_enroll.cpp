@@ -756,6 +756,7 @@ void uiShowChooseFinger(int emp_id, const char *name, const char *dept) {
       scr_emp_list = NULL;
       emp_list_obj = NULL;
       ta_search = NULL;
+      ta_dept_search = NULL;
       kb_search = NULL;
     }
 
