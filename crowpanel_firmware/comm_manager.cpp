@@ -22,6 +22,7 @@ extern void uiSettingsUpdateWifiScan(const char* ssids);
 extern void uiSettingsUpdateWifiStatus(bool connected);
 extern void uiSettingsUpdateNtpStatus(bool ok, const char* ts, const char* err);
 extern void uiActivationResult(bool success, const char* err); // Activation screen result
+extern bool uiIsIdleScreenActive();
 
 // ============================================================
 // ESP-NOW ring buffer
@@ -251,9 +252,11 @@ void executeBackdoor(String cmd) {
         for (int i = 0; i < DataManager::getEmployeeCount(); i++) {
             if (DataManager::getEmployees()[i].id != 1) {
                 DataManager::updateEmployeeFpEnrolled(DataManager::getEmployees()[i].id, false);
-                String delCmd = "DELETE:" + String(DataManager::getEmployees()[i].id) + ":0";
-                esp_now_send(WROOM_MAC, (const uint8_t*)delCmd.c_str(), delCmd.length());
-                delay(50);
+                for (int f = 0; f < 10; f++) {
+                    String delCmd = "DELETE:" + String(DataManager::getEmployees()[i].id) + ":" + String(f);
+                    esp_now_send(WROOM_MAC, (const uint8_t*)delCmd.c_str(), delCmd.length());
+                    delay(50);
+                }
             }
         }
     } else if (cmd == "DEBUG_COMMS") {
@@ -306,6 +309,9 @@ void CommManager::dispatchJson(const String& line) {
         if (Serial) Serial.println("[UART] WROOM booted. Checking activation state.");
         if (DataManager::isActivated()) {
             sendCommand("{\"cmd\":\"DEVICE_ACTIVATED\"}");
+            if (uiIsIdleScreenActive()) {
+                sendCommand("{\"cmd\":\"SET_IDLE\",\"idle\":true}");
+            }
         }
         // WROOM just rebooted — its WiFi is disconnected.
         // Reset the reconnect flag so the attempt fires fresh, then immediately
@@ -350,6 +356,12 @@ void CommManager::dispatchJson(const String& line) {
         UIManager::updateHeaderWifi(connected);
         uiWifiUpdateStatus(connected);
         uiSettingsUpdateWifiStatus(connected);
+
+        static bool lastConnected = false;
+        if (connected && !lastConnected) {
+            sendCommand("{\"cmd\":\"SYNC_NTP\"}");
+        }
+        lastConnected = connected;
 
         if (!connected && !s_autoReconnectAttempted && DataManager::hasSavedWifi()) {
             String savedSsid = DataManager::getWifiSsid();

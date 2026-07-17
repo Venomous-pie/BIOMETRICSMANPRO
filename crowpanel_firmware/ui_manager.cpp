@@ -5,6 +5,7 @@
 #include "ui_enroll.h"
 #include "ui_result.h"
 #include "ui_main_menu.h"
+#include "comm_manager.h"
 
 // External screen builders
 extern void buildActivationScreen();
@@ -166,16 +167,19 @@ void UIManager::updateHeaderWifi(bool connected) {
 
 void UIManager::showIdle() {
     showGlobalPill(true);
+    CommManager::sendCommand("{\"cmd\":\"SET_IDLE\",\"idle\":true}");
     uiShowIdle();
 }
 
 void UIManager::showActivation() {
     showGlobalPill(false);
+    CommManager::sendCommand("{\"cmd\":\"SET_IDLE\",\"idle\":false}");
     uiShowActivation();
 }
 
 void UIManager::showWifiSetup() {
     showGlobalPill(false);
+    CommManager::sendCommand("{\"cmd\":\"SET_IDLE\",\"idle\":false}");
     uiShowWifiSetup();
 }
 
@@ -183,10 +187,12 @@ extern lv_obj_t *scr_settings;
 
 void UIManager::showSettings() {
     showGlobalPill(true);
+    CommManager::sendCommand("{\"cmd\":\"SET_IDLE\",\"idle\":false}");
     uiShowSettings();
 }
 
 void UIManager::showMainMenu() {
     showGlobalPill(true);
+    CommManager::sendCommand("{\"cmd\":\"SET_IDLE\",\"idle\":false}");
     uiShowMainMenu();
 }

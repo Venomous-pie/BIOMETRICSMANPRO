@@ -165,38 +165,10 @@ void buildSettingsClockScreen() {
     UIManager::styleLabel(lbl_date, 0x666666, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
     lv_obj_align(lbl_date, LV_ALIGN_TOP_LEFT, 5, 80);
 
-    lv_obj_t *lbl_auto = lv_label_create(col_left);
-    lv_label_set_text(lbl_auto, "Auto settings");
-    UIManager::styleLabel(lbl_auto, 0x999999, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
-    lv_obj_align(lbl_auto, LV_ALIGN_TOP_LEFT, 0, 120);
-
-    auto create_toggle = [](lv_obj_t *parent, const char *label, int y) {
-        lv_obj_t *cont = lv_obj_create(parent);
-        lv_obj_set_size(cont, 340, 50);
-        lv_obj_align(cont, LV_ALIGN_TOP_LEFT, 0, y);
-        lv_obj_set_style_bg_opa(cont, LV_OPA_TRANSP, 0);
-        lv_obj_set_style_border_width(cont, 0, 0);
-        lv_obj_clear_flag(cont, LV_OBJ_FLAG_SCROLLABLE);
-
-        lv_obj_t *lbl = lv_label_create(cont);
-        lv_label_set_text(lbl, label);
-        UIManager::styleLabel(lbl, COLOR_TEXT_MAIN, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
-        lv_obj_align(lbl, LV_ALIGN_LEFT_MID, 0, 0);
-
-        lv_obj_t *sw = lv_switch_create(cont);
-        lv_obj_align(sw, LV_ALIGN_RIGHT_MID, 0, 0);
-        lv_obj_add_state(sw, LV_STATE_CHECKED);
-        lv_obj_set_style_bg_color(sw, UIManager::rgb(COLOR_GREEN_MAIN), LV_PART_INDICATOR | LV_STATE_CHECKED);
-        return sw;
-    };
-
-    create_toggle(col_left, "Set time zone automatically", 150);
-    create_toggle(col_left, "Set time automatically", 200);
-
     // Sync Now button
     lv_obj_t *btn_sync = lv_btn_create(col_left);
     lv_obj_set_size(btn_sync, 140, 36);
-    lv_obj_align(btn_sync, LV_ALIGN_TOP_LEFT, 0, 260);
+    lv_obj_align(btn_sync, LV_ALIGN_TOP_LEFT, 0, 130);
     lv_obj_set_style_bg_color(btn_sync, lv_color_white(), 0);
     lv_obj_set_style_border_color(btn_sync, UIManager::rgb(COLOR_STROKE), 0);
     lv_obj_set_style_border_width(btn_sync, 1, 0);
@@ -212,7 +184,7 @@ void buildSettingsClockScreen() {
     lbl_ntp_status = lv_label_create(col_left);
     lv_label_set_text(lbl_ntp_status, ""); // empty by default
     UIManager::styleLabel(lbl_ntp_status, 0x666666, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
-    lv_obj_align(lbl_ntp_status, LV_ALIGN_TOP_LEFT, 160, 270);
+    lv_obj_align(lbl_ntp_status, LV_ALIGN_TOP_LEFT, 160, 140);
 
     // ── Right column: Wi-Fi status (read-only) + Manage button ───────────
     lv_obj_t *col_right = lv_obj_create(body);

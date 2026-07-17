@@ -5,11 +5,11 @@
 #include "data_manager.h"
 
 static lv_obj_t *scr_main_menu = NULL;
+static lv_obj_t *lbl_emp_subtitle = NULL;
 
-extern const lv_img_dsc_t icon_manpro;
-extern const lv_img_dsc_t icon_people;
-extern const lv_img_dsc_t icon_schedule;
-extern const lv_img_dsc_t icon_settings;
+extern const lv_img_dsc_t icon_employees;
+extern const lv_img_dsc_t icon_attendance;
+extern const lv_img_dsc_t icon_settings_gear;
 extern const lv_img_dsc_t icon_charging;
 
 
@@ -79,15 +79,21 @@ void buildMainMenuScreen() {
         return card;
     };
 
-    create_card(cards_cont, &icon_people, "EMPLOYEES", "4 enrolled", btn_emp_cb);
-    create_card(cards_cont, &icon_schedule, "ATTENDANCE LOGS", "Search logs", btn_att_cb);
-    create_card(cards_cont, &icon_settings, "DEVICE SETTINGS", "Wi-Fi and server", btn_set_cb);
+    lv_obj_t *emp_card = create_card(cards_cont, &icon_employees, "EMPLOYEES", "", btn_emp_cb);
+    lbl_emp_subtitle = lv_obj_get_child(emp_card, 2);
+    create_card(cards_cont, &icon_attendance, "ATTENDANCE LOGS", "Search logs", btn_att_cb);
+    create_card(cards_cont, &icon_settings_gear, "DEVICE SETTINGS", "Wi-Fi and server", btn_set_cb);
 }
 
 void uiShowMainMenu() {
     lv_scr_load_anim(scr_main_menu, LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
     // Refresh WiFi status to show current connection state
     UIManager::updateHeaderWifi(DataManager::isWifiConnected());
+
+    if (lbl_emp_subtitle) {
+        String subtitle = String(DataManager::getEmployeeCount()) + " employees";
+        lv_label_set_text(lbl_emp_subtitle, subtitle.c_str());
+    }
 
     // Safely delete heavy screens async when returning to main menu to keep RAM free globally
     extern lv_obj_t *scr_emp_list;

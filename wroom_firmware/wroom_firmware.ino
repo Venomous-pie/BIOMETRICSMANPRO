@@ -28,6 +28,7 @@
 #include <esp_now.h>
 #include <esp_system.h>
 #include <esp_wifi.h>
+#include <Preferences.h>
 
 // ============================================================
 // Pin definitions
@@ -75,6 +76,7 @@ HardwareSerial fpSerial(1);   // UART1 -> AS608
 // ============================================================
 Adafruit_Fingerprint finger(&fpSerial);
 RTC_DS3231 rtc;
+Preferences prefs;
 
 // ============================================================
 // Mock employee database (JSON)
@@ -108,6 +110,7 @@ bool lastIn[MAX_SLOTS + 1] = {};
 // ============================================================
 bool enrolling  = false;
 bool activated  = false;   // Set by CrowPanel via DEVICE_ACTIVATED command
+bool idle_screen_active = false;
 bool rtcValid   = false;
 uint32_t rtcFallbackOffset = 0;
 
@@ -156,6 +159,16 @@ bool lookupEmployee(int slot, String &name, String &dept) {
 }
 
 String getTimestamp() {
+  struct tm t = {};
+  // If NTP has synced successfully, the internal time will have a valid year
+  if (getLocalTime(&t, 0) && (t.tm_year + 1900) >= 2020) {
+    char buf[20];
+    snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d",
+             t.tm_year + 1900, t.tm_mon + 1, t.tm_mday,
+             t.tm_hour, t.tm_min, t.tm_sec);
+    return String(buf);
+  }
+
   DateTime now;
   if (rtcValid) {
     now = rtc.now();
@@ -347,6 +360,10 @@ void handleWifiConnect(const String& ssidStr, const String& passStr) {
   // Persist credentials for auto-reconnect on unexpected future AP drop
   s_savedSsid = ssidStr;
   s_savedPass = passStr;
+  
+  prefs.putString("ssid", s_savedSsid);
+  prefs.putString("pass", s_savedPass);
+
   // Open a 3 s suppression window: all STA_DISCONNECTED events fired during
   // WiFi.disconnect() + scanNetworks() + WiFi.begin() are treated as intentional.
   s_intentionalDiscUntilMs = millis() + 3000;
@@ -423,6 +440,12 @@ void handleWifiDisconnect() {
 
   WiFi.disconnect(true, true);  // wifioff=true — kills radio + clears NVS credentials
   delay(100);
+
+  // Clear saved credentials
+  s_savedSsid = "";
+  s_savedPass = "";
+  prefs.putString("ssid", "");
+  prefs.putString("pass", "");
 
   // Re-init ESP-NOW after the full radio-off (esp_wifi_stop was called above)
   extern void espNowInit();
@@ -738,6 +761,9 @@ void handleCmd(String cmd) {
       Serial.println("[SYSTEM] Factory reset received. Fingerprint scanner disabled.");
       send("{\"type\":\"FACTORY_RESET_ACK\"}");
 
+    } else if (strcmp(action, "SET_IDLE") == 0) {
+      idle_screen_active = jcmd["idle"] | false;
+
     } else if (strcmp(action, "RESET") == 0) {
       Serial.println("[SYSTEM] Remote reboot command received from CrowPanel. Restarting...");
       send("{\"type\":\"RESET_ACK\"}");
@@ -848,6 +874,13 @@ void setup() {
   Serial.printf("[BOOT] Reset reason: %d\n", esp_reset_reason());
   Serial.println("\n=== Biometrics WROOM Controller ===");
 
+  prefs.begin("wifi", false);
+  s_savedSsid = prefs.getString("ssid", "");
+  s_savedPass = prefs.getString("pass", "");
+  if (s_savedSsid.length() > 0) {
+    Serial.printf("[WIFI] Loaded saved credentials for '%s'\n", s_savedSsid.c_str());
+  }
+
   // Parse employee JSON into struct array
   StaticJsonDocument<512> empDoc;
   if (!deserializeJson(empDoc, EMPLOYEES_JSON)) {
@@ -933,6 +966,9 @@ void loop() {
       Serial.println("[SYSTEM] HARDWARE FACTORY RESET TRIGGERED!");
       // 1. Erase Wi-Fi credentials
       WiFi.disconnect(true, true);
+      s_savedSsid = "";
+      s_savedPass = "";
+      prefs.clear();
       // 2. Erase all fingerprints
       finger.emptyDatabase();
       Serial.println("[SYSTEM] Wi-Fi erased and fingerprint database wiped. Rebooting...");
@@ -1091,7 +1127,7 @@ void loop() {
   }
 
   // Fingerprint detection — only when activated and not enrolling
-  if (activated && !enrolling) {
+  if (activated && !enrolling && idle_screen_active) {
     if (finger.getImage() == FINGERPRINT_OK) {
       send("{\"type\":\"PLACE_FINGER\"}");
       doMatch();

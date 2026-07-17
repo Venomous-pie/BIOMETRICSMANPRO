@@ -136,6 +136,10 @@ void buildIdleScreen() {
 }
 
 
+bool uiIsIdleScreenActive() {
+  return scr_idle != NULL && lv_scr_act() == scr_idle;
+}
+
 void uiShowIdle() {
   if (returnTimer) { lv_timer_del(returnTimer); returnTimer = NULL; }
   // Only default to IN if we haven't set it yet, but auto-clock updates will fix it.
