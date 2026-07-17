@@ -88,7 +88,7 @@ void buildSettingsScreen() {
         return card;
     };
 
-    create_card(cards_cont, &icon_clock_network, "Clock & Network", "Time, Timezone, Wi-Fi", btn_card_clock_cb, false);
+    create_card(cards_cont, &icon_clock_network, "Clock & Network", "Wi-Fi", btn_card_clock_cb, false);
     create_card(cards_cont, &icon_server_device, "Server & Device", "API, Device Token", btn_card_server_cb, false);
     create_card(cards_cont, &icon_device_info, "Device Info", "Status, Factory Reset", btn_card_danger_cb, false);
 }
