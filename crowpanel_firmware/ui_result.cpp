@@ -3,6 +3,12 @@
 #include <cstring>
 #include <Arduino.h>
 
+LV_FONT_DECLARE(lv_font_montserrat_16);
+LV_FONT_DECLARE(lv_font_montserrat_20);
+LV_FONT_DECLARE(lv_font_montserrat_28);
+LV_FONT_DECLARE(lv_font_montserrat_36);
+LV_FONT_DECLARE(lv_font_montserrat_48);
+
 static lv_obj_t *scr_result = NULL;
 static lv_obj_t *card_result  = NULL;
 static lv_obj_t *lbl_avatar   = NULL;

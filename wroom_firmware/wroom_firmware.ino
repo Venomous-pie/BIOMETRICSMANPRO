@@ -119,12 +119,6 @@ uint8_t lastKnownChannel = ESPNOW_CHANNEL;
 bool ntpSyncPending = false;
 unsigned long ntpSyncStart = 0;
 
-// PING/PONG test state
-unsigned long lastPingMs = 0;
-bool pongReceived = false;
-uint32_t pingCount = 0;
-uint32_t pongCount = 0;
-
 // ============================================================
 // Helpers
 // ============================================================
@@ -564,15 +558,14 @@ void handleCmd(String cmd) {
   cmd.trim();
   if (cmd.length() == 0) return;
 
-  // Handle PONG reply from CrowPanel (sent as JSON: {"type":"PONG"})
+  // Handle PING from CrowPanel (sent as JSON: {"type":"PING"})
+  // We silently reply with PONG to avoid spamming the serial monitor
   if (cmd.startsWith("{")) {
     StaticJsonDocument<64> pdoc;
     if (deserializeJson(pdoc, cmd) == DeserializationError::Ok) {
       const char* t = pdoc["type"] | "";
-      if (strcmp(t, "PONG") == 0) {
-        pongCount++;
-        pongReceived = true;
-        Serial.printf("[PING] PONG received from CrowPanel! (ping=%u pong=%u)\n", pingCount, pongCount);
+      if (strcmp(t, "PING") == 0) {
+        sendQuiet("{\"type\":\"PONG\"}");
         return;
       }
     }
@@ -882,15 +875,6 @@ void loop() {
     sendQuiet("{\"type\":\"TIME\",\"ts\":\"" + getTimestamp() + "\"}");
   }
 
-  // PING CrowPanel every 3 seconds to verify bidirectional comms.
-  // Suppress during active WiFi connection so we don't overload the radio.
-  if (!wifiConnecting && millis() - lastPingMs >= 3000) {
-    lastPingMs = millis();
-    pingCount++;
-    pongReceived = false;
-    send("{\"type\":\"PING\"}");
-    Serial.printf("[PING] Sent PING #%u to CrowPanel (awaiting PONG)\n", pingCount);
-  }
 
   // Asynchronous Wi-Fi connection monitoring
   if (wifiConnecting) {
@@ -955,7 +939,9 @@ void loop() {
     String line(s_cpQueue[s_cpQHead].data);
     s_cpQHead = (s_cpQHead + 1) % ESPNOW_QUEUE_SIZE;
     if (line.length() > 0) {
-      Serial.println("[<-CP] " + line);
+      if (line.indexOf("\"PING\"") == -1 && line.indexOf("\"PONG\"") == -1) {
+        Serial.println("[<-CP] " + line);
+      }
       handleCmd(line);
     }
   }

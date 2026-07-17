@@ -3,6 +3,9 @@
 #include "data_manager.h"
 #include "comm_manager.h"
 
+LV_FONT_DECLARE(lv_font_montserrat_24);
+LV_FONT_DECLARE(lv_font_montserrat_28);
+
 // Custom 144-px Montserrat Bold font
 extern const lv_font_t lv_font_montserrat_144;
 
@@ -21,8 +24,8 @@ extern const lv_img_dsc_t icon_settings;
 
 int pending_action = 1; // 0=none, 1=IN, 2=OUT
 
-extern lv_obj_t *scr_emp_list;
 extern lv_timer_t *returnTimer;
+extern void uiShowEmpList();
 
 static void prompt_click_cb(lv_event_t * e) {
   pending_action++;
@@ -59,7 +62,12 @@ static void btn_time_out_cb(lv_event_t * e) {
 }
 
 static void btn_enroll_main_cb(lv_event_t * e) {
-  lv_scr_load_anim(scr_emp_list, LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
+  // Always go through uiShowEmpList() — it handles the case where scr_emp_list
+  // was deleted (NULL) after an enrollment, rebuilds the screen, and populates
+  // the employee list with fresh data. Direct lv_scr_load_anim on scr_emp_list
+  // would crash if NULL, or show a blank list if the screen exists but was
+  // never re-populated after an enrollment cycle.
+  uiShowEmpList();
 }
 
 static void btn_factory_reset_cb(lv_event_t * e) {

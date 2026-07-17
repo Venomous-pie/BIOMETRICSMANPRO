@@ -3,6 +3,12 @@
 #include "data_manager.h"
 #include "comm_manager.h"
 
+LV_FONT_DECLARE(lv_font_montserrat_20);
+LV_FONT_DECLARE(lv_font_montserrat_24);
+LV_FONT_DECLARE(lv_font_montserrat_28);
+LV_FONT_DECLARE(lv_font_montserrat_36);
+LV_FONT_DECLARE(lv_font_montserrat_48);
+
 lv_obj_t *scr_enroll = NULL;
 static lv_obj_t *lbl_enroll_title  = NULL;
 static lv_obj_t *lbl_enroll_msg    = NULL;
@@ -47,6 +53,7 @@ static void btn_emp_click_cb(lv_event_t * e) {
 }
 
 static void populate_emp_list(const char* name_filter, const char* dept_filter) {
+  if (!emp_list_obj) return; // Prevent crash if screen creation failed due to OOM
   lv_obj_clean(emp_list_obj);
 
   const Employee* db = DataManager::getEmployees();
@@ -68,6 +75,7 @@ static void populate_emp_list(const char* name_filter, const char* dept_filter) 
 
     // Row container
     lv_obj_t *row = lv_obj_create(emp_list_obj);
+    if (!row) break; // If OOM, stop creating rows instead of crashing
     lv_obj_set_size(row, lv_pct(100), 52);
     lv_obj_set_style_bg_color(row, UIManager::rgb(0xFFFFFF), 0);
     lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
@@ -579,8 +587,14 @@ void uiShowEmpList() {
 
     // 4. Load the Employee List screen and auto-delete the temporary screen.
     lv_scr_load_anim(scr_emp_list, LV_SCR_LOAD_ANIM_NONE, 0, 0, true);
-    
-    populate_emp_list("", "");
+
+    // 5. Populate the list in a SECOND deferred timer so it runs AFTER LVGL
+    //    has fully committed the screen load (prevents freeze from running
+    //    lv_obj_clean + widget creation inside the same callback as lv_scr_load_anim).
+    lv_timer_t *pop_timer = lv_timer_create([](lv_timer_t *t) {
+      populate_emp_list("", "");
+    }, 20, NULL);
+    lv_timer_set_repeat_count(pop_timer, 1);
   }, 10, NULL);
   
   lv_timer_set_repeat_count(defer, 1);

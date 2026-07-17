@@ -41,6 +41,9 @@ static volatile uint8_t s_qTail = 0;
 static volatile unsigned long s_lastRecvMs = 0;
 static bool s_scanningChannels = false;
 static unsigned long s_lastScanMs = 0;
+static unsigned long s_lastPingMs = 0;
+static uint32_t s_pingCount = 0;
+static uint32_t s_pongCount = 0;
 static uint8_t s_currentChannel = ESPNOW_CHANNEL;
 
 // WiFi auto-reconnect state — file-scope so WROOM_BOOT can reset it
@@ -156,10 +159,18 @@ void CommManager::process() {
 
         if (line.length() == 0) continue;
 
-        if (strcmp(line.c_str(), "{\"type\":\"TIME\"}") != 0) {
+        if (strcmp(line.c_str(), "{\"type\":\"TIME\"}") != 0 && strcmp(line.c_str(), "{\"type\":\"PONG\"}") != 0) {
             if (Serial && Serial.availableForWrite() > 32) Serial.println("[<-WROOM] " + line);
         }
         dispatchJson(line);
+    }
+
+    // PING WROOM every 3 seconds to verify bidirectional comms
+    if (millis() - s_lastPingMs >= 3000) {
+        s_lastPingMs = millis();
+        s_pingCount++;
+        sendCommand("{\"type\":\"PING\"}");
+        if (Serial && Serial.availableForWrite() > 32) Serial.printf("[PING] Sent PING #%u to WROOM (awaiting PONG)\n", s_pingCount);
     }
 
     // NON-BLOCKING: USB Serial forwarder (char-by-char so we never stall the loop)
@@ -211,11 +222,9 @@ void CommManager::dispatchJson(const String& line) {
     if (strcmp(type, "TIME") == 0) {
         uiUpdateClock(doc["ts"] | "");
         uiSettingsUpdateClock(doc["ts"] | "");
-    } else if (strcmp(type, "PING") == 0) {
-        // Reply directly to WROOM MAC
-        const char* pong = "{\"type\":\"PONG\"}";
-        esp_now_send(WROOM_MAC, (const uint8_t*)pong, strlen(pong));
-        if (Serial) Serial.println("[PING] Got PING -> sent PONG");
+    } else if (strcmp(type, "PONG") == 0) {
+        s_pongCount++;
+        if (Serial) Serial.printf("[PING] PONG received from WROOM! (ping=%u pong=%u)\n", s_pingCount, s_pongCount);
     } else if (strcmp(type, "ACTIVATION_RESULT") == 0) {
         // WROOM has finished the server round-trip for the registration code.
         bool success        = doc["success"] | false;
