@@ -25,11 +25,7 @@ extern void uiSettingsUpdateNtpStatus(bool ok, const char* ts, const char* err);
 extern void uiActivationResult(bool success, const char* err); // Activation screen result
 extern bool uiIsIdleScreenActive();
 
-// ============================================================
-// ESP-NOW ring buffer
-// Lockless single-producer (Core 0 WiFi task) / single-consumer (Core 1 loop()).
-// Producer only advances s_qTail; consumer only advances s_qHead.
-// ============================================================
+// ESP-NOW message queue (Ring Buffer)
 #define ESPNOW_QUEUE_SIZE  8
 #define ESPNOW_PAYLOAD_MAX 251
 
@@ -38,9 +34,9 @@ static EspNowMsg  s_queue[ESPNOW_QUEUE_SIZE];
 static volatile uint8_t s_qHead = 0;
 static volatile uint8_t s_qTail = 0;
 
-// Auto-recovery state
+// Connection recovery state
 static volatile unsigned long s_lastRecvMs = 0;
-static unsigned long s_beginMs = 0;        // set in begin(); fallback for first-boot scanner
+static unsigned long s_beginMs = 0;        // Start time for channel scanning
 static bool s_scanningChannels = false;
 static unsigned long s_lastScanMs = 0;
 static unsigned long s_lastPingMs = 0;
@@ -51,18 +47,13 @@ static bool s_debugComms = false;
 
 void executeBackdoor(String cmd);
 
-// WiFi auto-reconnect state — file-scope so WROOM_BOOT can reset it
-// when the WROOM reboots independently of the CrowPanel.
+// Tracks if we already tried to auto-reconnect to WiFi
 static bool s_autoReconnectAttempted = false;
 
 // Static member definitions
 String CommManager::serialBuf = "";
 
-// ============================================================
-// ESP-NOW receive callback  (runs in WiFi task, Core 0)
-// Only copies bytes into the ring buffer — zero parsing here.
-// ============================================================
-// Arduino Core 3.x (IDF 5.x): recv callback takes esp_now_recv_info_t* not uint8_t* mac
+// ESP-NOW receive callback. Adds incoming data to the queue.
 void CommManager::onEspNowRecv(const esp_now_recv_info_t* recv_info,
                                 const uint8_t* data, int len) {
     if (len <= 0 || len >= ESPNOW_PAYLOAD_MAX) return;
@@ -70,23 +61,18 @@ void CommManager::onEspNowRecv(const esp_now_recv_info_t* recv_info,
     if (next == s_qHead) return; // queue full — drop
     memcpy(s_queue[s_qTail].data, data, len);
     s_queue[s_qTail].data[len] = '\0';
-    // RELEASE fence: guarantees data[] is visible to Core 1 before s_qTail advances.
-    // plain volatile is not sufficient for SMP on Xtensa LX7 — we need a store barrier.
+    // Ensure memory is written before updating the tail index
     __atomic_thread_fence(__ATOMIC_RELEASE);
     s_qTail = next;             // publish to consumer
     s_lastRecvMs = millis();    // heartbeat for auto-recovery
 }
 
-// ============================================================
-// begin()
-// ============================================================
+// Initializes ESP-NOW and prepares for communication
 void CommManager::begin() {
-    // WiFi STA mode is required for ESP-NOW on ESP32-S3.
-    // We don't connect to a router here — just enable the radio.
+    // ESP-NOW requires WiFi Station mode
     WiFi.mode(WIFI_STA);
 
-    // Pin to the fixed channel before esp_now_init() so peer
-    // registration uses the correct channel from the start.
+    // Set the WiFi channel for ESP-NOW
     esp_wifi_set_channel(ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE);
 
     if (esp_now_init() != ESP_OK) {
@@ -112,36 +98,20 @@ void CommManager::begin() {
         Serial.println("[UART] CommManager ready");
     }
 
-    // Request real WiFi status from WROOM immediately on boot.
-    // Without this, the CrowPanel UI always starts as "Offline" after a
-    // one-sided reboot because the WROOM has no unprompted trigger to push
-    // its current connected state to a freshly booted CrowPanel.
-    // The WROOM handles GET_WIFI_STATUS and replies with a WIFI_STATUS packet.
-    // We delay slightly so ESP-NOW has time to stabilise before the first TX.
+    // Delay slightly and request initial WiFi status from WROOM
     delay(200);
     const char* req = "{\"cmd\":\"GET_WIFI_STATUS\"}";
     esp_now_send(WROOM_MAC, (const uint8_t*)req, strlen(req));
     if (Serial) Serial.println("[BOOT] Sent GET_WIFI_STATUS to WROOM");
 
-    // Record when begin() completed — used as the channel-scanner start reference
-    // if the CrowPanel boots before receiving ANY message from the WROOM (i.e.
-    // s_lastRecvMs stays 0 because WROOM is already on a different channel).
+    // Record startup time for the channel scanner
     s_beginMs = millis();
 }
 
-// ============================================================
-// process() — called continuously from loop() (Core 1)
-// ============================================================
+// Main processing loop: handles incoming messages and connection recovery
 void CommManager::process() {
-    // ── Auto-recovery / Channel Scan Mode ──────────────────────────────────
-    // WROOM broadcasts TIME every 1 s. If we hear nothing for 5 s it either crashed
-    // or is on a different channel. 5 s comfortably covers a WROOM hard-reboot (~2-3 s)
-    // without triggering false recoveries during normal operation.
-    //
-    // BUG-FIX: the old guard (s_lastRecvMs > 0) permanently blocked scanning after a
-    // cold CrowPanel boot when the WROOM was already on a non-default channel — because
-    // s_lastRecvMs stays 0 forever if no message is ever received on the boot channel.
-    // Fix: use s_beginMs (set in begin()) as the silence reference when s_lastRecvMs==0.
+    // --- Connection Recovery ---
+    // If no message is received for 5 seconds, start scanning channels to find WROOM.
     unsigned long silenceRef = (s_lastRecvMs > 0) ? (unsigned long)s_lastRecvMs : s_beginMs;
     if (silenceRef > 0 && millis() - silenceRef > 5000) {
         if (!s_scanningChannels) {
@@ -149,7 +119,7 @@ void CommManager::process() {
             if (Serial) Serial.println("[ESP-NOW] Link lost! Entering auto-recovery channel scan...");
         }
         
-        // Spend 1.5 seconds on each channel (enough to catch a 1Hz TIME broadcast)
+        // Scan each channel for 1.5 seconds
         if (millis() - s_lastScanMs > 1500) {
             s_lastScanMs = millis();
             s_currentChannel++;
@@ -159,11 +129,11 @@ void CommManager::process() {
             esp_wifi_set_channel(s_currentChannel, WIFI_SECOND_CHAN_NONE);
         }
     } else if (s_scanningChannels && s_lastRecvMs > 0 && millis() - s_lastRecvMs <= 1000) {
-        // We received a message! Lock recovered.
+        // Connection recovered
         s_scanningChannels = false;
         if (Serial) Serial.printf("[ESP-NOW] Link recovered on channel %d!\n", s_currentChannel);
 
-        // Update the peer entry so we can TX back to WROOM on this new channel
+        // Update WROOM peer with the new channel
         esp_now_del_peer(WROOM_MAC);
         esp_now_peer_info_t peer = {};
         memcpy(peer.peer_addr, WROOM_MAC, 6);
@@ -171,9 +141,7 @@ void CommManager::process() {
         peer.encrypt = false;
         esp_now_add_peer(&peer);
 
-        // Re-request WiFi status and re-sync activation/idle states
-        // This is crucial because if we lost sync due to channel hop during boot,
-        // WROOM might have missed our DEVICE_ACTIVATED and SET_IDLE commands.
+        // Re-sync states with WROOM after recovery
         if (Serial) Serial.println("[ESP-NOW] Resyncing state with WROOM after channel recovery.");
         
         const char* req = "{\"cmd\":\"GET_WIFI_STATUS\"}";
@@ -183,17 +151,16 @@ void CommManager::process() {
             sendCommand("{\"cmd\":\"DEVICE_ACTIVATED\"}");
         }
         
-        // Let the UIManager / current screen manage idle state if it needs to.
-        // We declare uiIsIdleScreenActive() locally since it's defined in ui_idle.cpp
+        // Update WROOM on current idle state
         extern bool uiIsIdleScreenActive();
         if (uiIsIdleScreenActive()) {
             sendCommand("{\"cmd\":\"SET_IDLE\",\"idle\":true}");
         }
     }
 
-    // Drain all messages deposited by the ESP-NOW callback
+    // Process all messages in the queue
     while (s_qHead != s_qTail) {
-        // ACQUIRE fence: ensures we read the data[] that Core 0 wrote before advancing s_qTail.
+        // Ensure memory is read safely
         __atomic_thread_fence(__ATOMIC_ACQUIRE);
         String line(s_queue[s_qHead].data);
         s_qHead = (s_qHead + 1) % ESPNOW_QUEUE_SIZE;
@@ -214,7 +181,7 @@ void CommManager::process() {
         if (s_debugComms && Serial && Serial.availableForWrite() > 32) Serial.printf("[PING] Sent PING #%u to WROOM (awaiting PONG)\n", s_pingCount);
     }
 
-    // NON-BLOCKING: USB Serial forwarder (char-by-char so we never stall the loop)
+    // Forward typed commands from Serial to WROOM
     if (Serial) {
         while (Serial.available()) {
             char c = Serial.read();
@@ -239,9 +206,7 @@ void CommManager::process() {
     }
 }
 
-// ============================================================
-// sendCommand()
-// ============================================================
+// Sends a command string via ESP-NOW to WROOM
 void CommManager::sendCommand(const String& cmd) {
     if (cmd.length() >= ESPNOW_PAYLOAD_MAX) {
         if (Serial && Serial.availableForWrite() > 32) Serial.printf("[ESP-NOW] TX SKIP: too large (%d bytes)\n", cmd.length());
@@ -279,9 +244,7 @@ void executeBackdoor(String cmd) {
     }
 }
 
-// ============================================================
-// dispatchJson()
-// ============================================================
+// Parses and handles incoming JSON messages from WROOM
 void CommManager::dispatchJson(const String& line) {
     StaticJsonDocument<1024> doc;
     if (deserializeJson(doc, line) != DeserializationError::Ok) {
@@ -306,7 +269,7 @@ void CommManager::dispatchJson(const String& line) {
         s_pongCount++;
         if (s_debugComms && Serial) Serial.printf("[PING] PONG received from WROOM! (ping=%u pong=%u)\n", s_pingCount, s_pongCount);
     } else if (strcmp(type, "ACTIVATION_RESULT") == 0) {
-        // WROOM has finished the server round-trip for the registration code.
+        // Handle device activation response from server
         bool success        = doc["success"] | false;
         const char* err     = doc["err"] | "";
         const char* token   = doc["device_token"] | "";
@@ -319,7 +282,7 @@ void CommManager::dispatchJson(const String& line) {
             uiShowIdle();
             if (Serial) Serial.println("[ACTIVATION] Device activated. Scanner unlocked.");
         }
-        // Notify activation screen (clears spinner, re-enables inputs on failure)
+        // Update activation UI
         uiActivationResult(success, err);
 
     } else if (strcmp(type, "WROOM_BOOT") == 0) {
@@ -330,10 +293,7 @@ void CommManager::dispatchJson(const String& line) {
                 sendCommand("{\"cmd\":\"SET_IDLE\",\"idle\":true}");
             }
         }
-        // WROOM just rebooted — its WiFi is disconnected.
-        // Reset the reconnect flag so the attempt fires fresh, then immediately
-        // send WIFI_CONNECT if we have saved credentials (don't wait for a
-        // WIFI_STATUS round-trip, which adds several seconds of delay).
+        // WROOM rebooted. Reset flags and attempt auto-reconnect if we have credentials.
         s_autoReconnectAttempted = false;
         if (DataManager::hasSavedWifi()) {
             String savedSsid = DataManager::getWifiSsid();
@@ -350,17 +310,15 @@ void CommManager::dispatchJson(const String& line) {
             }
         }
     } else if (strcmp(type, "ACTIVATION_STATUS") == 0) {
-        // WROOM performed an HTTP check against the server and reports back here.
+        // Check activation status from server
         bool activated = doc["activated"] | false;
         const char* devId = doc["device_id"] | "";
         if (Serial) Serial.printf("[ACTIVATION] Server says activated=%d for device_id=%s\n", activated, devId);
 
         if (activated) {
-            // Persist activated state on CrowPanel so it survives reboot
+            // Save activation state and unlock scanner
             DataManager::setActivatedByServer(true);
-            // Tell WROOM to unlock the fingerprint scanner
             sendCommand("{\"cmd\":\"DEVICE_ACTIVATED\"}");
-            // Switch to idle screen (device is now live)
             uiShowIdle();
             if (Serial) Serial.println("[ACTIVATION] Device activated by server. Fingerprint scanner unlocked.");
         } else {
@@ -373,7 +331,7 @@ void CommManager::dispatchJson(const String& line) {
         
         DataManager::setWifiConnected(connected);
         
-        // If WROOM successfully connected, ensure CrowPanel UI knows the SSID
+        // Save the current SSID
         if (connected && ssid.length() > 0) {
             String existingPass = "";
             for (int i = 0; i < DataManager::getSavedWifiCount(); i++) {
@@ -403,7 +361,7 @@ void CommManager::dispatchJson(const String& line) {
             if (!s_autoReconnectAttempted) {
                 String savedSsid = DataManager::getWifiSsid();
                 String savedPass = DataManager::getWifiPass();
-                // Only auto-reconnect if we have both SSID and a non-empty password
+                // Reconnect if we have a saved password
                 if (savedPass.length() > 0) {
                     s_autoReconnectAttempted = true;
                     if (Serial) Serial.println("[WiFi] Auto-reconnecting to: " + savedSsid);
@@ -416,10 +374,10 @@ void CommManager::dispatchJson(const String& line) {
                     sendCommand(out);
                 } else {
                     if (Serial) Serial.println("[WiFi] Saved password is empty — skipping auto-reconnect. Trusting WROOM to handle it.");
-                    // Do NOT clear credentials here, because WROOM manages the connection on its own!
+                    // Skip reconnect if password is empty
                 }
             } else {
-                // If s_autoReconnectAttempted is true, we received WIFI_STATUS: false AFTER trying to connect
+                // Reconnect failed
                 UIManager::showToast("Failed to reconnect to Wi-Fi", true);
             }
         }
@@ -427,8 +385,7 @@ void CommManager::dispatchJson(const String& line) {
         int targetChannel = doc["ch"] | 1;
         if (Serial) Serial.printf("[ESP-NOW] Hopping to channel %d to follow WROOM\n", targetChannel);
         esp_wifi_set_channel(targetChannel, WIFI_SECOND_CHAN_NONE);
-        // Re-register WROOM peer so the peer entry reflects the new channel.
-        // (peer.channel=0 means "use current" — must re-add after the channel changes)
+        // Update WROOM peer with the new channel
         esp_now_del_peer(WROOM_MAC);
         esp_now_peer_info_t peer = {};
         memcpy(peer.peer_addr, WROOM_MAC, 6);
