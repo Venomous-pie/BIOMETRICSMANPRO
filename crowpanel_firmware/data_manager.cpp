@@ -52,6 +52,7 @@ String DataManager::_wifiSsid[5];
 String DataManager::_wifiPass[5];
 int DataManager::_wifiCount = 0;
 String DataManager::_activationCode = "";
+String DataManager::_deviceName = "ManPro Biometric";
 bool   DataManager::_wifiConnected = false;
 
 void DataManager::begin() {
@@ -113,6 +114,7 @@ void DataManager::loadConfig() {
         _isWifiConfigured = doc["wifiConfigured"] | false;
         _isActivated = doc["activated"] | false;
         _activationCode = doc["activationCode"] | "";
+        _deviceName = doc["deviceName"] | "ManPro Biometric";
     }
     f.close();
 }
@@ -125,6 +127,7 @@ void DataManager::saveConfig() {
     doc["wifiConfigured"] = _isWifiConfigured;
     doc["activated"] = _isActivated;
     doc["activationCode"] = _activationCode;
+    doc["deviceName"] = _deviceName;
     serializeJson(doc, f);
     f.close();
 }
@@ -356,5 +359,10 @@ String DataManager::getActivationCode() {
 // String DataManager::getDeviceId() is implemented at the top using DEVICE_ID_HARDCODED
 
 String DataManager::getDeviceName() {
-    return "ManPro Biometric";
+    return _deviceName;
+}
+
+void DataManager::setDeviceName(const String& name) {
+    _deviceName = name;
+    saveConfig();
 }

@@ -125,7 +125,6 @@ void setup() {
   lcd.init();
   lcd.setRotation(0);
   lcd.fillScreen(TFT_BLACK);
-  digitalWrite(2, HIGH);
 
   // LVGL
   lv_init();
@@ -183,6 +182,9 @@ void setup() {
 
   // Force LVGL to draw the first frame of the splash screen immediately
   lv_timer_handler();
+
+  // Turn on backlight AFTER the first frame is flushed to eliminate CRT static effect
+  digitalWrite(2, HIGH);
 
   // Now build the screens in the background. The splash animation delays its
   // movement by 250ms, giving this plenty of time to finish without glitching.

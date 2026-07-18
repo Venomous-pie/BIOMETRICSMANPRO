@@ -55,6 +55,7 @@ public:
 
     static String getActivationCode();
     static String getDeviceName();
+    static void setDeviceName(const String& name);
 
     // WiFi credential persistence
     static void saveWifiCredentials(const String& ssid, const String& pass);
@@ -89,6 +90,7 @@ private:
     static String _wifiPass[5];
     static int _wifiCount;
     static String _activationCode;
+    static String _deviceName;
     static bool _wifiConnected;
     static void loadWifiCredentials();
     static void saveWifiCredentialsToFs();

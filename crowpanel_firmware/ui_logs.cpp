@@ -309,7 +309,7 @@ static void populate_logs_list(const char* name_filter, const char* date_filter)
 
 void uiShowLogs() {
     if (scr_logs == NULL) buildLogsScreen();
-    lv_scr_load_anim(scr_logs, LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
+    lv_scr_load(scr_logs);
     UIManager::updateHeaderWifi(DataManager::isWifiConnected());
     
     if (ta_search_name) lv_textarea_set_text(ta_search_name, "");

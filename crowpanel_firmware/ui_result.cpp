@@ -148,7 +148,7 @@ void uiShowMatch(const char *name, const char *dept, const char *action, const c
     lv_label_set_text(lbl_emp_ts, "Great work today! Have a safe trip home.");
   }
 
-  lv_scr_load_anim(scr_result, LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
+  lv_scr_load(scr_result);
 
   if (returnTimer) lv_timer_del(returnTimer);
   returnTimer = lv_timer_create([](lv_timer_t *t) {
@@ -178,7 +178,7 @@ void uiShowNoMatch() {
   lv_label_set_text(lbl_emp_ts, "Please consult HR or Administration.");
 
   Serial.println("[UI_RESULT] Loading screen...");
-  lv_scr_load_anim(scr_result, LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
+  lv_scr_load(scr_result);
   Serial.println("[UI_RESULT] Screen loaded.");
 
   if (returnTimer) lv_timer_del(returnTimer);

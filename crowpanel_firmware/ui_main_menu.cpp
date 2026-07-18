@@ -86,7 +86,7 @@ void buildMainMenuScreen() {
 }
 
 void uiShowMainMenu() {
-    lv_scr_load_anim(scr_main_menu, LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
+    lv_scr_load(scr_main_menu);
     // Refresh WiFi status to show current connection state
     UIManager::updateHeaderWifi(DataManager::isWifiConnected());
 

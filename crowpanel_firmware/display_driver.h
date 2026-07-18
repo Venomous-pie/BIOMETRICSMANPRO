@@ -44,8 +44,6 @@ public:
       cfg.pin_hsync   = GPIO_NUM_39;
       cfg.pin_pclk    = GPIO_NUM_0;
 
-      // Lowered from 16MHz -> 12MHz to completely eliminate PSRAM bus starvation.
-      // This is the definitive fix for the screen shaking/jittering when clicking UI elements.
       cfg.freq_write  = 12000000;
 
       cfg.hsync_polarity    = 0;
@@ -73,20 +71,8 @@ public:
       _panel_instance.config(cfg);
     }
     {
-      // ============================================================
-      // SMOOTHNESS CONFIGURATION
-      // ============================================================
-      // use_psram = 1  → single PSRAM framebuffer (baseline, may have tearing)
-      // use_psram = 2  → double PSRAM framebuffer (~1.5MB PSRAM, zero tearing)
-      //                  CPU draws into back-buffer while EDMA scans front-buffer.
-      //                  Buffers swap only on completed frame → no mid-scan tears.
-      //
-      // NOTE: bounce_buffer_size_px (eliminates PSRAM bus contention entirely)
-      //   requires LovyanGFX >= 1.1.8. To enable after updating:
-      //   cfg.bounce_buffer_size_px = 8000;  // 800 * 10 lines of fast SRAM relay
-      // ============================================================
       auto cfg = _panel_instance.config_detail();
-      cfg.use_psram = 2;  // Double buffer eliminates tearing during UI redraws
+      cfg.use_psram = 2;
       _panel_instance.config_detail(cfg);
     }
     {
@@ -114,7 +100,6 @@ public:
       cfg.freq   = 44100;
       cfg.pwm_channel = 7;
       _light_instance.config(cfg);
-      // _panel_instance.setLight(&_light_instance); // BYPASSED FOR MANUAL CONTROL
     }
 
     _panel_instance.setBus(&_bus_instance);

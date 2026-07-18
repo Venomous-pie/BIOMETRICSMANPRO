@@ -63,7 +63,7 @@ static void btn_time_out_cb(lv_event_t * e) {
 static void btn_enroll_main_cb(lv_event_t * e) {
   // Always go through uiShowEmpList() — it handles the case where scr_emp_list
   // was deleted (NULL) after an enrollment, rebuilds the screen, and populates
-  // the employee list with fresh data. Direct lv_scr_load_anim on scr_emp_list
+  // the employee list with fresh data. Direct lv_scr_load on scr_emp_list
   // would crash if NULL, or show a blank list if the screen exists but was
   // never re-populated after an enrollment cycle.
   uiShowEmpList();
@@ -152,7 +152,7 @@ void uiShowIdle() {
   lv_obj_clear_flag(img_arrow_left_obj, LV_OBJ_FLAG_HIDDEN);
   lv_obj_clear_flag(img_arrow_right_obj, LV_OBJ_FLAG_HIDDEN);
   lv_obj_set_style_text_color(lbl_prompt, UIManager::rgb(COLOR_STROKE), 0);
-  lv_scr_load_anim(scr_idle, LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
+  lv_scr_load(scr_idle);
   // Signal WROOM that device is activated — enable fingerprint scanning
   CommManager::sendCommand("{\"cmd\":\"DEVICE_ACTIVATED\"}");
 }

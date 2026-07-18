@@ -555,7 +555,7 @@ void uiShowEnrollStart(const char *name) {
   lv_obj_set_style_bg_color(dot_2, UIManager::rgb(0x999999), 0); // Gray
   lv_obj_set_style_bg_color(dot_3, UIManager::rgb(0x999999), 0); // Gray
 
-  lv_scr_load_anim(scr_enroll, LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
+  lv_scr_load(scr_enroll);
 }
 
 void uiShowEnrollStep(int step, const char *msg) {
@@ -769,7 +769,7 @@ void uiShowChooseFinger(int emp_id, const char *name, const char *dept) {
     // This allows us to safely delete the heavy Employee screen without crashing LVGL.
     lv_obj_t *temp_scr = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(temp_scr, UIManager::rgb(0x1A1A1A), 0);
-    lv_scr_load_anim(temp_scr, LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
+    lv_scr_load(temp_scr);
 
     // 2. Synchronously delete the heavy Employee List screen to completely free RAM.
     if (scr_emp_list != NULL) {
@@ -825,7 +825,8 @@ void uiShowChooseFinger(int emp_id, const char *name, const char *dept) {
     }
 
     // 4. Load the new screen and auto-delete the temporary screen.
-    lv_scr_load_anim(scr_choose_finger, LV_SCR_LOAD_ANIM_NONE, 0, 0, true);
+    lv_scr_load(scr_choose_finger);
+    lv_obj_del_async(temp_scr);
   }, 10, NULL);
   
   lv_timer_set_repeat_count(defer_timer, 1);
@@ -843,7 +844,7 @@ void uiShowEmpList() {
     // 1. Create a tiny temporary screen and make it active.
     lv_obj_t *temp_scr = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(temp_scr, UIManager::rgb(0x1A1A1A), 0);
-    lv_scr_load_anim(temp_scr, LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
+    lv_scr_load(temp_scr);
 
     // 2. Synchronously delete the heavy Choose Finger screen to completely free RAM.
     if (scr_choose_finger != NULL) {
@@ -870,11 +871,12 @@ void uiShowEmpList() {
     }
 
     // 4. Load the Employee List screen and auto-delete the temporary screen.
-    lv_scr_load_anim(scr_emp_list, LV_SCR_LOAD_ANIM_NONE, 0, 0, true);
+    lv_scr_load(scr_emp_list);
+    lv_obj_del_async(temp_scr);
 
     // 5. Populate the list in a SECOND deferred timer so it runs AFTER LVGL
     //    has fully committed the screen load (prevents freeze from running
-    //    lv_obj_clean + widget creation inside the same callback as lv_scr_load_anim).
+    //    lv_obj_clean + widget creation inside the same callback as lv_scr_load).
     lv_timer_t *pop_timer = lv_timer_create([](lv_timer_t *t) {
       populate_emp_list("", "");
     }, 20, NULL);
