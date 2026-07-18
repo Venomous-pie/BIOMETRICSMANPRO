@@ -255,6 +255,18 @@ void CommManager::dispatchJson(const String& line) {
     const char *type = doc["type"];
     if (!type) return;
 
+    // Wake display on significant user events from WROOM
+    if (strcmp(type, "PLACE_FINGER") == 0 || 
+        strcmp(type, "MATCH") == 0 || 
+        strcmp(type, "NOMATCH") == 0 || 
+        strcmp(type, "ENROLL_START") == 0 || 
+        strcmp(type, "WROOM_BOOT") == 0 ||
+        strcmp(type, "ACTIVATION_RESULT") == 0 ||
+        strcmp(type, "ACTIVATION_STATUS") == 0) {
+        extern void manpro_wake_display();
+        manpro_wake_display();
+    }
+
     if (strcmp(type, "TIME") == 0 || strcmp(type, "WIFI_STATUS") == 0 || strcmp(type, "WROOM_BOOT") == 0) {
         manpro_set_ready();
     }
@@ -284,6 +296,16 @@ void CommManager::dispatchJson(const String& line) {
         }
         // Update activation UI
         uiActivationResult(success, err);
+
+    } else if (strcmp(type, "TEST_RESULT") == 0) {
+        bool success = doc["success"] | false;
+        if (success) {
+            String msg = doc["msg"] | "Success";
+            UIManager::showToast(("API OK: " + msg).c_str(), false);
+        } else {
+            String err = doc["err"] | "Failed";
+            UIManager::showToast(("API Error: " + err).c_str(), true);
+        }
 
     } else if (strcmp(type, "WROOM_BOOT") == 0) {
         if (Serial) Serial.println("[UART] WROOM booted. Checking activation state.");

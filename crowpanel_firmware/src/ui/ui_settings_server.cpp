@@ -46,6 +46,12 @@ static void kb_event_cb(lv_event_t *e) {
     }
 }
 
+static void btn_test_cb(lv_event_t * e) {
+    if (Serial) Serial.println("UI Server: btn_test_cb triggered");
+    CommManager::sendCommand("{\"cmd\":\"TEST_API\"}");
+    UIManager::showToast("Testing connection...", false);
+}
+
 static void ta_event_cb(lv_event_t *e) {
     lv_event_code_t code = lv_event_get_code(e);
     lv_obj_t *ta = (lv_obj_t *)lv_event_get_target(e);
@@ -116,6 +122,7 @@ void buildSettingsServerScreen() {
     lv_obj_clear_flag(ta_api, LV_OBJ_FLAG_CLICKABLE);
 
     lv_obj_t *ta_token = create_input_field(body, "Activation Code (token)", "Enter via Register page", 210, 360, 0, true);
+    lv_textarea_set_password_show_time(ta_token, 0);
     // Show the saved activation code (hidden behind password dots)
     lv_textarea_set_text(ta_token, DataManager::getActivationCode().c_str());
     lv_obj_clear_flag(ta_token, LV_OBJ_FLAG_CLICKABLE);
@@ -131,6 +138,7 @@ void buildSettingsServerScreen() {
     lv_label_set_text(lbl_test, "Test connection");
     UIManager::styleLabel(lbl_test, COLOR_GREEN_MAIN, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
     lv_obj_center(lbl_test);
+    lv_obj_add_event_cb(btn_test, btn_test_cb, LV_EVENT_CLICKED, NULL);
 
     // Bottom Action Bar
     lv_obj_t *bottom = lv_obj_create(body);

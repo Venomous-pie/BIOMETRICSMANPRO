@@ -91,20 +91,20 @@ void buildIdleScreen() {
   lv_obj_align(logo, LV_ALIGN_TOP_MID, 0, 10);
 
   lbl_time = lv_label_create(scr_idle);
-  lv_label_set_text(lbl_time, "12:00");
+  lv_label_set_text(lbl_time, "00:00");
   UIManager::styleLabel(lbl_time, COLOR_STROKE, &lv_font_montserrat_144, LV_TEXT_ALIGN_CENTER);
   // Time is moved closer to the logo
   lv_obj_align(lbl_time, LV_ALIGN_CENTER, 0, 15);
 
   // AM/PM superscript — small font, anchored to the right-bottom of the time
   lbl_ampm = lv_label_create(scr_idle);
-  lv_label_set_text(lbl_ampm, "PM");
+  lv_label_set_text(lbl_ampm, "AM");
   UIManager::styleLabel(lbl_ampm, COLOR_STROKE, &lv_font_montserrat_28, LV_TEXT_ALIGN_LEFT);
   lv_obj_align_to(lbl_ampm, lbl_time, LV_ALIGN_OUT_RIGHT_BOTTOM, -5, -22);
 
   // ── Date label ───────────────────────────────────────────
   lbl_date = lv_label_create(scr_idle);
-  lv_label_set_text(lbl_date, "Wednesday    7/1/2026");
+  lv_label_set_text(lbl_date, "Date    00/00/0000");
   UIManager::styleLabel(lbl_date, COLOR_STROKE, &lv_font_montserrat_24, LV_TEXT_ALIGN_CENTER);
   lv_obj_align(lbl_date, LV_ALIGN_CENTER, 0, 105);
 

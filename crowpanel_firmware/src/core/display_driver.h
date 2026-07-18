@@ -102,6 +102,7 @@ public:
       _light_instance.config(cfg);
     }
 
+    _panel_instance.setLight(&_light_instance);
     _panel_instance.setBus(&_bus_instance);
     setPanel(&_panel_instance);
   }

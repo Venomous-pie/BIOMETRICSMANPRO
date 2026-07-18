@@ -162,6 +162,10 @@ void handleCmd(String cmd) {
       Serial.println("[NTP] Manual sync requested by CrowPanel.");
       syncNTP();
 
+    } else if (strcmp(action, "TEST_API") == 0) {
+      Serial.println("[TEST_API] API connection test requested.");
+      testApiConnection();
+
     } else if (strcmp(action, "VALIDATE_ACTIVATION") == 0) {
       String regCode = jcmd["registration_code"] | "";
       if (regCode.length() == 0) {

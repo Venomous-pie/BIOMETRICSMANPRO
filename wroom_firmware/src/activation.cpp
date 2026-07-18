@@ -72,3 +72,29 @@ void validateActivationWithServer(const String &registrationCode) {
   http.end();
   sendDoc(result);
 }
+
+void testApiConnection() {
+  if (WiFi.status() != WL_CONNECTED) {
+    Serial.println("[TEST_API] Cannot test — WiFi not connected.");
+    send("{\"type\":\"TEST_RESULT\",\"success\":false,\"err\":\"WiFi not connected\"}");
+    return;
+  }
+  
+  String url = String(API_BASE_URL);
+  HTTPClient http;
+  http.begin(url);
+  int httpCode = http.GET();
+  
+  StaticJsonDocument<128> result;
+  result["type"] = "TEST_RESULT";
+  
+  if (httpCode > 0) {
+    result["success"] = true;
+    result["msg"] = String("HTTP ") + String(httpCode);
+  } else {
+    result["success"] = false;
+    result["err"] = http.errorToString(httpCode);
+  }
+  http.end();
+  sendDoc(result);
+}

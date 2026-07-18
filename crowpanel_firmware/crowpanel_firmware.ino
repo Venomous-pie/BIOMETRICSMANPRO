@@ -25,6 +25,19 @@
 // Display configuration
 LGFX lcd;
 
+// Screen blanking state
+bool screen_is_awake = true;
+unsigned long last_touch_time = 0;
+unsigned long wake_ignore_until = 0;
+
+void manpro_wake_display() {
+  if (!screen_is_awake) {
+    screen_is_awake = true;
+    lcd.setBrightness(DataManager::getBrightness());
+  }
+  last_touch_time = millis();
+}
+
 
 // Enable FPS and CPU overlay
 #if LV_USE_PERF_MONITOR
@@ -56,6 +69,17 @@ void my_touch_read(lv_indev_t *indev, lv_indev_data_t *data) {
   uint16_t touchX, touchY;
   bool touched = lcd.getTouch(&touchX, &touchY);
   if (touched) {
+    if (!screen_is_awake) {
+      manpro_wake_display();
+      wake_ignore_until = millis() + 300; // Ignore touches for 300ms
+    }
+    
+    if (millis() < wake_ignore_until) {
+      data->state = LV_INDEV_STATE_RELEASED;
+      return;
+    }
+    
+    last_touch_time = millis();
     data->state   = LV_INDEV_STATE_PRESSED;
     data->point.x = touchX;
     data->point.y = touchY;
@@ -83,6 +107,17 @@ void my_touch_read(lv_indev_drv_t *indev_drv, lv_indev_data_t *data) {
   uint16_t touchX, touchY;
   bool touched = lcd.getTouch(&touchX, &touchY);
   if (touched) {
+    if (!screen_is_awake) {
+      manpro_wake_display();
+      wake_ignore_until = millis() + 300; // Ignore touches for 300ms
+    }
+    
+    if (millis() < wake_ignore_until) {
+      data->state = LV_INDEV_STATE_REL;
+      return;
+    }
+    
+    last_touch_time = millis();
     data->state   = LV_INDEV_STATE_PR;
     data->point.x = touchX;
     data->point.y = touchY;
@@ -183,8 +218,9 @@ void setup() {
   // Draw first splash frame immediately
   lv_timer_handler();
 
-  // Turn on backlight after first frame to avoid static
-  digitalWrite(2, HIGH);
+  // Apply user-configured brightness
+  lcd.setBrightness(DataManager::getBrightness());
+  last_touch_time = millis(); // Initialize inactivity timer
 
   // Build UI screens in background
   UIManager::begin();
@@ -202,6 +238,12 @@ void loop() {
   lv_task_handler();
 
   CommManager::process();
+
+  int timeout_sec = DataManager::getScreenTimeout();
+  if (timeout_sec > 0 && screen_is_awake && millis() - last_touch_time > (unsigned long)timeout_sec * 1000) {
+    screen_is_awake = false;
+    lcd.setBrightness(0);
+  }
 
   yield();
 }

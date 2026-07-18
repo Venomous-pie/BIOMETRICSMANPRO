@@ -5,3 +5,6 @@
 // result back to the CrowPanel as an ACTIVATION_RESULT JSON message.
 // Requires an active WiFi connection.
 void validateActivationWithServer(const String &registrationCode);
+
+// Pings the API_BASE_URL to test connectivity
+void testApiConnection();

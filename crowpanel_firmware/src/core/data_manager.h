@@ -57,6 +57,11 @@ public:
     static String getDeviceName();
     static void setDeviceName(const String& name);
 
+    static int getBrightness();
+    static void setBrightness(int val);
+    static int getScreenTimeout();
+    static void setScreenTimeout(int val);
+
     // WiFi credential persistence
     static void saveWifiCredentials(const String& ssid, const String& pass);
     static void clearWifiCredentials(); // Only clears currently connected one if called? Wait, I will just leave it. Or maybe clear all? Let's just clear all.
@@ -91,6 +96,8 @@ private:
     static int _wifiCount;
     static String _activationCode;
     static String _deviceName;
+    static int _brightness;
+    static int _screenTimeout;
     static bool _wifiConnected;
     static void loadWifiCredentials();
     static void saveWifiCredentialsToFs();

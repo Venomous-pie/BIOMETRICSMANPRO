@@ -53,6 +53,8 @@ String DataManager::_wifiPass[5];
 int DataManager::_wifiCount = 0;
 String DataManager::_activationCode = "";
 String DataManager::_deviceName = "ManPro Biometric";
+int    DataManager::_brightness = 200;
+int    DataManager::_screenTimeout = 30;
 bool   DataManager::_wifiConnected = false;
 
 void DataManager::begin() {
@@ -115,6 +117,10 @@ void DataManager::loadConfig() {
         _isActivated = doc["activated"] | false;
         _activationCode = doc["activationCode"] | "";
         _deviceName = doc["deviceName"] | "ManPro Biometric";
+        _brightness = doc["brightness"] | 200;
+        _screenTimeout = doc["screenTimeout"] | 30;
+        
+        if (_brightness < 50) _brightness = 50; // enforce minimum limit
     }
     f.close();
 }
@@ -128,6 +134,8 @@ void DataManager::saveConfig() {
     doc["activated"] = _isActivated;
     doc["activationCode"] = _activationCode;
     doc["deviceName"] = _deviceName;
+    doc["brightness"] = _brightness;
+    doc["screenTimeout"] = _screenTimeout;
     serializeJson(doc, f);
     f.close();
 }
@@ -364,5 +372,26 @@ String DataManager::getDeviceName() {
 
 void DataManager::setDeviceName(const String& name) {
     _deviceName = name;
+    saveConfig();
+}
+
+int DataManager::getBrightness() {
+    return _brightness;
+}
+
+void DataManager::setBrightness(int val) {
+    if (val < 50) val = 50; // enforce minimum limit
+    if (val > 255) val = 255;
+    _brightness = val;
+    saveConfig();
+}
+
+int DataManager::getScreenTimeout() {
+    return _screenTimeout;
+}
+
+void DataManager::setScreenTimeout(int val) {
+    if (val < 0) val = 0;
+    _screenTimeout = val;
     saveConfig();
 }
