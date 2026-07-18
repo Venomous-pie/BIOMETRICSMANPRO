@@ -1,7 +1,7 @@
 #include "ui_enroll.h"
 #include "ui_manager.h"
-#include "data_manager.h"
-#include "comm_manager.h"
+#include "../core/data_manager.h"
+#include "../core/comm_manager.h"
 
 LV_FONT_DECLARE(lv_font_montserrat_20);
 LV_FONT_DECLARE(lv_font_montserrat_24);

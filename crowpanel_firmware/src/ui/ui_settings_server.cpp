@@ -1,7 +1,7 @@
 #include "ui_settings_server.h"
 #include "ui_manager.h"
-#include "data_manager.h"
-#include "comm_manager.h"
+#include "../core/data_manager.h"
+#include "../core/comm_manager.h"
 
 static lv_obj_t *scr = NULL;
 static lv_obj_t *ta_dev_name = NULL;

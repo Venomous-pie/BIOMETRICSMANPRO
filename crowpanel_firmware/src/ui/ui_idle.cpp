@@ -1,7 +1,7 @@
 #include "ui_idle.h"
 #include "ui_manager.h"
-#include "data_manager.h"
-#include "comm_manager.h"
+#include "../core/data_manager.h"
+#include "../core/comm_manager.h"
 
 LV_FONT_DECLARE(lv_font_montserrat_24);
 LV_FONT_DECLARE(lv_font_montserrat_28);

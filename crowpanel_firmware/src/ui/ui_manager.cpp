@@ -1,12 +1,12 @@
 #include "ui_manager.h"
-#include "data_manager.h"
+#include "../core/data_manager.h"
 #include "ui_wifi_setup.h"
 #include "ui_settings.h"
 #include "ui_enroll.h"
 #include "ui_result.h"
 #include "ui_main_menu.h"
-#include "comm_manager.h"
-#include "manpro_splash.h"
+#include "../core/comm_manager.h"
+#include "../splash/manpro_splash.h"
 
 // External screen builders
 extern void buildActivationScreen();

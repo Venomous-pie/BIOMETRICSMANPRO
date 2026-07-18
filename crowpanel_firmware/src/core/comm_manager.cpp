@@ -3,8 +3,8 @@
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include "data_manager.h"
-#include "ui_manager.h"
-#include "manpro_splash.h"
+#include "../ui/ui_manager.h"
+#include "../splash/manpro_splash.h"
 
 // UI forward declarations
 extern void uiShowIdle();

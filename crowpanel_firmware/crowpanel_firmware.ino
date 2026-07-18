@@ -12,20 +12,26 @@
  */
 
 #include <Arduino.h>
-#include "display_driver.h"
+#include "src/core/display_driver.h"
 #include <lvgl.h>
 #include <esp_system.h>
 
-#include "data_manager.h"
-#include "comm_manager.h"
-#include "ui_manager.h"
-#include "manpro_splash.h"
+#include "src/core/data_manager.h"
+#include "src/core/comm_manager.h"
+#include "src/ui/ui_manager.h"
+#include "src/splash/manpro_splash.h"
 
 
 // ============================================================
 // Display configuration (from display_driver.h)
 // ============================================================
 LGFX lcd;
+
+
+// Enable the built-in FPS + CPU usage overlay
+#if LV_USE_PERF_MONITOR
+lv_disp_set_default(disp);
+#endif
 
 #ifndef LV_CONF_INCLUDE_SIMPLE
   #define LV_CONF_INCLUDE_SIMPLE

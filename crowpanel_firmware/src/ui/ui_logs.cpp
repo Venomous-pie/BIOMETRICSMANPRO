@@ -1,6 +1,6 @@
 #include "ui_logs.h"
 #include "ui_manager.h"
-#include "data_manager.h"
+#include "../core/data_manager.h"
 
 LV_FONT_DECLARE(lv_font_montserrat_14);
 LV_FONT_DECLARE(lv_font_montserrat_16);

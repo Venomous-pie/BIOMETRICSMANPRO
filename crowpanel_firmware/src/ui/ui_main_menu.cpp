@@ -2,7 +2,7 @@
 #include "ui_manager.h"
 #include "ui_enroll.h"
 #include "ui_logs.h"
-#include "data_manager.h"
+#include "../core/data_manager.h"
 
 static lv_obj_t *scr_main_menu = NULL;
 static lv_obj_t *lbl_emp_subtitle = NULL;
