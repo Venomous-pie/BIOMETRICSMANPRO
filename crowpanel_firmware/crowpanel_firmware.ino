@@ -22,13 +22,11 @@
 #include "src/splash/manpro_splash.h"
 
 
-// ============================================================
-// Display configuration (from display_driver.h)
-// ============================================================
+// Display configuration
 LGFX lcd;
 
 
-// Enable the built-in FPS + CPU usage overlay
+// Enable FPS and CPU overlay
 #if LV_USE_PERF_MONITOR
 lv_disp_set_default(disp);
 #endif
@@ -94,12 +92,10 @@ void my_touch_read(lv_indev_drv_t *indev_drv, lv_indev_data_t *data) {
 }
 #endif
 
-// ============================================================
-// Setup
-// ============================================================
+// Initialization
 void setup() {
   Serial.begin(115200);
-  Serial.setTxTimeoutMs(0); // Prevent USB CDC from blocking loop if host isn't reading
+  Serial.setTxTimeoutMs(0); // Prevent USB from blocking loop
   Serial.printf("[BOOT] Reset reason: %d\n", esp_reset_reason());
 
   delay(500);
@@ -107,27 +103,25 @@ void setup() {
     Serial.println("\n=== Biometrics CrowPanel Display ===");
   }
 
-  // Init LittleFS and Data
+  // Initialize filesystem and data
   DataManager::begin();
 
-  // PSRAM check (informational only — falls back to internal RAM if unavailable)
+  // Check PSRAM availability
   size_t psram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
   if (Serial && Serial.availableForWrite() > 64) {
     Serial.printf("[PSRAM] Free SPIRAM: %u bytes\n", psram_free);
     if (psram_free < 800000) Serial.println("[PSRAM] SPIRAM unavailable or low");
   }
 
-  // CommManager initializes ESP-NOW, prints CP MAC, adds WROOM as unicast peer.
-  // Called BEFORE lcd.init() so WiFi radio init doesn't conflict with
-  // the RGB LCD GDMA engine that claims the GPIO matrix during lcd.init().
+  // Initialize communications before LCD to avoid hardware conflicts
   CommManager::begin();
 
-  // Backlight reset sequence
+  // Reset backlight
   pinMode(2, OUTPUT);
   digitalWrite(2, LOW);
   delay(200);
 
-  // Display init via LovyanGFX
+  // Initialize display
   lcd.init();
   lcd.setRotation(0);
   lcd.fillScreen(TFT_BLACK);
@@ -156,7 +150,7 @@ void setup() {
   buf2 = (lv_color_t *)heap_caps_malloc(LCD_WIDTH * LV_BUF_LINES * sizeof(lv_color_t), buf_malloc_flags);
   if (!buf1 || !buf2) {
     Serial.println("[LVGL] FATAL: Could not allocate display buffers!");
-    // Try minimal single-line internal buffer as last resort
+    // Fallback to small internal buffer
     free(buf1); free(buf2);
     buf1 = (lv_color_t *)heap_caps_malloc(LCD_WIDTH * 10 * sizeof(lv_color_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     buf2 = NULL;
@@ -170,7 +164,7 @@ void setup() {
   disp_drv.flush_cb = my_disp_flush;
   disp_drv.draw_buf = &draw_buf;
   lv_disp_t * my_disp = lv_disp_drv_register(&disp_drv);
-  // Guard: refr_timer can be NULL in some LVGL 8.x builds
+  // Guard for LVGL 8.x
   if (my_disp && my_disp->refr_timer) {
     lv_timer_set_period(my_disp->refr_timer, 10);
   }
@@ -181,25 +175,22 @@ void setup() {
   lv_indev_drv_register(&indev_drv);
 #endif
 
-  // (CommManager already initialized above, before lcd.init())
+  // CommManager initialized earlier
 
-  // Show boot splash first and give it the callback to load the actual UI later
+  // Show boot splash screen
   manpro_show_splash(UIManager::loadInitialScreen);
 
-  // Force LVGL to draw the first frame of the splash screen immediately
+  // Draw first splash frame immediately
   lv_timer_handler();
 
-  // Turn on backlight AFTER the first frame is flushed to eliminate CRT static effect
+  // Turn on backlight after first frame to avoid static
   digitalWrite(2, HIGH);
 
-  // Now build the screens in the background. The splash animation delays its
-  // movement by 250ms, giving this plenty of time to finish without glitching.
+  // Build UI screens in background
   UIManager::begin();
 }
 
-// ============================================================
-// Loop
-// ============================================================
+// Main Loop
 unsigned long lastLvglTick = 0;
 
 void loop() {

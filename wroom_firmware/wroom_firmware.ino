@@ -39,7 +39,7 @@
 #include "src/activation.h"
 #include "src/command_handler.h"
 
-// ── Setup ─────────────────────────────────────────────────────────────────────
+// Initialization
 
 void setup() {
   Serial.begin(115200);
@@ -47,11 +47,11 @@ void setup() {
   Serial.printf("[BOOT] Reset reason: %d\n", esp_reset_reason());
   Serial.println("\n=== Biometrics WROOM Controller ===");
 
-  employeeDbInit();         // parse employee JSON into empDB[]
-  wifiManagerInit();        // load saved credentials, register WiFi event handler
-  fingerprintManagerInit(); // start UART1 and verify the AS608 sensor
-  espNowInit();             // init ESP-NOW, register CrowPanel as unicast peer
-  timeManagerInit();        // start I2C and initialize the DS3231 RTC
+  employeeDbInit();         // Load employee database
+  wifiManagerInit();        // Initialize WiFi
+  fingerprintManagerInit(); // Initialize fingerprint sensor
+  espNowInit();             // Initialize ESP-NOW
+  timeManagerInit();        // Initialize RTC
 
   pinMode(PIN_FACTORY_RESET, INPUT_PULLDOWN);
 
@@ -60,36 +60,32 @@ void setup() {
   Serial.println("  DELETE:<emp_id>:<finger_index>   e.g. DELETE:1:0");
   Serial.println("  RESET");
 
-  // Notify the CrowPanel that this board has just booted. If the CrowPanel is
-  // already in the activated idle state, it will re-send DEVICE_ACTIVATED so
-  // the fingerprint scanner re-enables automatically without a manual reboot.
+  // Notify CrowPanel of boot to sync state
   send("{\"type\":\"WROOM_BOOT\"}");
 }
 
-// ── Loop ──────────────────────────────────────────────────────────────────────
+// Main Loop
 
 static unsigned long lastTimeBcast = 0;
 
 void loop() {
   handleFactoryResetButton();
 
-  // Broadcast the current time to the CrowPanel every second.
-  // sendQuiet() skips the Serial log to avoid flooding the monitor.
+  // Broadcast time to CrowPanel every second
   if (millis() - lastTimeBcast >= 1000) {
     lastTimeBcast = millis();
     sendQuiet("{\"type\":\"TIME\",\"ts\":\"" + getTimestamp() + "\"}");
   }
 
-  wifiProcess(); // connection timeout, scan result collection, auto-reconnect backoff
-  ntpProcess();  // NTP sync completion check
+  wifiProcess(); // Handle WiFi background tasks
+  ntpProcess();  // Check NTP sync status
 
-  // Commands typed in the USB Serial monitor (developer / debug use).
+  // Handle Serial commands
   if (Serial.available()) {
     handleCmd(Serial.readStringUntil('\n'));
   }
 
-  // Commands from the CrowPanel — drained from the lock-free ESP-NOW ring buffer.
-  // onDataRecvFromCP() (Core 0, WiFi task) writes; this loop (Core 1) reads.
+  // Process incoming ESP-NOW messages
   while (!cpQueueEmpty()) {
     String msg = cpQueuePop();
     if (msg.length() > 0) {
@@ -99,5 +95,5 @@ void loop() {
     }
   }
 
-  fingerprintPoll(); // scan for a finger touch and send MATCH/NOMATCH when found
+  fingerprintPoll(); // Scan for fingerprints
 }
