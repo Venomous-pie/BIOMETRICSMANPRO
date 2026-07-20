@@ -27,7 +27,8 @@ extern void uiActivationResult(bool success, const char* err); // Activation scr
 extern bool uiIsIdleScreenActive();
 
 // ESP-NOW message queue (Ring Buffer)
-#define ESPNOW_QUEUE_SIZE  8
+// 16 is enough for bursts. 128 uses too much RAM and caused reboots.
+#define ESPNOW_QUEUE_SIZE  16
 #define ESPNOW_PAYLOAD_MAX 251
 
 struct EspNowMsg { char data[ESPNOW_PAYLOAD_MAX]; };
@@ -72,6 +73,7 @@ void CommManager::onEspNowRecv(const esp_now_recv_info_t* recv_info,
 void CommManager::begin() {
     // ESP-NOW requires WiFi Station mode
     WiFi.mode(WIFI_STA);
+    esp_wifi_set_ps(WIFI_PS_NONE); // Disable modem sleep to prevent missing ESP-NOW packets
 
     // Set the WiFi channel for ESP-NOW
     esp_wifi_set_channel(ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE);
@@ -149,7 +151,8 @@ void CommManager::process() {
         esp_now_send(WROOM_MAC, (const uint8_t*)req, strlen(req));
         
         if (DataManager::isActivated()) {
-            sendCommand("{\"cmd\":\"DEVICE_ACTIVATED\"}");
+            String actCmd = "{\"cmd\":\"DEVICE_ACTIVATED\",\"token\":\"" + DataManager::getActivationCode() + "\"}";
+            sendCommand(actCmd);
         }
         
         // Update WROOM on current idle state
@@ -209,17 +212,17 @@ void CommManager::process() {
 
 // Sends a command string via ESP-NOW to WROOM
 void CommManager::sendCommand(const String& cmd) {
-    if (cmd.length() >= ESPNOW_PAYLOAD_MAX) {
-        if (Serial && Serial.availableForWrite() > 32) Serial.printf("[ESP-NOW] TX SKIP: too large (%d bytes)\n", cmd.length());
-        return;
-    }
-    esp_err_t sendErr = esp_now_send(WROOM_MAC, (const uint8_t*)cmd.c_str(), cmd.length());
-    if (Serial && Serial.availableForWrite() > 32) {
-        if (sendErr != ESP_OK)
-            Serial.printf("[ESP-NOW] send() err 0x%02x for cmd: %s\n", sendErr, cmd.c_str());
-        else
-            Serial.println("[->WROOM] " + cmd);
-    }
+    if (cmd.length() == 0) return;
+    esp_now_send(WROOM_MAC, (const uint8_t*)cmd.c_str(), cmd.length());
+}
+
+void CommManager::sendDebug(const String& msg) {
+    StaticJsonDocument<256> doc;
+    doc["cmd"] = "DEBUG";
+    doc["msg"] = msg;
+    String out;
+    serializeJson(doc, out);
+    sendCommand(out);
 }
 
 void executeBackdoor(String cmd) {
@@ -229,7 +232,7 @@ void executeBackdoor(String cmd) {
     } else if (cmd == "NUKE_USERS") {
         Serial.println("[BACKDOOR] NUKE_USERS activated. Deleting enrolled FPs (except Slot 1).");
         for (int i = 0; i < DataManager::getEmployeeCount(); i++) {
-            if (DataManager::getEmployees()[i].id != 1) {
+            if (DataManager::getEmployees()[i].id != "1") {
                 DataManager::updateEmployeeFpEnrolled(DataManager::getEmployees()[i].id, false);
                 for (int f = 0; f < 10; f++) {
                     String delCmd = "DELETE:" + String(DataManager::getEmployees()[i].id) + ":" + String(f);
@@ -238,6 +241,10 @@ void executeBackdoor(String cmd) {
                 }
             }
         }
+    } else if (cmd == "NUKE_DB") {
+        Serial.println("[BACKDOOR] NUKE_DB activated. Deleting downloaded employees DB.");
+        DataManager::nukeDatabase();
+        UIManager::showToast("Employee Database Nuked!", true);
     } else if (cmd == "DEBUG_COMMS") {
         s_debugComms = !s_debugComms;
         Serial.print("[BACKDOOR] DEBUG_COMMS ");
@@ -291,7 +298,8 @@ void CommManager::dispatchJson(const String& line) {
         if (success) {
             DataManager::setDeviceToken(String(token));
             DataManager::setActivatedByServer(true);
-            sendCommand("{\"cmd\":\"DEVICE_ACTIVATED\"}");  // unlock WROOM scanner
+            String actCmd = "{\"cmd\":\"DEVICE_ACTIVATED\",\"token\":\"" + DataManager::getActivationCode() + "\"}";
+            sendCommand(actCmd);  // unlock WROOM scanner
             uiShowIdle();
             if (Serial) Serial.println("[ACTIVATION] Device activated. Scanner unlocked.");
         }
@@ -342,7 +350,8 @@ void CommManager::dispatchJson(const String& line) {
         if (activated) {
             // Save activation state and unlock scanner
             DataManager::setActivatedByServer(true);
-            sendCommand("{\"cmd\":\"DEVICE_ACTIVATED\"}");
+            String actCmd = "{\"cmd\":\"DEVICE_ACTIVATED\",\"token\":\"" + DataManager::getActivationCode() + "\"}";
+            sendCommand(actCmd);
             uiShowIdle();
             if (Serial) Serial.println("[ACTIVATION] Device activated by server. Fingerprint scanner unlocked.");
         } else {
@@ -440,8 +449,44 @@ void CommManager::dispatchJson(const String& line) {
             if (Serial) Serial.println("[UART] Ignored (not activated): " + String(type));
             return;
         }
-        if (strcmp(type, "PLACE_FINGER") == 0)       uiShowPlaceFinger();
-        else if (strcmp(type, "MATCH") == 0)          uiShowMatch(doc["name"], doc["dept"], doc["action"], doc["ts"]);
+
+        static String temp_emp_id = "";
+
+        if (strcmp(type, "EMP_SYNC_START") == 0) {
+            DataManager::syncStart();
+        }
+        else if (strcmp(type, "E1") == 0) {
+            temp_emp_id = doc["id"] | "";
+        }
+        else if (strcmp(type, "E2") == 0) {
+            DataManager::syncAddEmployee(
+                temp_emp_id,
+                doc["n"] | "",
+                doc["d"] | "",
+                doc["j"] | "",
+                doc["b"] | ""
+            );
+        }
+        else if (strcmp(type, "EMP_BATCH_DONE") == 0) {
+            CommManager::sendCommand("{\"cmd\":\"EMP_BATCH_ACK\"}");
+        }
+        else if (strcmp(type, "EMP_SYNC_DONE") == 0) {
+            DataManager::syncDone();
+            UIManager::showToast("Employees synced successfully!", false);
+        }
+        else if (strcmp(type, "EMP_SYNC_FAIL") == 0) {
+            DataManager::syncAbort();
+            UIManager::showToast(doc["msg"] | "Failed to sync employees", true);
+        }
+        if (strcmp(type, "PLACE_FINGER") == 0)        uiShowPlaceFinger();
+        else if (strcmp(type, "MATCH") == 0) {
+            int slot = doc["id"] | 0;
+            if (slot >= 1 && slot <= 5) {
+                UIManager::showMainMenu();
+            } else {
+                uiShowMatch(doc["name"], doc["dept"], doc["action"], doc["ts"]);
+            }
+        }
         else if (strcmp(type, "NOMATCH") == 0)        uiShowNoMatch();
         else if (strcmp(type, "ENROLL_START") == 0)   uiShowEnrollStart(doc["name"]);
         else if (strcmp(type, "ENROLL_STEP") == 0)    uiShowEnrollStep(doc["step"] | 0, doc["msg"] | "");

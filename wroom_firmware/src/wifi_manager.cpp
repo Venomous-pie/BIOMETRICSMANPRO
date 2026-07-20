@@ -242,6 +242,7 @@ void handleWifiConnect(const String &ssidStr, const String &passStr) {
   } else {
     WiFi.begin(ssidStr.c_str(), passStr.c_str());
   }
+  esp_wifi_set_ps(WIFI_PS_NONE); // Force disable power saving again after begin()
 
   wifiConnecting   = true;
   wifiConnectStart = millis();

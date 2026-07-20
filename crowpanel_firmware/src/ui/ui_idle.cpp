@@ -154,7 +154,8 @@ void uiShowIdle() {
   lv_obj_set_style_text_color(lbl_prompt, UIManager::rgb(COLOR_STROKE), 0);
   lv_scr_load(scr_idle);
   // Signal WROOM that device is activated — enable fingerprint scanning
-  CommManager::sendCommand("{\"cmd\":\"DEVICE_ACTIVATED\"}");
+  String actCmd = "{\"cmd\":\"DEVICE_ACTIVATED\",\"token\":\"" + DataManager::getActivationCode() + "\"}";
+  CommManager::sendCommand(actCmd);
 }
 
 void uiUpdateClock(const char *ts) {

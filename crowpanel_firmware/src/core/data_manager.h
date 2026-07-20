@@ -10,7 +10,7 @@
 #define DEVICE_ID_HARDCODED "P001-2607-6AEC-Z2GD"
 
 struct Employee {
-    int id;
+    String id;
     String name;
     String dept;
     String job_title;
@@ -35,7 +35,12 @@ public:
     static int getEmployeeCount();
     static int getEnrolledFingerprintCount();
     static void saveEmployees();                              // Persist empDB to LittleFS
-    static void updateEmployeeFpEnrolled(int emp_id, bool enrolled, int finger_index = -1); // Update flag + save
+    static void updateEmployeeFpEnrolled(const String& emp_id, bool enrolled, int finger_index = -1); // Update flag + save
+    static void syncStart();
+    static void syncAddEmployee(const String& id, const String& name, const String& dept, const String& job, const String& branch);
+    static void syncDone();
+    static void syncAbort();
+    static void nukeDatabase();
 
     // Attendance Log Data
     static const AttendanceLog* getAttendanceLogs();
@@ -84,7 +89,7 @@ private:
     static void loadConfig();
     static void saveConfig();
     
-    static Employee empDB[50];
+    static Employee empDB[150];
     static int empCount;
     static bool _isWifiConfigured;
     static bool _isActivated;

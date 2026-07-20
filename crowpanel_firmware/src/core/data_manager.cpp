@@ -1,7 +1,12 @@
 #include "data_manager.h"
+#include "comm_manager.h"
 #include <LittleFS.h>
+#include <ArduinoJson.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 
-Employee DataManager::empDB[50];
+Employee DataManager::empDB[150];
 int DataManager::empCount = 0;
 
 static AttendanceLog mockLogs[] = {
@@ -76,23 +81,11 @@ void DataManager::begin() {
 }
 
 void DataManager::createInitialFilesIfMissing() {
-    if (!LittleFS.exists("/employees.json")) {  // Only create when file is absent
-        // Serial.println("[FS] Creating initial employees.json...");
-        File f = LittleFS.open("/employees.json", "w");
+    if (!LittleFS.exists("/employees.jsonl")) {
+        File f = LittleFS.open("/employees.jsonl", "w");
         if (f) {
-            f.print(R"([
-  {"id":1,"name":"Admin","dept":"Admin","job_title":"System Admin","branch":"Main","fp_enrolled":false},
-  {"id":2,"name":"Christopher G. Francisco","dept":"Executive","job_title":"CIO","branch":"Main","fp_enrolled":false},
-  {"id":3,"name":"Reden Lamosa","dept":"IT","job_title":"Senior Developer","branch":"Main","fp_enrolled":false},
-  {"id":4,"name":"Jean Erica Velasco","dept":"IT","job_title":"Intern Lead","branch":"Main","fp_enrolled":false},
-  {"id":5,"name":"Claire Jem Dedicatoria","dept":"IT","job_title":"Intern Technical Team Lead","branch":"Main","fp_enrolled":false},
-  {"id":6,"name":"Maria Alaine Jeanne A. Terante","dept":"IT","job_title":"Assistant to Technical Team Lead","branch":"Main","fp_enrolled":false},
-  {"id":7,"name":"Jhonnalyn Belano","dept":"IT","job_title":"QA","branch":"Main","fp_enrolled":false},
-  {"id":8,"name":"Kenneth Simbolas","dept":"Hardware","job_title":"PCB Board Designer","branch":"Main","fp_enrolled":false},
-  {"id":9,"name":"John Rustom Reginio","dept":"Hardware","job_title":"PCB Board Designer","branch":"Main","fp_enrolled":false},
-  {"id":10,"name":"Sharlene Loria","dept":"Hardware","job_title":"Hardware","branch":"Main","fp_enrolled":false},
-  {"id":11,"name":"Mark Jaestin Cabañelis","dept":"Design","job_title":"Figma / UI Design","branch":"Main","fp_enrolled":false}
-])");
+            // No default employees needed for API sync, just an empty file or basic admin
+            f.println("{\"id\":1,\"name\":\"Admin\",\"dept\":\"Admin\",\"job_title\":\"System Admin\",\"branch\":\"Main\",\"fp_enrolled\":false,\"enrolled_finger\":-1}");
             f.close();
         }
     }
@@ -141,26 +134,54 @@ void DataManager::saveConfig() {
 }
 
 void DataManager::loadEmployees() {
-    File f = LittleFS.open("/employees.json", "r");
-    if (!f) return;
-    
-    StaticJsonDocument<2048> doc;
-    if (deserializeJson(doc, f) == DeserializationError::Ok) {
-        empCount = 0;
-        for (JsonObject e : doc.as<JsonArray>()) {
-            if (empCount >= 50) break;
-            empDB[empCount].id          = e["id"].as<int>();
-            empDB[empCount].name        = e["name"].as<String>();
-            empDB[empCount].dept        = e["dept"].as<String>();
-            empDB[empCount].job_title   = e.containsKey("job_title") ? e["job_title"].as<String>() : "";
-            empDB[empCount].branch      = e.containsKey("branch") ? e["branch"].as<String>() : "";
-            empDB[empCount].fp_enrolled = e.containsKey("fp_enrolled") ? e["fp_enrolled"].as<bool>() : false;
-            empDB[empCount].enrolled_finger = e.containsKey("enrolled_finger") ? e["enrolled_finger"].as<int>() : -1;
+    File f = LittleFS.open("/employees.jsonl", "r");
+    if (!f) {
+        // Fallback to old file if jsonl doesn't exist yet
+        f = LittleFS.open("/employees.json", "r");
+        if (!f) return;
+        
+        StaticJsonDocument<4096> doc; // Try to parse if it's small enough
+        if (deserializeJson(doc, f) == DeserializationError::Ok) {
+            empCount = 0;
+            for (JsonObject e : doc["employees"].as<JsonArray>()) {
+                if (empCount >= 150) break;
+                empDB[empCount].id = e["id"].as<String>();
+                empDB[empCount].name = e.containsKey("name") ? e["name"].as<String>() : "";
+                if (empDB[empCount].name.length() == 0) {
+                    String first = e.containsKey("first_name") ? e["first_name"].as<String>() : "";
+                    String last  = e.containsKey("last_name") ? e["last_name"].as<String>() : "";
+                    empDB[empCount].name = first + " " + last;
+                }
+                empDB[empCount].dept = e.containsKey("department_name") ? e["department_name"].as<String>() : (e.containsKey("dept") ? e["dept"].as<String>() : "");
+                empDB[empCount].job_title = e.containsKey("role_name") ? e["role_name"].as<String>() : (e.containsKey("job_title") ? e["job_title"].as<String>() : "");
+                empDB[empCount].branch = e.containsKey("branch_name") ? e["branch_name"].as<String>() : (e.containsKey("branch") ? e["branch"].as<String>() : "");
+                empDB[empCount].fp_enrolled = e["fp_enrolled"] | false;
+                empDB[empCount].enrolled_finger = e["enrolled_finger"] | -1;
+                empCount++;
+            }
+        }
+        f.close();
+        saveEmployees(); // Upgrade to JSONL
+        return;
+    }
+
+    empCount = 0;
+    while (f.available() && empCount < 150) {
+        String line = f.readStringUntil('\n');
+        line.trim();
+        if (line.length() == 0) continue;
+
+        StaticJsonDocument<512> doc;
+        if (deserializeJson(doc, line) == DeserializationError::Ok) {
+            empDB[empCount].id = doc["id"].as<String>();
+            empDB[empCount].name = doc["name"] | "";
+            empDB[empCount].dept = doc["dept"] | "";
+            empDB[empCount].job_title = doc["job_title"] | "";
+            empDB[empCount].branch = doc["branch"] | "";
+            empDB[empCount].fp_enrolled = doc["fp_enrolled"] | false;
+            empDB[empCount].enrolled_finger = doc["enrolled_finger"] | -1;
             empCount++;
         }
-        // Serial.printf("[DB] %d employees loaded from LittleFS\n", empCount);
-    } else {
-        // Serial.println("[DB] ERROR: JSON parse failed for employees");
     }
     f.close();
 }
@@ -168,28 +189,27 @@ void DataManager::loadEmployees() {
 const Employee* DataManager::getEmployees() { return empDB; }
 int DataManager::getEmployeeCount() { return empCount; }
 
-// Serialise the current in-RAM empDB back to /employees.json on LittleFS.
+// Serialise the current in-RAM empDB back to /employees.jsonl on LittleFS.
 void DataManager::saveEmployees() {
-    File f = LittleFS.open("/employees.json", "w");
+    File f = LittleFS.open("/employees.jsonl", "w");
     if (!f) return;
-    StaticJsonDocument<4096> doc;
-    JsonArray arr = doc.to<JsonArray>();
     for (int i = 0; i < empCount; i++) {
-        JsonObject e = arr.createNestedObject();
-        e["id"]          = empDB[i].id;
-        e["name"]        = empDB[i].name;
-        e["dept"]        = empDB[i].dept;
-        e["job_title"]   = empDB[i].job_title;
-        e["branch"]      = empDB[i].branch;
-        e["fp_enrolled"] = empDB[i].fp_enrolled;
-        e["enrolled_finger"] = empDB[i].enrolled_finger;
+        StaticJsonDocument<512> doc;
+        doc["id"]          = empDB[i].id;
+        doc["name"]        = empDB[i].name;
+        doc["dept"]        = empDB[i].dept;
+        doc["job_title"]   = empDB[i].job_title;
+        doc["branch"]      = empDB[i].branch;
+        doc["fp_enrolled"] = empDB[i].fp_enrolled;
+        doc["enrolled_finger"] = empDB[i].enrolled_finger;
+        serializeJson(doc, f);
+        f.println();
     }
-    serializeJson(doc, f);
     f.close();
 }
 
 // Update a single employee's fp_enrolled flag in RAM and persist to flash.
-void DataManager::updateEmployeeFpEnrolled(int emp_id, bool enrolled, int finger_index) {
+void DataManager::updateEmployeeFpEnrolled(const String& emp_id, bool enrolled, int finger_index) {
     for (int i = 0; i < empCount; i++) {
         if (empDB[i].id == emp_id) {
             empDB[i].fp_enrolled = enrolled;
@@ -395,3 +415,66 @@ void DataManager::setScreenTimeout(int val) {
     _screenTimeout = val;
     saveConfig();
 }
+
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
+
+static Employee oldDB[150];
+static int oldEmpCount = 0;
+
+void DataManager::syncStart() {
+    oldEmpCount = empCount;
+    for (int i = 0; i < empCount; i++) {
+        oldDB[i] = empDB[i];
+    }
+    empCount = 0;
+}
+
+void DataManager::syncAddEmployee(const String& id, const String& name, const String& dept, const String& job, const String& branch) {
+    if (empCount >= 150) return;
+    empDB[empCount].id = id;
+    empDB[empCount].name = name;
+    empDB[empCount].dept = dept;
+    empDB[empCount].job_title = job;
+    empDB[empCount].branch = branch;
+    
+    empDB[empCount].fp_enrolled = false;
+    empDB[empCount].enrolled_finger = -1;
+    
+    for (int j = 0; j < oldEmpCount; j++) {
+        if (oldDB[j].id == id) {
+            empDB[empCount].fp_enrolled = oldDB[j].fp_enrolled;
+            empDB[empCount].enrolled_finger = oldDB[j].enrolled_finger;
+            break;
+        }
+    }
+    empCount++;
+}
+
+void DataManager::syncDone() {
+    saveEmployees();
+}
+
+void DataManager::syncAbort() {
+    empCount = oldEmpCount;
+    for (int i = 0; i < empCount; i++) {
+        empDB[i] = oldDB[i];
+    }
+}
+
+void DataManager::nukeDatabase() {
+    empCount = 0;
+    oldEmpCount = 0;
+    for (int i = 0; i < 150; i++) {
+        empDB[i].id = "";
+        empDB[i].name = "";
+        empDB[i].dept = "";
+        empDB[i].job_title = "";
+        empDB[i].branch = "";
+        empDB[i].fp_enrolled = false;
+        empDB[i].enrolled_finger = -1;
+    }
+    LittleFS.remove("/employees.jsonl");
+}
+
+

@@ -7,7 +7,7 @@
 //   slot = ((emp_id - 1) * 10) + finger_index + 1
 // This allows up to 10 fingerprint templates per employee (finger indexes 0–9).
 struct Employee {
-  int    id;
+  String id;
   String name;
   String dept;
   String job_title;

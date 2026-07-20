@@ -26,6 +26,10 @@ void handleCmd(String cmd);
 // if the button is held for 5 seconds. Call every loop() iteration.
 void handleFactoryResetButton();
 
+// Checks if 1 hour has elapsed and triggers a background employee sync.
+// Call every loop() iteration.
+void autoSyncEmployees();
+
 // Polls the fingerprint sensor when the device is activated and the idle
 // screen is active. Sends MATCH or NOMATCH to the CrowPanel on a touch event.
 // Call every loop() iteration.

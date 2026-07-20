@@ -8,3 +8,6 @@ void validateActivationWithServer(const String &registrationCode);
 
 // Pings the API_BASE_URL to test connectivity
 void testApiConnection();
+
+// Fetches the employee list and streams it to CrowPanel via ESP-NOW
+void syncEmployeesFromServer(const String &token);

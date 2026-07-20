@@ -24,7 +24,7 @@ static lv_obj_t *dot_2 = NULL;
 static lv_obj_t *dot_3 = NULL;
 
 // Deferred state for Choose Finger screen (moved up so enroll can use it)
-static int defer_emp_id = 0;
+static String defer_emp_id = "";
 static String defer_name = "";
 static String defer_dept = "";
 
@@ -86,7 +86,7 @@ static void next_page_cb(lv_event_t * e) {
 }
 
 lv_obj_t *scr_choose_finger = NULL;
-static int selected_emp_id = 0;
+static String selected_emp_id = "";
 static int selected_finger_index = -1;
 static lv_obj_t *btn_start_scan = NULL;
 static lv_obj_t *btn_delete_scan = NULL;
@@ -104,18 +104,12 @@ static void btn_back_cb(lv_event_t * e) {
 }
 
 static void btn_emp_click_cb(lv_event_t * e) {
-  int id = (int)(intptr_t)lv_event_get_user_data(e);
+  int index = (int)(intptr_t)lv_event_get_user_data(e);
   const Employee* db = DataManager::getEmployees();
-  int count = DataManager::getEmployeeCount();
-  String name = "", dept = "";
-  for (int i=0; i<count; i++) {
-    if (db[i].id == id) {
-      name = db[i].name;
-      dept = db[i].dept;
-      break;
-    }
+  
+  if (index >= 0 && index < DataManager::getEmployeeCount()) {
+      uiShowChooseFinger(db[index].id, db[index].name.c_str(), db[index].dept.c_str());
   }
-  uiShowChooseFinger(id, name.c_str(), dept.c_str());
 }
 
 static void populate_emp_list(const char* name_filter, const char* dept_filter) {
@@ -136,6 +130,11 @@ static void populate_emp_list(const char* name_filter, const char* dept_filter) 
   for (int i = 0; i < count; i++) {
     String nStr = db[i].name; nStr.toLowerCase();
     String dStr = db[i].dept; dStr.toLowerCase();
+    String jStr = db[i].job_title; jStr.toLowerCase();
+    
+    // Hide Admin from the UI list
+    if (nStr.indexOf("admin") != -1 || dStr.indexOf("admin") != -1 || jStr.indexOf("admin") != -1) continue;
+
     if (nFilt.length() > 0 && nStr.indexOf(nFilt) == -1) continue;
     if (dFilt.length() > 0 && dStr.indexOf(dFilt) == -1) continue;
     filtered_count++;
@@ -166,6 +165,10 @@ static void populate_emp_list(const char* name_filter, const char* dept_filter) 
   for (int i = 0; i < count; i++) {
     String nStr = db[i].name; nStr.toLowerCase();
     String dStr = db[i].dept; dStr.toLowerCase();
+    String jStr = db[i].job_title; jStr.toLowerCase();
+
+    // Hide Admin from the UI list
+    if (nStr.indexOf("admin") != -1 || dStr.indexOf("admin") != -1 || jStr.indexOf("admin") != -1) continue;
 
     if (nFilt.length() > 0 && nStr.indexOf(nFilt) == -1) continue;
     if (dFilt.length() > 0 && dStr.indexOf(dFilt) == -1) continue;
@@ -185,47 +188,39 @@ static void populate_emp_list(const char* name_filter, const char* dept_filter) 
     lv_obj_set_style_radius(row, 0, 0);
     lv_obj_set_style_pad_all(row, 0, 0);
     lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_add_event_cb(row, btn_emp_click_cb, LV_EVENT_CLICKED, (void*)(intptr_t)db[i].id);
+    lv_obj_add_event_cb(row, btn_emp_click_cb, LV_EVENT_CLICKED, (void*)(intptr_t)i);
 
       // Name
       lv_obj_t *lbl_name = lv_label_create(row);
-      lv_label_set_long_mode(lbl_name, LV_LABEL_LONG_CLIP); // Handled by string truncation
-      lv_obj_set_width(lbl_name, 170);
-      String displayName = db[i].name;
-      if (displayName.length() > 15) {
-          displayName = displayName.substring(0, 15) + "...";
-      }
-      lv_label_set_text(lbl_name, displayName.c_str());
-      UIManager::styleLabel(lbl_name, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
+      lv_label_set_long_mode(lbl_name, LV_LABEL_LONG_DOT);
+      lv_obj_set_width(lbl_name, 175);
+      lv_label_set_text(lbl_name, db[i].name.c_str());
+      UIManager::styleLabel(lbl_name, COLOR_TEXT_MAIN, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
       lv_obj_align(lbl_name, LV_ALIGN_LEFT_MID, 20, 0);
 
       // Job Title
       lv_obj_t *lbl_job = lv_label_create(row);
-      lv_label_set_long_mode(lbl_job, LV_LABEL_LONG_CLIP);
-      lv_obj_set_width(lbl_job, 170);
-      String displayJob = db[i].job_title;
-      if (displayJob.length() > 15) {
-          displayJob = displayJob.substring(0, 15) + "...";
-      }
-      lv_label_set_text(lbl_job, displayJob.c_str());
-      UIManager::styleLabel(lbl_job, 0x666666, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
+      lv_label_set_long_mode(lbl_job, LV_LABEL_LONG_DOT);
+      lv_obj_set_width(lbl_job, 165);
+      lv_label_set_text(lbl_job, db[i].job_title.c_str());
+      UIManager::styleLabel(lbl_job, 0x666666, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
       lv_obj_align(lbl_job, LV_ALIGN_LEFT_MID, 200, 0);
 
       // Branch
       lv_obj_t *lbl_branch = lv_label_create(row);
       lv_label_set_long_mode(lbl_branch, LV_LABEL_LONG_DOT);
-      lv_obj_set_width(lbl_branch, 130);
+      lv_obj_set_width(lbl_branch, 135);
       lv_label_set_text(lbl_branch, db[i].branch.c_str());
-      UIManager::styleLabel(lbl_branch, 0x666666, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
-      lv_obj_align(lbl_branch, LV_ALIGN_LEFT_MID, 380, 0);
+      UIManager::styleLabel(lbl_branch, 0x666666, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
+      lv_obj_align(lbl_branch, LV_ALIGN_LEFT_MID, 370, 0);
 
       // Dept
       lv_obj_t *lbl_dept = lv_label_create(row);
       lv_label_set_long_mode(lbl_dept, LV_LABEL_LONG_DOT);
-      lv_obj_set_width(lbl_dept, 120);
+      lv_obj_set_width(lbl_dept, 125);
       lv_label_set_text(lbl_dept, db[i].dept.c_str());
-      UIManager::styleLabel(lbl_dept, 0x666666, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
-      lv_obj_align(lbl_dept, LV_ALIGN_LEFT_MID, 520, 0);
+      UIManager::styleLabel(lbl_dept, 0x666666, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
+      lv_obj_align(lbl_dept, LV_ALIGN_LEFT_MID, 510, 0);
 
       // Status badge
     lv_obj_t *badge = lv_obj_create(row);
@@ -348,27 +343,27 @@ void buildEmpListScreen() {
 
   lv_obj_t *ch_name = lv_label_create(col_hdr);
   lv_label_set_text(ch_name, "Name");
-  UIManager::styleLabel(ch_name, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
+  UIManager::styleLabel(ch_name, COLOR_TEXT_MAIN, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
   lv_obj_align(ch_name, LV_ALIGN_LEFT_MID, 20, 0);
 
   lv_obj_t *ch_job = lv_label_create(col_hdr);
-  lv_label_set_text(ch_job, "Job Title");
-  UIManager::styleLabel(ch_job, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
+  lv_label_set_text(ch_job, "Role");
+  UIManager::styleLabel(ch_job, COLOR_TEXT_MAIN, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
   lv_obj_align(ch_job, LV_ALIGN_LEFT_MID, 200, 0);
 
   lv_obj_t *ch_branch = lv_label_create(col_hdr);
   lv_label_set_text(ch_branch, "Branch");
-  UIManager::styleLabel(ch_branch, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
-  lv_obj_align(ch_branch, LV_ALIGN_LEFT_MID, 380, 0);
+  UIManager::styleLabel(ch_branch, COLOR_TEXT_MAIN, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
+  lv_obj_align(ch_branch, LV_ALIGN_LEFT_MID, 370, 0);
 
   lv_obj_t *ch_dept = lv_label_create(col_hdr);
   lv_label_set_text(ch_dept, "Department");
-  UIManager::styleLabel(ch_dept, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
-  lv_obj_align(ch_dept, LV_ALIGN_LEFT_MID, 520, 0);
+  UIManager::styleLabel(ch_dept, COLOR_TEXT_MAIN, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
+  lv_obj_align(ch_dept, LV_ALIGN_LEFT_MID, 510, 0);
 
   lv_obj_t *ch_status = lv_label_create(col_hdr);
   lv_label_set_text(ch_status, "Status");
-  UIManager::styleLabel(ch_status, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_RIGHT);
+  UIManager::styleLabel(ch_status, COLOR_TEXT_MAIN, &lv_font_montserrat_14, LV_TEXT_ALIGN_RIGHT);
   lv_obj_align(ch_status, LV_ALIGN_RIGHT_MID, -30, 0);
 
   // ─── Employee List Container ───
@@ -669,9 +664,9 @@ static void finger_click_cb(lv_event_t * e) {
 }
 
 static void start_scan_cb(lv_event_t * e) {
-  if (selected_finger_index < 0 || selected_emp_id <= 0) return;
-  char buf[32];
-  snprintf(buf, sizeof(buf), "ENROLL:%d:%d", selected_emp_id, selected_finger_index);
+  if (selected_finger_index < 0 || selected_emp_id.length() == 0) return;
+  char buf[256];
+  snprintf(buf, sizeof(buf), "ENROLL:%s:%d", selected_emp_id.c_str(), selected_finger_index);
   CommManager::sendCommand(String(buf));
   
   String n = "";
@@ -686,9 +681,9 @@ static void start_scan_cb(lv_event_t * e) {
 static void msgbox_event_cb(lv_event_t * e) {
     lv_obj_t * msgbox = lv_event_get_current_target(e);
     if(lv_msgbox_get_active_btn(msgbox) == 0) { // Yes
-        if (selected_finger_index >= 0 && selected_emp_id > 0) {
-            char buf[32];
-            snprintf(buf, sizeof(buf), "DELETE:%d:%d", selected_emp_id, selected_finger_index);
+        if (selected_finger_index >= 0 && selected_emp_id.length() > 0) {
+            char buf[256];
+            snprintf(buf, sizeof(buf), "DELETE:%s:%d", selected_emp_id.c_str(), selected_finger_index);
             CommManager::sendCommand(String(buf));
             // Optimistically update UI
             DataManager::updateEmployeeFpEnrolled(selected_emp_id, false, -1);
@@ -803,7 +798,7 @@ void buildChooseFingerScreen() {
 
 // (Moved deferred state for Choose Finger screen to top)
 
-void uiShowChooseFinger(int emp_id, const char *name, const char *dept) {
+void uiShowChooseFinger(String emp_id, const char *name, const char *dept) {
   defer_emp_id = emp_id;
   defer_name = name;
   defer_dept = dept;

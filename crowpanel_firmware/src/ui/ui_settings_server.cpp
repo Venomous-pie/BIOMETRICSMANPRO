@@ -48,8 +48,9 @@ static void kb_event_cb(lv_event_t *e) {
 
 static void btn_test_cb(lv_event_t * e) {
     if (Serial) Serial.println("UI Server: btn_test_cb triggered");
-    CommManager::sendCommand("{\"cmd\":\"TEST_API\"}");
-    UIManager::showToast("Testing connection...", false);
+    UIManager::showToast("Syncing via WROOM...", false);
+    String syncCmd = "{\"cmd\":\"SYNC_EMP\",\"token\":\"" + DataManager::getActivationCode() + "\"}";
+    CommManager::sendCommand(syncCmd);
 }
 
 static void ta_event_cb(lv_event_t *e) {
@@ -135,7 +136,7 @@ void buildSettingsServerScreen() {
     lv_obj_set_style_border_width(btn_test, 1, 0);
     lv_obj_set_style_radius(btn_test, 8, 0);
     lv_obj_t *lbl_test = lv_label_create(btn_test);
-    lv_label_set_text(lbl_test, "Test connection");
+    lv_label_set_text(lbl_test, "Sync Employees");
     UIManager::styleLabel(lbl_test, COLOR_GREEN_MAIN, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
     lv_obj_center(lbl_test);
     lv_obj_add_event_cb(btn_test, btn_test_cb, LV_EVENT_CLICKED, NULL);

@@ -145,6 +145,7 @@ void resyncEspNow(bool force) {
 
 void espNowInit() {
   WiFi.mode(WIFI_STA);
+  esp_wifi_set_ps(WIFI_PS_NONE); // Disable modem sleep to prevent missing ESP-NOW packets
 
   // Drop any AP association without powering the radio off.
   // esp_wifi_set_channel() is silently ignored while the driver is connected,

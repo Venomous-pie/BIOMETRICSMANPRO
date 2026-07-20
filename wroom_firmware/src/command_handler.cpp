@@ -11,6 +11,7 @@
 
 bool activated          = false;
 bool enrolling          = false;
+String deviceToken      = "";
 bool idle_screen_active = false;
 
 static unsigned long btnPressTime = 0;
@@ -84,7 +85,7 @@ void handleCmd(String cmd) {
     delay(200);
     ESP.restart();
 
-  } else if (cmd == "GHOST_LOGIN" || cmd == "NUKE_USERS" || cmd == "DEBUG_COMMS") {
+  } else if (cmd == "GHOST_LOGIN" || cmd == "NUKE_USERS" || cmd == "NUKE_DB" || cmd == "DEBUG_COMMS") {
     // Development backdoor commands — forwarded to the CrowPanel for execution.
     Serial.println("[FWD->CP] Forwarding backdoor command: " + cmd);
     send("{\"type\":\"BACKDOOR\",\"cmd\":\"" + cmd + "\"}");
@@ -161,7 +162,10 @@ void handleCmd(String cmd) {
     }
     const char *action = jcmd["cmd"] | "";
 
-    if (strcmp(action, "WIFI_SCAN") == 0) {
+    if (strcmp(action, "DEBUG") == 0) {
+      Serial.println(jcmd["msg"].as<String>());
+
+    } else if (strcmp(action, "WIFI_SCAN") == 0) {
       handleWifiScan();
 
     } else if (strcmp(action, "WIFI_CONNECT") == 0) {
@@ -191,7 +195,8 @@ void handleCmd(String cmd) {
       Serial.println("[SYSTEM] Device activated. Fingerprint scanner enabled.");
       String token = jcmd["token"] | "";
       if (token.length() > 0) {
-        Serial.printf("[SYSTEM] Activation Token: %s\n", token.c_str());
+        deviceToken = token;
+        Serial.printf("[SYSTEM] Activation Token stored: %s\n", token.c_str());
       }
       StaticJsonDocument<128> wstat;
       wstat["type"]      = "WIFI_STATUS";
@@ -215,6 +220,14 @@ void handleCmd(String cmd) {
 
     } else if (strcmp(action, "SET_IDLE") == 0) {
       idle_screen_active = jcmd["idle"] | false;
+
+    } else if (strcmp(action, "SYNC_EMP") == 0) {
+      Serial.println("[SYNC] Manual employee sync requested by CrowPanel.");
+      String token = jcmd["token"] | "";
+      if (token.length() > 0) {
+        deviceToken = token;
+      }
+      syncEmployeesFromServer(deviceToken);
 
     } else if (strcmp(action, "RESET") == 0) {
       Serial.println("[SYSTEM] Remote reboot command from CrowPanel. Restarting...");
