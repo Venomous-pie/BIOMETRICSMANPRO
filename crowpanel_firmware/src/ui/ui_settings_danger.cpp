@@ -70,9 +70,8 @@ static void btn_modal_confirm_cb(lv_event_t * e) {
         lv_obj_del_async(modal_overlay);
         modal_overlay = NULL;
     }
-    UIManager::showGlobalPill(true);
-    destroy_screen();
-    UIManager::showIdle();
+    // We don't load another screen here. We just wait for FACTORY_RESET_ACK 
+    // which will reboot the device completely.
 }
 
 static void ta_focus_event_cb(lv_event_t * e) {

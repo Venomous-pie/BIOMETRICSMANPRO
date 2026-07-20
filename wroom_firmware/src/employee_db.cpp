@@ -6,12 +6,16 @@
 // "id" must be consistent with the slot mapping formula in employee_db.h.
 static const char EMPLOYEES_JSON[] = R"([
   {"id":1,"name":"Admin","dept":"Admin","job_title":"System Admin","branch":"Main","fp_enrolled":false},
-  {"id":2,"name":"Claire Jem Dedicatoria","dept":"HR","job_title":"Intern Tech Lead","branch":"Nasya","fp_enrolled":false},
-  {"id":3,"name":"Alice Santos","dept":"HR","job_title":"HR Manager","branch":"Main","fp_enrolled":false},
-  {"id":4,"name":"Bob Cruz","dept":"IT","job_title":"Developer","branch":"Main","fp_enrolled":false},
-  {"id":5,"name":"Carol Reyes","dept":"Finance","job_title":"Accountant","branch":"Main","fp_enrolled":false},
-  {"id":6,"name":"Dave Lim","dept":"Security","job_title":"Guard","branch":"Main","fp_enrolled":false},
-  {"id":7,"name":"Eve Tan","dept":"Admin","job_title":"Clerk","branch":"Main","fp_enrolled":false}
+  {"id":2,"name":"Christopher G. Francisco","dept":"Executive","job_title":"CIO","branch":"Main","fp_enrolled":false},
+  {"id":3,"name":"Reden Lamosa","dept":"IT","job_title":"Senior Developer","branch":"Main","fp_enrolled":false},
+  {"id":4,"name":"Jean Erica Velasco","dept":"IT","job_title":"Intern Lead","branch":"Main","fp_enrolled":false},
+  {"id":5,"name":"Claire Jem Dedicatoria","dept":"IT","job_title":"Intern Technical Team Lead","branch":"Main","fp_enrolled":false},
+  {"id":6,"name":"Maria Alaine Jeanne A. Terante","dept":"IT","job_title":"Assistant to Technical Team Lead","branch":"Main","fp_enrolled":false},
+  {"id":7,"name":"Jhonnalyn Belano","dept":"IT","job_title":"QA","branch":"Main","fp_enrolled":false},
+  {"id":8,"name":"Kenneth Simbolas","dept":"Hardware","job_title":"PCB Board Designer","branch":"Main","fp_enrolled":false},
+  {"id":9,"name":"John Rustom Reginio","dept":"Hardware","job_title":"PCB Board Designer","branch":"Main","fp_enrolled":false},
+  {"id":10,"name":"Sharlene Loria","dept":"Hardware","job_title":"Hardware","branch":"Main","fp_enrolled":false},
+  {"id":11,"name":"Mark Jaestin Cabañelis","dept":"Design","job_title":"Figma / UI Design","branch":"Main","fp_enrolled":false}
 ])";
 
 Employee empDB[MAX_EMP];

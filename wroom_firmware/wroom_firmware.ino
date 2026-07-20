@@ -47,11 +47,11 @@ void setup() {
   Serial.printf("[BOOT] Reset reason: %d\n", esp_reset_reason());
   Serial.println("\n=== Biometrics WROOM Controller ===");
 
-  employeeDbInit();         // Load employee database
-  wifiManagerInit();        // Initialize WiFi
-  fingerprintManagerInit(); // Initialize fingerprint sensor
-  espNowInit();             // Initialize ESP-NOW
-  timeManagerInit();        // Initialize RTC
+  employeeDbInit();          // Load employee database
+  wifiManagerInit();         // Initialize WiFi
+  fingerprintManagerInit();  // Initialize fingerprint sensor
+  espNowInit();              // Initialize ESP-NOW
+  timeManagerInit();         // Initialize RTC
 
   pinMode(PIN_FACTORY_RESET, INPUT_PULLDOWN);
 
@@ -77,8 +77,8 @@ void loop() {
     sendQuiet("{\"type\":\"TIME\",\"ts\":\"" + getTimestamp() + "\"}");
   }
 
-  wifiProcess(); // Handle WiFi background tasks
-  ntpProcess();  // Check NTP sync status
+  wifiProcess();  // Handle WiFi background tasks
+  ntpProcess();   // Check NTP sync status
 
   // Handle Serial commands
   if (Serial.available()) {
@@ -95,5 +95,5 @@ void loop() {
     }
   }
 
-  fingerprintPoll(); // Scan for fingerprints
+  fingerprintPoll();  // Scan for fingerprints
 }

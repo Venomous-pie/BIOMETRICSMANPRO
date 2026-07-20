@@ -157,8 +157,14 @@ void UIManager::buildAllScreens() {
     buildMainMenuScreen();
 }
 
+#include "../core/display_driver.h"
+extern LGFX lcd;
+
 void uiFactoryResetComplete() {
-    uiShowWifiSetup();
+    if (Serial) Serial.println("[SYSTEM] Factory Reset complete. Rebooting...");
+    lcd.setBrightness(0);
+    delay(200);
+    ESP.restart();
 }
 
 void UIManager::updateHeaderWifi(bool connected) {

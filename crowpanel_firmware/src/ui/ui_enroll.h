@@ -3,6 +3,8 @@
 
 #include <lvgl.h>
 
+extern lv_obj_t *scr_enroll;
+extern lv_obj_t *scr_choose_finger;
 void buildEnrollScreen();
 void buildEmpListScreen();
 void buildChooseFingerScreen();

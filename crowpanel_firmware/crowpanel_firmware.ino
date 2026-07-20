@@ -140,6 +140,11 @@ void setup() {
 
   // Initialize filesystem and data
   DataManager::begin();
+  
+  // Temporary: Print the saved token
+  if (Serial && Serial.availableForWrite() > 32) {
+      Serial.printf("[DEBUG] Saved Token: %s\n", DataManager::getActivationCode().c_str());
+  }
 
   // Check PSRAM availability
   size_t psram_free = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);

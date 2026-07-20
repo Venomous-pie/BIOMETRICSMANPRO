@@ -89,6 +89,8 @@ lv_obj_t *scr_choose_finger = NULL;
 static int selected_emp_id = 0;
 static int selected_finger_index = -1;
 static lv_obj_t *btn_start_scan = NULL;
+static lv_obj_t *btn_delete_scan = NULL;
+static lv_obj_t *lbl_start_scan_text = NULL;
 static lv_obj_t *lbl_choose_info = NULL;
 static lv_obj_t *finger_objs[10];
 
@@ -655,6 +657,14 @@ static void finger_click_cb(lv_event_t * e) {
   if (btn_start_scan) {
     lv_obj_clear_state(btn_start_scan, LV_STATE_DISABLED);
     lv_obj_set_style_bg_color(btn_start_scan, UIManager::rgb(0x2E7D32), 0);
+    
+    if (f_idx == current_enrolled) {
+        lv_label_set_text(lbl_start_scan_text, "Overwrite " LV_SYMBOL_RIGHT);
+        if (btn_delete_scan) lv_obj_clear_flag(btn_delete_scan, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        lv_label_set_text(lbl_start_scan_text, "Start scan " LV_SYMBOL_RIGHT);
+        if (btn_delete_scan) lv_obj_add_flag(btn_delete_scan, LV_OBJ_FLAG_HIDDEN);
+    }
   }
 }
 
@@ -673,6 +683,27 @@ static void start_scan_cb(lv_event_t * e) {
   uiShowEnrollStart(n.c_str());
 }
 
+static void msgbox_event_cb(lv_event_t * e) {
+    lv_obj_t * msgbox = lv_event_get_current_target(e);
+    if(lv_msgbox_get_active_btn(msgbox) == 0) { // Yes
+        if (selected_finger_index >= 0 && selected_emp_id > 0) {
+            char buf[32];
+            snprintf(buf, sizeof(buf), "DELETE:%d:%d", selected_emp_id, selected_finger_index);
+            CommManager::sendCommand(String(buf));
+            // Optimistically update UI
+            DataManager::updateEmployeeFpEnrolled(selected_emp_id, false, -1);
+            uiShowChooseFinger(selected_emp_id, defer_name.c_str(), defer_dept.c_str());
+        }
+    }
+    lv_msgbox_close(msgbox);
+}
+
+static void delete_scan_cb(lv_event_t * e) {
+    static const char * btns[] = {"Yes", "No", ""};
+    lv_obj_t * mbox1 = lv_msgbox_create(NULL, "Delete Fingerprint", "Are you sure you want to delete this fingerprint?", btns, false);
+    lv_obj_add_event_cb(mbox1, msgbox_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_obj_center(mbox1);
+}
 
 void buildChooseFingerScreen() {
   if (scr_choose_finger != NULL) return;
@@ -692,10 +723,23 @@ void buildChooseFingerScreen() {
   lv_obj_set_style_radius(btn_start_scan, 8, 0);
   lv_obj_add_state(btn_start_scan, LV_STATE_DISABLED);
   lv_obj_add_event_cb(btn_start_scan, start_scan_cb, LV_EVENT_CLICKED, NULL);
-  lv_obj_t *lbl_start = lv_label_create(btn_start_scan);
-  lv_label_set_text(lbl_start, "Start scan " LV_SYMBOL_RIGHT);
-  UIManager::styleLabel(lbl_start, 0xFFFFFF, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
-  lv_obj_center(lbl_start);
+  lbl_start_scan_text = lv_label_create(btn_start_scan);
+  lv_label_set_text(lbl_start_scan_text, "Start scan " LV_SYMBOL_RIGHT);
+  UIManager::styleLabel(lbl_start_scan_text, 0xFFFFFF, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
+  lv_obj_center(lbl_start_scan_text);
+
+  // 2b. Delete Scan Button (Hidden by default)
+  btn_delete_scan = lv_btn_create(scr_choose_finger);
+  lv_obj_set_size(btn_delete_scan, 110, 44);
+  lv_obj_align_to(btn_delete_scan, btn_start_scan, LV_ALIGN_OUT_LEFT_MID, -10, 0);
+  lv_obj_set_style_bg_color(btn_delete_scan, UIManager::rgb(0xDC2626), LV_STATE_DEFAULT); // Red
+  lv_obj_set_style_radius(btn_delete_scan, 8, 0);
+  lv_obj_add_flag(btn_delete_scan, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_event_cb(btn_delete_scan, delete_scan_cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_t *lbl_del = lv_label_create(btn_delete_scan);
+  lv_label_set_text(lbl_del, LV_SYMBOL_TRASH " Delete");
+  UIManager::styleLabel(lbl_del, 0xFFFFFF, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
+  lv_obj_center(lbl_del);
 
   // 3. Dynamic Info Label (who we are enrolling)
   lbl_choose_info = lv_label_create(scr_choose_finger);
@@ -800,6 +844,10 @@ void uiShowChooseFinger(int emp_id, const char *name, const char *dept) {
     if (btn_start_scan) {
       lv_obj_add_state(btn_start_scan, LV_STATE_DISABLED);
       lv_obj_set_style_bg_color(btn_start_scan, UIManager::rgb(0x2A800F), 0);
+      lv_label_set_text(lbl_start_scan_text, "Start scan " LV_SYMBOL_RIGHT);
+    }
+    if (btn_delete_scan) {
+      lv_obj_add_flag(btn_delete_scan, LV_OBJ_FLAG_HIDDEN);
     }
 
     int current_enrolled = -1;

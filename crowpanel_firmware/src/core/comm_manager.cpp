@@ -3,6 +3,7 @@
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include "data_manager.h"
+#include "display_driver.h"
 #include "../ui/ui_manager.h"
 #include "../splash/manpro_splash.h"
 
@@ -310,7 +311,8 @@ void CommManager::dispatchJson(const String& line) {
     } else if (strcmp(type, "WROOM_BOOT") == 0) {
         if (Serial) Serial.println("[UART] WROOM booted. Checking activation state.");
         if (DataManager::isActivated()) {
-            sendCommand("{\"cmd\":\"DEVICE_ACTIVATED\"}");
+            String actCmd = "{\"cmd\":\"DEVICE_ACTIVATED\",\"token\":\"" + DataManager::getActivationCode() + "\"}";
+            sendCommand(actCmd.c_str());
             if (uiIsIdleScreenActive()) {
                 sendCommand("{\"cmd\":\"SET_IDLE\",\"idle\":true}");
             }
@@ -429,6 +431,8 @@ void CommManager::dispatchJson(const String& line) {
         uiFactoryResetComplete();
     } else if (strcmp(type, "RESET_ACK") == 0) {
         if (Serial) Serial.println("[SYSTEM] Rebooting...");
+        extern LGFX lcd;
+        lcd.setBrightness(0);
         delay(200);
         ESP.restart();
     } else {

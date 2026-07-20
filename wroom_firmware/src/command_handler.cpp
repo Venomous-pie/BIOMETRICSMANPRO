@@ -16,6 +16,14 @@ bool idle_screen_active = false;
 static unsigned long btnPressTime = 0;
 static bool          btnHeld      = false;
 
+void wipeExceptAdmin() {
+  Serial.println("[SYSTEM] Wiping database except slots 1-5 (Admin)...");
+  for (int i = 6; i <= MAX_SLOTS; i++) {
+    finger.deleteModel(i);
+  }
+  Serial.println("[SYSTEM] Wipe complete.");
+}
+
 // ── Factory reset button ──────────────────────────────────────────────────────
 
 void handleFactoryResetButton() {
@@ -28,7 +36,7 @@ void handleFactoryResetButton() {
       Serial.println("[SYSTEM] HARDWARE FACTORY RESET TRIGGERED.");
       WiFi.disconnect(true, true);
       prefs.clear();
-      finger.emptyDatabase();
+      wipeExceptAdmin();
       Serial.println("[SYSTEM] WiFi credentials and fingerprint templates wiped. Rebooting...");
       send("{\"type\":\"FACTORY_RESET_ACK\"}");
       delay(2000);
@@ -140,6 +148,10 @@ void handleCmd(String cmd) {
     sendDoc(doc);
     Serial.println(ok ? "[DEL] Slot " + String(slot) + " erased." : "[DEL] Failed.");
 
+  } else if (cmd.startsWith("WIPE_ALL")) {
+    wipeExceptAdmin();
+    Serial.println("[SYSTEM] Fingerprint database completely wiped via WIPE_ALL command.");
+
   } else if (cmd.startsWith("{")) {
     // ── JSON command from CrowPanel ──────────────────────────────────────────
     StaticJsonDocument<256> jcmd;
@@ -177,6 +189,10 @@ void handleCmd(String cmd) {
     } else if (strcmp(action, "DEVICE_ACTIVATED") == 0) {
       activated = true;
       Serial.println("[SYSTEM] Device activated. Fingerprint scanner enabled.");
+      String token = jcmd["token"] | "";
+      if (token.length() > 0) {
+        Serial.printf("[SYSTEM] Activation Token: %s\n", token.c_str());
+      }
       StaticJsonDocument<128> wstat;
       wstat["type"]      = "WIFI_STATUS";
       wstat["connected"] = (WiFi.status() == WL_CONNECTED);
@@ -193,6 +209,8 @@ void handleCmd(String cmd) {
     } else if (strcmp(action, "FACTORY_RESET") == 0) {
       activated = false;
       Serial.println("[SYSTEM] Factory reset received from CrowPanel. Scanner disabled.");
+      wipeExceptAdmin();
+      Serial.println("[SYSTEM] Fingerprint database wiped.");
       send("{\"type\":\"FACTORY_RESET_ACK\"}");
 
     } else if (strcmp(action, "SET_IDLE") == 0) {

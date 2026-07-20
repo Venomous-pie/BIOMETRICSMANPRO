@@ -53,14 +53,19 @@ void doMatch() {
 
 bool doEnroll(int slot) {
   int p;
-  unsigned long t;
+  unsigned long t, lastPing;
 
   // ── Scan 1 ────────────────────────────────────────────────────────────────
   send("{\"type\":\"ENROLL_STEP\",\"step\":1,\"msg\":\"Place finger\"}");
   Serial.println("[ENROLL] Step 1 — place finger on sensor");
   t = millis();
+  lastPing = t;
   do {
     if (millis() - t > 15000) { Serial.println("[ENROLL] Step 1 TIMEOUT"); return false; }
+    if (millis() - lastPing > 2000) {
+        sendQuiet("{\"type\":\"PING\"}");
+        lastPing = millis();
+    }
     p = finger.getImage();
     if (p != FINGERPRINT_OK && p != FINGERPRINT_NOFINGER)
       Serial.printf("[ENROLL] Step 1 image error: 0x%02X\n", p);
@@ -73,15 +78,28 @@ bool doEnroll(int slot) {
   // ── Lift ──────────────────────────────────────────────────────────────────
   send("{\"type\":\"ENROLL_STEP\",\"step\":2,\"msg\":\"Lift finger\"}");
   Serial.println("[ENROLL] Step 2 — lift finger");
-  do { p = finger.getImage(); delay(50); } while (p != FINGERPRINT_NOFINGER);
+  lastPing = millis();
+  do { 
+    if (millis() - lastPing > 2000) {
+        sendQuiet("{\"type\":\"PING\"}");
+        lastPing = millis();
+    }
+    p = finger.getImage(); 
+    delay(50); 
+  } while (p != FINGERPRINT_NOFINGER);
   delay(400);
 
   // ── Scan 2 ────────────────────────────────────────────────────────────────
   send("{\"type\":\"ENROLL_STEP\",\"step\":3,\"msg\":\"Place again\"}");
   Serial.println("[ENROLL] Step 3 — place finger again");
   t = millis();
+  lastPing = t;
   do {
     if (millis() - t > 15000) { Serial.println("[ENROLL] Step 3 TIMEOUT"); return false; }
+    if (millis() - lastPing > 2000) {
+        sendQuiet("{\"type\":\"PING\"}");
+        lastPing = millis();
+    }
     p = finger.getImage();
     if (p != FINGERPRINT_OK && p != FINGERPRINT_NOFINGER)
       Serial.printf("[ENROLL] Step 3 image error: 0x%02X\n", p);
