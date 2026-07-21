@@ -36,6 +36,7 @@ public:
     static void loadInitialScreen();
     static lv_color_t rgb(uint32_t c);
     static void styleLabel(lv_obj_t *obj, uint32_t color, const lv_font_t *font, lv_text_align_t align);
+    static void styleTextArea(lv_obj_t *obj);
 
     // Common screen management
     static void buildAllScreens();

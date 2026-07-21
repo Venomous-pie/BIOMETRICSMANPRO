@@ -55,7 +55,7 @@ static void btn_test_cb(lv_event_t * e) {
 
 static void ta_event_cb(lv_event_t *e) {
     lv_event_code_t code = lv_event_get_code(e);
-    lv_obj_t *ta = (lv_obj_t *)lv_event_get_target(e);
+    lv_obj_t *ta = (lv_obj_t *)lv_event_get_current_target(e);
     if (code == LV_EVENT_FOCUSED) {
         lv_keyboard_set_textarea(kb_server, ta);
         lv_obj_clear_flag(kb_server, LV_OBJ_FLAG_HIDDEN);
@@ -92,8 +92,7 @@ void buildSettingsServerScreen() {
         lv_textarea_set_placeholder_text(ta, placeholder);
         lv_textarea_set_one_line(ta, true);
         lv_textarea_set_password_mode(ta, is_pw);
-        lv_obj_set_style_border_color(ta, UIManager::rgb(COLOR_STROKE), 0);
-        lv_obj_set_style_radius(ta, 8, 0);
+        UIManager::styleTextArea(ta);
         return ta;
     };
 

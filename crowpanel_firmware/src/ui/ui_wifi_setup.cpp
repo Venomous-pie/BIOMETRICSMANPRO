@@ -64,7 +64,7 @@ static void kb_event_cb(lv_event_t *e) {
 // ── text area focus → show keyboard ───────────────────────────────────────
 static void ta_event_cb(lv_event_t *e) {
     lv_event_code_t code = lv_event_get_code(e);
-    lv_obj_t *ta = (lv_obj_t *)lv_event_get_target(e);
+    lv_obj_t *ta = (lv_obj_t *)lv_event_get_current_target(e);
     if (code == LV_EVENT_FOCUSED) {
         lv_keyboard_set_textarea(kb_wifi, ta);
         lv_obj_clear_flag(kb_wifi, LV_OBJ_FLAG_HIDDEN);
@@ -77,7 +77,7 @@ static void ta_event_cb(lv_event_t *e) {
 
 // ── show password button ──────────────────────────────────────────────────
 static void btn_show_pass_cb(lv_event_t *e) {
-    lv_obj_t *btn = (lv_obj_t *)lv_event_get_target(e);
+    lv_obj_t *btn = (lv_obj_t *)lv_event_get_current_target(e);
     lv_obj_t *lbl = lv_obj_get_child(btn, 0);
     if (lv_textarea_get_password_mode(ta_pass)) {
         lv_textarea_set_password_mode(ta_pass, false);
@@ -115,7 +115,7 @@ static void saved_network_cb(lv_event_t *e) {
 static void network_row_cb(lv_event_t *e) {
     lv_event_code_t code = lv_event_get_code(e);
     if (code == LV_EVENT_CLICKED) {
-        lv_obj_t *row = (lv_obj_t *)lv_event_get_target(e);
+        lv_obj_t *row = (lv_obj_t *)lv_event_get_current_target(e);
         lv_obj_t *lbl = lv_obj_get_child(row, 1);  // child 0=ico, 1=SSID name, 2=chevron
         if (lbl) {
             const char *name = lv_label_get_text(lbl);
@@ -577,12 +577,7 @@ void buildWifiSetupScreen() {
     lv_textarea_set_one_line(ta_ssid, true);
     lv_obj_set_size(ta_ssid, lv_pct(100), 46);
     lv_obj_align(ta_ssid, LV_ALIGN_TOP_MID, 0, 64);
-    lv_obj_set_style_bg_color(ta_ssid, UIManager::rgb(0xFFFFFF), 0);
-    lv_obj_set_style_border_color(ta_ssid, UIManager::rgb(COLOR_STROKE), 0);
-    lv_obj_set_style_border_width(ta_ssid, 1, 0);
-    lv_obj_set_style_radius(ta_ssid, 8, 0);
-    lv_obj_set_style_border_color(ta_ssid, UIManager::rgb(COLOR_GREEN_MAIN), LV_STATE_FOCUSED);
-    lv_obj_set_style_border_width(ta_ssid, 2, LV_STATE_FOCUSED);
+    UIManager::styleTextArea(ta_ssid);
     lv_obj_add_event_cb(ta_ssid, ta_event_cb, LV_EVENT_ALL, NULL);
     if (DataManager::hasSavedWifi()) {
         lv_textarea_set_text(ta_ssid, DataManager::getWifiSsid().c_str());
@@ -600,12 +595,7 @@ void buildWifiSetupScreen() {
     lv_textarea_set_password_mode(ta_pass, true);
     lv_obj_set_size(ta_pass, lv_pct(100), 46);
     lv_obj_align(ta_pass, LV_ALIGN_TOP_LEFT, 0, 146);
-    lv_obj_set_style_bg_color(ta_pass, UIManager::rgb(0xFFFFFF), 0);
-    lv_obj_set_style_border_color(ta_pass, UIManager::rgb(COLOR_STROKE), 0);
-    lv_obj_set_style_border_width(ta_pass, 1, 0);
-    lv_obj_set_style_radius(ta_pass, 8, 0);
-    lv_obj_set_style_border_color(ta_pass, UIManager::rgb(COLOR_GREEN_MAIN), LV_STATE_FOCUSED);
-    lv_obj_set_style_border_width(ta_pass, 2, LV_STATE_FOCUSED);
+    UIManager::styleTextArea(ta_pass);
     // Extra right padding so typed text doesn't hide under the eye button
     lv_obj_set_style_pad_right(ta_pass, 52, 0);
     lv_obj_add_event_cb(ta_pass, ta_event_cb, LV_EVENT_ALL, NULL);

@@ -44,7 +44,7 @@ static void btn_back_cb(lv_event_t * e) {
 }
 
 static void slider_event_cb(lv_event_t * e) {
-    lv_obj_t * slider = lv_event_get_target(e);
+    lv_obj_t * slider = lv_event_get_current_target(e);
     int value = lv_slider_get_value(slider);
     lcd.setBrightness(value);
 }

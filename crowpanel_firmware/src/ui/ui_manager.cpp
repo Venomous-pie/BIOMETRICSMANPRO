@@ -147,6 +147,23 @@ void UIManager::styleLabel(lv_obj_t *obj, uint32_t color, const lv_font_t *font,
     lv_obj_set_style_text_align(obj, align, 0);
 }
 
+void UIManager::styleTextArea(lv_obj_t *obj) {
+    lv_obj_set_style_bg_color(obj, rgb(0xFFFFFF), 0);
+    lv_obj_set_style_border_color(obj, rgb(COLOR_STROKE), 0);
+    lv_obj_set_style_border_width(obj, 1, 0);
+    lv_obj_set_style_radius(obj, 8, 0);
+    lv_obj_set_style_text_color(obj, rgb(COLOR_TEXT_MAIN), 0);
+
+    lv_obj_set_style_border_color(obj, rgb(COLOR_GREEN_MAIN), LV_STATE_FOCUSED);
+    lv_obj_set_style_border_width(obj, 2, LV_STATE_FOCUSED);
+
+    // Explicitly style the cursor (caret) so it's visible when focused
+    lv_obj_set_style_border_color(obj, rgb(COLOR_GREEN_MAIN), LV_PART_CURSOR | LV_STATE_FOCUSED);
+    lv_obj_set_style_border_width(obj, 2, LV_PART_CURSOR | LV_STATE_FOCUSED);
+    lv_obj_set_style_border_side(obj, LV_BORDER_SIDE_LEFT, LV_PART_CURSOR | LV_STATE_FOCUSED);
+    lv_obj_set_style_bg_opa(obj, LV_OPA_TRANSP, LV_PART_CURSOR | LV_STATE_FOCUSED);
+}
+
 void UIManager::buildAllScreens() {
     // Only pre-build the 4 core navigation screens that are always needed.
     // Result, Enroll, and EmpList are lazy-built on first use to conserve

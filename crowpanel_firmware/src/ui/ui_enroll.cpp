@@ -269,7 +269,7 @@ static void search_ta_event_cb(lv_event_t * e) {
         lv_obj_align(emp_list_obj, LV_ALIGN_TOP_MID, 0, 185);
     } else if (code == LV_EVENT_FOCUSED) {
         // Show keyboard but keep list visible above it (keyboard ~200px tall)
-        lv_keyboard_set_textarea(kb_search, (lv_obj_t*)lv_event_get_target(e));
+        lv_keyboard_set_textarea(kb_search, (lv_obj_t*)lv_event_get_current_target(e));
         lv_obj_clear_flag(kb_search, LV_OBJ_FLAG_HIDDEN);
         // Shrink list so it fits above the keyboard
         lv_obj_set_height(emp_list_obj, 140);
@@ -317,9 +317,7 @@ void buildEmpListScreen() {
   lv_textarea_set_placeholder_text(ta_search, "Search by name");
   lv_obj_set_size(ta_search, 360, 44);
   lv_obj_align(ta_search, LV_ALIGN_TOP_LEFT, 20, 90);
-  lv_obj_set_style_radius(ta_search, 8, 0);
-  lv_obj_set_style_border_color(ta_search, UIManager::rgb(0xCCCCCC), 0);
-  lv_obj_set_style_bg_color(ta_search, UIManager::rgb(0xFFFFFF), 0);
+  UIManager::styleTextArea(ta_search);
   lv_obj_add_event_cb(ta_search, search_ta_event_cb, LV_EVENT_ALL, NULL);
 
   ta_dept_search = lv_textarea_create(scr_emp_list);
@@ -327,9 +325,7 @@ void buildEmpListScreen() {
   lv_textarea_set_placeholder_text(ta_dept_search, "Search by department");
   lv_obj_set_size(ta_dept_search, 360, 44);
   lv_obj_align(ta_dept_search, LV_ALIGN_TOP_RIGHT, -20, 90);
-  lv_obj_set_style_radius(ta_dept_search, 8, 0);
-  lv_obj_set_style_border_color(ta_dept_search, UIManager::rgb(0xCCCCCC), 0);
-  lv_obj_set_style_bg_color(ta_dept_search, UIManager::rgb(0xFFFFFF), 0);
+  UIManager::styleTextArea(ta_dept_search);
   lv_obj_add_event_cb(ta_dept_search, search_ta_event_cb, LV_EVENT_ALL, NULL);
 
   // â”€â”€ Column Headers â”€â”€

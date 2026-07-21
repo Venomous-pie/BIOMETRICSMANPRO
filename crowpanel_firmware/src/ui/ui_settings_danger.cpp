@@ -36,7 +36,7 @@ static void btn_reboot_wroom_cb(lv_event_t * e) {
 
 static void ta_confirm_event_cb(lv_event_t * e) {
     lv_event_code_t code = lv_event_get_code(e);
-    lv_obj_t * ta = lv_event_get_target(e);
+    lv_obj_t * ta = lv_event_get_current_target(e);
     
     if (code == LV_EVENT_VALUE_CHANGED) {
         String input = lv_textarea_get_text(ta);
@@ -77,7 +77,7 @@ static void btn_modal_confirm_cb(lv_event_t * e) {
 static void ta_focus_event_cb(lv_event_t * e) {
     lv_event_code_t code = lv_event_get_code(e);
     lv_obj_t * kb = (lv_obj_t *)lv_event_get_user_data(e);
-    lv_obj_t * mod = lv_obj_get_parent(lv_event_get_target(e));
+    lv_obj_t * mod = lv_obj_get_parent(lv_event_get_current_target(e));
     if (code == LV_EVENT_FOCUSED) {
         lv_obj_clear_flag(kb, LV_OBJ_FLAG_HIDDEN);
         lv_obj_align(mod, LV_ALIGN_CENTER, 0, -150); // Shift modal up
@@ -163,6 +163,7 @@ static void btn_factory_reset_cb(lv_event_t * e) {
     lv_obj_align(ta_confirm, LV_ALIGN_TOP_LEFT, 10, 255);
     lv_textarea_set_placeholder_text(ta_confirm, devName.c_str());
     lv_textarea_set_one_line(ta_confirm, true);
+    UIManager::styleTextArea(ta_confirm);
     lv_obj_add_event_cb(ta_confirm, ta_confirm_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
     // Keyboard

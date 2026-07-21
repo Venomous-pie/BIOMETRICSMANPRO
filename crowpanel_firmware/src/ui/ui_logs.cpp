@@ -62,7 +62,7 @@ static void logs_search_cb(lv_event_t * e) {
 }
 
 static void logs_ta_focus_cb(lv_event_t * e) {
-    lv_obj_t *ta = lv_event_get_target(e);
+    lv_obj_t *ta = lv_event_get_current_target(e);
     if (kb_logs) {
         lv_keyboard_set_textarea(kb_logs, ta);
         lv_obj_clear_flag(kb_logs, LV_OBJ_FLAG_HIDDEN);
@@ -102,6 +102,7 @@ void buildLogsScreen() {
     lv_obj_align(ta_search_name, LV_ALIGN_LEFT_MID, 0, 0);
     lv_textarea_set_placeholder_text(ta_search_name, "Search by name");
     lv_textarea_set_one_line(ta_search_name, true);
+    UIManager::styleTextArea(ta_search_name);
     lv_obj_add_event_cb(ta_search_name, logs_search_cb, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(ta_search_name, logs_ta_focus_cb, LV_EVENT_FOCUSED, NULL);
 
@@ -111,6 +112,7 @@ void buildLogsScreen() {
     lv_obj_align(ta_search_date, LV_ALIGN_RIGHT_MID, 0, 0);
     lv_textarea_set_placeholder_text(ta_search_date, "Select date");
     lv_textarea_set_one_line(ta_search_date, true);
+    UIManager::styleTextArea(ta_search_date);
     lv_obj_add_event_cb(ta_search_date, logs_search_cb, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(ta_search_date, logs_ta_focus_cb, LV_EVENT_FOCUSED, NULL);
 

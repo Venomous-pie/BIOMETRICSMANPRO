@@ -105,7 +105,7 @@ static void btn_have_code_cb(lv_event_t * e) {
 
 static void ta_event_cb(lv_event_t * e) {
     lv_event_code_t code = lv_event_get_code(e);
-    lv_obj_t * ta = (lv_obj_t*)lv_event_get_target(e);
+    lv_obj_t * ta = (lv_obj_t*)lv_event_get_current_target(e);
     
     if (code == LV_EVENT_FOCUSED) {
         lv_keyboard_set_textarea(kb_code, ta);
@@ -304,6 +304,13 @@ void buildActivationScreen() {
         lv_obj_set_style_pad_top(ta, 20, 0);
         
         lv_obj_set_style_text_font(ta, &lv_font_montserrat_28, 0);
+        
+        // Cursor part
+        lv_obj_set_style_border_color(ta, UIManager::rgb(COLOR_GREEN_MAIN), LV_PART_CURSOR | LV_STATE_FOCUSED);
+        lv_obj_set_style_border_width(ta, 2, LV_PART_CURSOR | LV_STATE_FOCUSED);
+        lv_obj_set_style_border_side(ta, LV_BORDER_SIDE_LEFT, LV_PART_CURSOR | LV_STATE_FOCUSED);
+        lv_obj_set_style_bg_opa(ta, LV_OPA_TRANSP, LV_PART_CURSOR | LV_STATE_FOCUSED);
+
         lv_obj_add_event_cb(ta, ta_event_cb, LV_EVENT_ALL, NULL);
     };
 
