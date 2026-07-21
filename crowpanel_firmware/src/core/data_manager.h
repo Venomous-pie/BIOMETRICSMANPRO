@@ -21,9 +21,11 @@ struct Employee {
 
 struct AttendanceLog {
     String name;
-    String time_str;
+    String time_str;    // ISO-style: "YYYY-MM-DD HH:MM:SS"
     bool is_time_in;
     bool synced;
+    int  confidence;    // AS608 match confidence score
+    int  slot;          // AS608 physical template slot
 };
 
 class DataManager {
@@ -48,6 +50,8 @@ public:
     static const AttendanceLog* getAttendanceLogs();
     static int getAttendanceLogCount();
     static int getUnsyncedAttendanceCount();
+    static void addLog(const String& name, const String& time_str, bool is_time_in, int confidence, int slot);
+    static void uploadPendingLogs();  // POST unsynced logs to backend; call when WiFi is available
     
     static bool isWifiConfigured();
     static void setWifiConfigured(bool state);
@@ -114,6 +118,8 @@ private:
     static unsigned long _lastSyncTimestamp;
     static void loadWifiCredentials();
     static void saveWifiCredentialsToFs();
+    static void saveAttendanceLogs();
+    static void loadAttendanceLogs();
 };
 
 #endif // DATA_MANAGER_H

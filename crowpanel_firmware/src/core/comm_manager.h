@@ -9,6 +9,7 @@
 // Must match ESPNOW_CHANNEL and WROOM_MAC on the WROOM side.
 // ============================================================
 #define ESPNOW_CHANNEL 1   // Must match your router's fixed channel
+#define API_BASE_URL   "https://demo.manpromanagement.com"  // Change to mock server IP for local dev
 
 // The WROOM's station MAC address.
 // PLACEHOLDER: Flash the WROOM first and read its "[BOOT] WROOM MAC:" line,

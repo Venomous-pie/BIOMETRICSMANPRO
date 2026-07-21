@@ -10,35 +10,114 @@
 Employee DataManager::empDB[150];
 int DataManager::empCount = 0;
 
-static AttendanceLog mockLogs[] = {
-    {"Christopher G. Francisco", "6/30/2026 7:50 AM", true, true},
-    {"Reden Lamosa", "6/30/2026 7:55 AM", true, true},
-    {"Jean Erica Velasco", "6/30/2026 8:01 AM", true, true},
-    {"Claire Jem Dedicatoria", "6/30/2026 8:05 AM", true, true},
-    {"Jhonnalyn Belano", "6/30/2026 8:15 AM", true, true},
-    {"Christopher G. Francisco", "6/30/2026 5:00 PM", false, true},
-    {"Reden Lamosa", "6/30/2026 5:05 PM", false, true},
-    {"Jean Erica Velasco", "6/30/2026 5:10 PM", false, false},
-    
-    {"Christopher G. Francisco", "7/1/2026 7:45 AM", true, true},
-    {"Reden Lamosa", "7/1/2026 7:50 AM", true, true},
-    {"Maria Alaine Jeanne A. Terante", "7/1/2026 8:00 AM", true, true},
-    {"Kenneth Simbolas", "7/1/2026 8:02 AM", true, true},
-    {"John Rustom Reginio", "7/1/2026 8:10 AM", true, true},
-    {"Sharlene Loria", "7/1/2026 8:15 AM", true, true},
-    {"Mark Jaestin Cabañelis", "7/1/2026 8:30 AM", true, true},
-    {"Jhonnalyn Belano", "7/1/2026 12:15 PM", false, false}
-};
+// ── Live attendance log ───────────────────────────────────────────────────────
+// Stored in RAM (up to MAX_LOGS entries) and persisted to LittleFS.
+// Oldest entries are overwritten when the buffer is full.
 
-const AttendanceLog* DataManager::getAttendanceLogs() { return mockLogs; }
-int DataManager::getAttendanceLogCount() { return sizeof(mockLogs) / sizeof(mockLogs[0]); }
+static constexpr int MAX_LOGS = 200;
+static AttendanceLog liveLogs[MAX_LOGS];
+static int           liveLogCount = 0;
+
+const AttendanceLog* DataManager::getAttendanceLogs() { return liveLogs; }
+int  DataManager::getAttendanceLogCount()             { return liveLogCount; }
 
 int DataManager::getUnsyncedAttendanceCount() {
     int count = 0;
-    for (int i = 0; i < getAttendanceLogCount(); i++) {
-        if (!mockLogs[i].synced) count++;
+    for (int i = 0; i < liveLogCount; i++) {
+        if (!liveLogs[i].synced) count++;
     }
     return count;
+}
+
+void DataManager::addLog(const String& name, const String& time_str,
+                         bool is_time_in, int confidence, int slot) {
+    if (liveLogCount < MAX_LOGS) {
+        liveLogs[liveLogCount++] = {name, time_str, is_time_in, false, confidence, slot};
+    } else {
+        // Ring: shift everything left, drop oldest
+        memmove(&liveLogs[0], &liveLogs[1], sizeof(AttendanceLog) * (MAX_LOGS - 1));
+        liveLogs[MAX_LOGS - 1] = {name, time_str, is_time_in, false, confidence, slot};
+    }
+    saveAttendanceLogs();
+}
+
+void DataManager::loadAttendanceLogs() {
+    liveLogCount = 0;
+    File f = LittleFS.open("/attendance.jsonl", "r");
+    if (!f) return;
+    while (f.available() && liveLogCount < MAX_LOGS) {
+        String line = f.readStringUntil('\n');
+        line.trim();
+        if (line.length() == 0) continue;
+        StaticJsonDocument<256> doc;
+        if (deserializeJson(doc, line) != DeserializationError::Ok) continue;
+        liveLogs[liveLogCount++] = {
+            doc["name"]   | "",
+            doc["ts"]     | "",
+            (bool)(doc["action"] | "IN") == String("IN"),  // store as is_time_in
+            doc["synced"] | false,
+            doc["conf"]   | 0,
+            doc["slot"]   | 0
+        };
+        // Re-derive is_time_in properly
+        const char* act = doc["action"] | "IN";
+        liveLogs[liveLogCount - 1].is_time_in = (strcmp(act, "IN") == 0);
+    }
+    f.close();
+}
+
+void DataManager::saveAttendanceLogs() {
+    File f = LittleFS.open("/attendance.jsonl", "w");
+    if (!f) return;
+    for (int i = 0; i < liveLogCount; i++) {
+        StaticJsonDocument<256> doc;
+        doc["name"]   = liveLogs[i].name;
+        doc["ts"]     = liveLogs[i].time_str;
+        doc["action"] = liveLogs[i].is_time_in ? "IN" : "OUT";
+        doc["synced"] = liveLogs[i].synced;
+        doc["conf"]   = liveLogs[i].confidence;
+        doc["slot"]   = liveLogs[i].slot;
+        serializeJson(doc, f);
+        f.println();
+    }
+    f.close();
+}
+
+void DataManager::uploadPendingLogs() {
+    if (WiFi.status() != WL_CONNECTED) return;
+    if (_activationCode.length() == 0) return;
+
+    String url = String(API_BASE_URL) + "/api/attendance/log";
+    bool anyUploaded = false;
+
+    for (int i = 0; i < liveLogCount; i++) {
+        if (liveLogs[i].synced) continue;
+
+        StaticJsonDocument<384> body;
+        body["employee_name"] = liveLogs[i].name;
+        body["action"]        = liveLogs[i].is_time_in ? "IN" : "OUT";
+        body["timestamp"]     = liveLogs[i].time_str;
+        body["confidence"]    = liveLogs[i].confidence;
+        body["slot"]          = liveLogs[i].slot;
+        body["device_id"]     = getDeviceId();
+
+        String bodyStr;
+        serializeJson(body, bodyStr);
+
+        HTTPClient http;
+        http.begin(url);
+        http.setTimeout(8000);
+        http.addHeader("Content-Type", "application/json");
+        http.addHeader("Authorization", "Bearer " + _activationCode);
+        int code = http.POST(bodyStr);
+        Serial.printf("[ATTENDANCE] POST %s -> HTTP %d\n", url.c_str(), code);
+        if (code >= 200 && code < 300) {
+            liveLogs[i].synced = true;
+            anyUploaded = true;
+        }
+        http.end();
+    }
+    if (anyUploaded) saveAttendanceLogs();
 }
 
 int DataManager::getEnrolledFingerprintCount() {
@@ -79,6 +158,7 @@ void DataManager::begin() {
     loadConfig();
     loadEmployees();
     loadWifiCredentials();
+    loadAttendanceLogs();
 }
 
 void DataManager::createInitialFilesIfMissing() {

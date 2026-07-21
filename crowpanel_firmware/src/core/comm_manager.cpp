@@ -500,11 +500,21 @@ void CommManager::dispatchJson(const String& line) {
         }
         if (strcmp(type, "PLACE_FINGER") == 0)        uiShowPlaceFinger();
         else if (strcmp(type, "MATCH") == 0) {
-            int slot = doc["id"] | 0;
+            int slot          = doc["id"]     | 0;
+            const char* name  = doc["name"]   | "";
+            const char* ts    = doc["ts"]     | "";
+            const char* act   = doc["action"] | "IN";
+            int  conf         = doc["conf"]   | 0;
+            bool is_time_in   = (strcmp(act, "IN") == 0);
+
             if (slot >= 1 && slot <= 5) {
+                // Admin/system slots: jump to main menu instead of logging
                 UIManager::showMainMenu();
             } else {
-                uiShowMatch(doc["name"], doc["dept"], doc["action"], doc["ts"]);
+                // Record the attendance log and attempt to upload
+                DataManager::addLog(String(name), String(ts), is_time_in, conf, slot);
+                DataManager::uploadPendingLogs();
+                uiShowMatch(name, doc["dept"], act, ts);
             }
         }
         else if (strcmp(type, "NOMATCH") == 0)        uiShowNoMatch();
