@@ -104,8 +104,24 @@ extern lv_timer_t *returnTimer;
 extern const lv_img_dsc_t icon_people;
 extern const lv_img_dsc_t icon_people_small;
 
-static void btn_back_cb(lv_event_t * e) {
+static void btn_back_cb(lv_event_t *e) {
   UIManager::showMainMenu();
+}
+
+static void btn_emp_sync_cb(lv_event_t *e) {
+  if (Serial) Serial.println("UI EmpList: Sync button clicked");
+  UIManager::showToast("Syncing via WROOM...", false);
+  String syncCmd = "{\"cmd\":\"SYNC_EMP\",\"token\":\"" + DataManager::getActivationCode() + "\"}";
+  CommManager::sendCommand(syncCmd);
+}
+
+static void delete_finger_cb(lv_event_t *e) {
+  int index = (int)(intptr_t)lv_event_get_user_data(e);
+  const Employee* db = DataManager::getEmployees();
+  
+  if (index >= 0 && index < DataManager::getEmployeeCount()) {
+      uiShowChooseFinger(db[index].id, db[index].name.c_str(), db[index].dept.c_str());
+  }
 }
 
 static void btn_emp_click_cb(lv_event_t * e) {
@@ -349,7 +365,7 @@ void buildEmpListScreen() {
   };
 
   dd_dept_filter = lv_dropdown_create(scr_emp_list);
-  lv_obj_set_size(dd_dept_filter, 150, 44);
+  lv_obj_set_size(dd_dept_filter, 135, 44);
   lv_obj_align(dd_dept_filter, LV_ALIGN_TOP_LEFT, 290, 90);
   lv_obj_set_style_bg_color(dd_dept_filter, UIManager::rgb(0xFFFFFF), 0);
   lv_obj_set_style_border_color(dd_dept_filter, UIManager::rgb(0xE0E0E0), 0);
@@ -360,8 +376,8 @@ void buildEmpListScreen() {
   lv_dropdown_set_text(dd_dept_filter, "Department");
 
   dd_branch_filter = lv_dropdown_create(scr_emp_list);
-  lv_obj_set_size(dd_branch_filter, 150, 44);
-  lv_obj_align(dd_branch_filter, LV_ALIGN_TOP_LEFT, 450, 90);
+  lv_obj_set_size(dd_branch_filter, 135, 44);
+  lv_obj_align(dd_branch_filter, LV_ALIGN_TOP_LEFT, 435, 90);
   lv_obj_set_style_bg_color(dd_branch_filter, UIManager::rgb(0xFFFFFF), 0);
   lv_obj_set_style_border_color(dd_branch_filter, UIManager::rgb(0xE0E0E0), 0);
   lv_obj_set_style_border_width(dd_branch_filter, 1, 0);
@@ -373,8 +389,8 @@ void buildEmpListScreen() {
   // Enrollment status filter dropdown
   dd_status_filter = lv_dropdown_create(scr_emp_list);
   lv_dropdown_set_options(dd_status_filter, "All\nEnrolled\nNot Enrolled");
-  lv_obj_set_size(dd_status_filter, 150, 44);
-  lv_obj_align(dd_status_filter, LV_ALIGN_TOP_LEFT, 610, 90);
+  lv_obj_set_size(dd_status_filter, 135, 44);
+  lv_obj_align(dd_status_filter, LV_ALIGN_TOP_LEFT, 580, 90);
   lv_obj_set_style_bg_color(dd_status_filter, UIManager::rgb(0xFFFFFF), 0);
   lv_obj_set_style_border_color(dd_status_filter, UIManager::rgb(0xE0E0E0), 0);
   lv_obj_set_style_border_width(dd_status_filter, 1, 0);
@@ -382,6 +398,22 @@ void buildEmpListScreen() {
   lv_obj_set_style_text_color(dd_status_filter, UIManager::rgb(COLOR_TEXT_MAIN), 0);
   lv_obj_add_event_cb(dd_status_filter, dd_filter_cb, LV_EVENT_VALUE_CHANGED, NULL);
   lv_dropdown_set_text(dd_status_filter, "Status");
+
+  // Sync button
+  lv_obj_t *btn_sync = lv_btn_create(scr_emp_list);
+  lv_obj_set_size(btn_sync, 44, 44);
+  lv_obj_align(btn_sync, LV_ALIGN_TOP_LEFT, 725, 90);
+  lv_obj_set_style_bg_color(btn_sync, UIManager::rgb(0xFFFFFF), 0);
+  lv_obj_set_style_border_color(btn_sync, UIManager::rgb(0xE0E0E0), 0);
+  lv_obj_set_style_border_width(btn_sync, 1, 0);
+  lv_obj_set_style_radius(btn_sync, 8, 0);
+  lv_obj_set_style_shadow_width(btn_sync, 0, 0);
+  lv_obj_add_event_cb(btn_sync, btn_emp_sync_cb, LV_EVENT_CLICKED, NULL);
+
+  lv_obj_t *lbl_sync = lv_label_create(btn_sync);
+  lv_label_set_text(lbl_sync, LV_SYMBOL_REFRESH);
+  UIManager::styleLabel(lbl_sync, COLOR_TEXT_MAIN, &lv_font_montserrat_20, LV_TEXT_ALIGN_CENTER);
+  lv_obj_center(lbl_sync);
 
   // â”€â”€ Column Headers â”€â”€
   lv_obj_t *col_hdr = lv_obj_create(scr_emp_list);
