@@ -38,12 +38,6 @@ void manpro_wake_display() {
   last_touch_time = millis();
 }
 
-
-// Enable FPS and CPU overlay
-#if LV_USE_PERF_MONITOR
-lv_disp_set_default(disp);
-#endif
-
 #ifndef LV_CONF_INCLUDE_SIMPLE
   #define LV_CONF_INCLUDE_SIMPLE
 #endif
