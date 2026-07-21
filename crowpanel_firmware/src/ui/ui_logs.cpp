@@ -209,7 +209,7 @@ static void populate_logs_list(const char* name_filter, const char* date_filter)
     int items_per_page = 4;
     int filtered_count = 0;
 
-    for (int i = 0; i < count; i++) {
+    for (int i = count - 1; i >= 0; i--) {
         String nStr = db[i].name; nStr.toLowerCase();
         String dStr = db[i].time_str; dStr.toLowerCase();
         if (nFilt.length() > 0 && nStr.indexOf(nFilt) == -1) continue;
@@ -242,7 +242,7 @@ static void populate_logs_list(const char* name_filter, const char* date_filter)
     int end_idx = start_idx + items_per_page;
     int current_idx = 0;
 
-    for (int i = 0; i < count; i++) {
+    for (int i = count - 1; i >= 0; i--) {
         String nStr = db[i].name; nStr.toLowerCase();
         String dStr = db[i].time_str; dStr.toLowerCase();
         if (nFilt.length() > 0 && nStr.indexOf(nFilt) == -1) continue;
