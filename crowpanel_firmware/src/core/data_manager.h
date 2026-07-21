@@ -97,12 +97,6 @@ private:
     
     static Employee empDB[150];
     static int empCount;
-    // MAX_EMP_RECORDS: upper bound on the employee table.
-    // Rationale: each Employee carries several Arduino Strings (~heap-allocated);
-    // 150 entries * ~200 bytes each = ~30 KB heap — safe headroom on the ESP32-S3
-    // with PSRAM. Raise this only after profiling heap usage on real hardware.
-    // The sync receiver (SyncReceiver.cpp) also enforces this ceiling via
-    // MAX_EMPLOYEES * sizeof(EmployeeSync) before allocating its scratch buffer.
     static constexpr int MAX_EMP_RECORDS = 150;
     static bool _isWifiConfigured;
     static bool _isActivated;
