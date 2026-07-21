@@ -8,7 +8,6 @@
 static lv_obj_t *scr_wifi       = NULL;
 static lv_obj_t *ta_ssid        = NULL;
 static lv_obj_t *ta_pass        = NULL;
-static lv_obj_t *kb_wifi        = NULL;
 static lv_obj_t *lbl_status     = NULL;   // pill label (Online/Offline)
 static lv_obj_t *lbl_err        = NULL;   // footer status message
 static lv_obj_t *panel_networks = NULL;   // scrollable list of found SSIDs
@@ -51,24 +50,14 @@ static void setErr(const char* txt, bool success) {
         success ? UIManager::rgb(COLOR_GREEN_MAIN) : UIManager::rgb(COLOR_DANGER), 0);
 }
 
-// ── keyboard event ─────────────────────────────────────────────────────────
-static void kb_event_cb(lv_event_t *e) {
-    lv_event_code_t code = lv_event_get_code(e);
-    if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
-        lv_obj_add_flag(kb_wifi, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_clear_state(ta_ssid, LV_STATE_FOCUSED);
-        lv_obj_clear_state(ta_pass, LV_STATE_FOCUSED);
-    }
-}
+
 
 // ── text area focus → show keyboard ───────────────────────────────────────
 static void ta_event_cb(lv_event_t *e) {
     lv_event_code_t code = lv_event_get_code(e);
     lv_obj_t *ta = (lv_obj_t *)lv_event_get_current_target(e);
     if (code == LV_EVENT_FOCUSED) {
-        lv_keyboard_set_textarea(kb_wifi, ta);
-        lv_obj_clear_flag(kb_wifi, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_move_foreground(kb_wifi);  // ensure keyboard is on top of all panels
+        UIManager::openKeyboardFor(ta);
     }
     if (code == LV_EVENT_VALUE_CHANGED && ta == ta_ssid) {
         // We no longer clear saved credentials just because the user types something.
@@ -630,12 +619,6 @@ void buildWifiSetupScreen() {
     lv_obj_center(lbl_connect);
     lv_obj_add_event_cb(btn_connect, btn_connect_cb, LV_EVENT_CLICKED, NULL);
 
-    // ════════════════════════════════════════════════════════════
-    // KEYBOARD — created LAST so it is top-most child of scr_wifi
-    // ════════════════════════════════════════════════════════════
-    kb_wifi = lv_keyboard_create(scr_wifi);
-    lv_obj_add_flag(kb_wifi, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_event_cb(kb_wifi, kb_event_cb, LV_EVENT_ALL, NULL);
 }
 
 void uiShowWifiSetup() {

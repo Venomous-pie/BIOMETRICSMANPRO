@@ -74,18 +74,7 @@ static void btn_modal_confirm_cb(lv_event_t * e) {
     // which will reboot the device completely.
 }
 
-static void ta_focus_event_cb(lv_event_t * e) {
-    lv_event_code_t code = lv_event_get_code(e);
-    lv_obj_t * kb = (lv_obj_t *)lv_event_get_user_data(e);
-    lv_obj_t * mod = lv_obj_get_parent(lv_event_get_current_target(e));
-    if (code == LV_EVENT_FOCUSED) {
-        lv_obj_clear_flag(kb, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_align(mod, LV_ALIGN_CENTER, 0, -150); // Shift modal up
-    } else if (code == LV_EVENT_DEFOCUSED) {
-        lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_align(mod, LV_ALIGN_CENTER, 0, 0); // Restore modal
-    }
-}
+
 
 static void btn_factory_reset_cb(lv_event_t * e) {
     if (modal_overlay) return;
@@ -166,13 +155,11 @@ static void btn_factory_reset_cb(lv_event_t * e) {
     UIManager::styleTextArea(ta_confirm);
     lv_obj_add_event_cb(ta_confirm, ta_confirm_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
-    // Keyboard
-    lv_obj_t *kb = lv_keyboard_create(modal_overlay);
-    lv_keyboard_set_textarea(kb, ta_confirm);
-    lv_obj_add_flag(kb, LV_OBJ_FLAG_HIDDEN); // Hidden by default
-    
-    // Use ta_focus_event_cb to shift the screen up when the keyboard opens
-    lv_obj_add_event_cb(ta_confirm, ta_focus_event_cb, LV_EVENT_ALL, kb);
+    lv_obj_add_event_cb(ta_confirm, [](lv_event_t* e) {
+        if (lv_event_get_code(e) == LV_EVENT_FOCUSED) {
+            UIManager::openKeyboardFor((lv_obj_t*)lv_event_get_current_target(e));
+        }
+    }, LV_EVENT_FOCUSED, NULL);
 
     // Buttons
     lv_obj_t *btn_cancel = lv_btn_create(modal);

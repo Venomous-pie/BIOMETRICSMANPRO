@@ -57,10 +57,11 @@ static void enroll_done_cb(lv_event_t * e) {
 
 lv_obj_t *scr_emp_list = NULL;
 lv_obj_t *emp_list_obj = NULL;
-lv_obj_t *ta_search = NULL;
-lv_obj_t *ta_dept_search = NULL;
-lv_obj_t *kb_search = NULL;
+static lv_obj_t *ta_search = NULL;
+static lv_obj_t *dd_status_filter = NULL;  // Enrollment status dropdown
 lv_timer_t *search_debounce_timer = NULL;  // fires 400 ms after last keystroke
+
+static int g_status_filter = 0;  // 0=All, 1=Enrolled, 2=Unenrolled
 
 static int current_page = 0;
 static lv_obj_t *lbl_page_info = NULL;
@@ -72,17 +73,15 @@ static void populate_emp_list(const char* name_filter, const char* dept_filter);
 static void prev_page_cb(lv_event_t * e) {
     if (current_page > 0) {
         current_page--;
-        const char *n = ta_search       ? lv_textarea_get_text(ta_search)       : "";
-        const char *d = ta_dept_search  ? lv_textarea_get_text(ta_dept_search)  : "";
-        populate_emp_list(n, d);
+        const char *n = ta_search ? lv_textarea_get_text(ta_search) : "";
+        populate_emp_list(n, "");
     }
 }
 
 static void next_page_cb(lv_event_t * e) {
     current_page++;
-    const char *n = ta_search       ? lv_textarea_get_text(ta_search)       : "";
-    const char *d = ta_dept_search  ? lv_textarea_get_text(ta_dept_search)  : "";
-    populate_emp_list(n, d);
+    const char *n = ta_search ? lv_textarea_get_text(ta_search) : "";
+    populate_emp_list(n, "");
 }
 
 lv_obj_t *scr_choose_finger = NULL;
@@ -120,9 +119,7 @@ static void populate_emp_list(const char* name_filter, const char* dept_filter) 
   int count = DataManager::getEmployeeCount();
 
   String nFilt = name_filter ? String(name_filter) : "";
-  String dFilt = dept_filter ? String(dept_filter) : "";
   nFilt.toLowerCase();
-  dFilt.toLowerCase();
 
   int items_per_page = 4;
   int filtered_count = 0;
@@ -134,9 +131,10 @@ static void populate_emp_list(const char* name_filter, const char* dept_filter) 
     
     // Hide Admin from the UI list
     if (nStr.indexOf("admin") != -1 || dStr.indexOf("admin") != -1 || jStr.indexOf("admin") != -1) continue;
-
     if (nFilt.length() > 0 && nStr.indexOf(nFilt) == -1) continue;
-    if (dFilt.length() > 0 && dStr.indexOf(dFilt) == -1) continue;
+    // Apply enrollment status filter
+    if (g_status_filter == 1 && !db[i].fp_enrolled) continue;
+    if (g_status_filter == 2 && db[i].fp_enrolled) continue;
     filtered_count++;
   }
 
@@ -169,9 +167,9 @@ static void populate_emp_list(const char* name_filter, const char* dept_filter) 
 
     // Hide Admin from the UI list
     if (nStr.indexOf("admin") != -1 || dStr.indexOf("admin") != -1 || jStr.indexOf("admin") != -1) continue;
-
     if (nFilt.length() > 0 && nStr.indexOf(nFilt) == -1) continue;
-    if (dFilt.length() > 0 && dStr.indexOf(dFilt) == -1) continue;
+    if (g_status_filter == 1 && !db[i].fp_enrolled) continue;
+    if (g_status_filter == 2 && db[i].fp_enrolled) continue;
 
     if (current_idx >= start_idx && current_idx < end_idx) {
       bool enrolled = db[i].fp_enrolled;
@@ -245,9 +243,8 @@ static void search_debounce_cb(lv_timer_t *t) {
     lv_timer_del(search_debounce_timer);
     search_debounce_timer = NULL;
     current_page = 0;
-    const char *n = ta_search       ? lv_textarea_get_text(ta_search)       : "";
-    const char *d = ta_dept_search  ? lv_textarea_get_text(ta_dept_search)  : "";
-    populate_emp_list(n, d);
+    const char *n = ta_search ? lv_textarea_get_text(ta_search) : "";
+    populate_emp_list(n, "");
 }
 
 static void search_ta_event_cb(lv_event_t * e) {
@@ -262,18 +259,8 @@ static void search_ta_event_cb(lv_event_t * e) {
             search_debounce_timer = lv_timer_create(search_debounce_cb, 400, NULL);
             lv_timer_set_repeat_count(search_debounce_timer, 1);
         }
-    } else if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
-        // Dismiss keyboard, restore full list height
-        lv_obj_add_flag(kb_search, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_set_height(emp_list_obj, 210); // Fits 4 rows perfectly (4*52 + 2 border)
-        lv_obj_align(emp_list_obj, LV_ALIGN_TOP_MID, 0, 185);
     } else if (code == LV_EVENT_FOCUSED) {
-        // Show keyboard but keep list visible above it (keyboard ~200px tall)
-        lv_keyboard_set_textarea(kb_search, (lv_obj_t*)lv_event_get_current_target(e));
-        lv_obj_clear_flag(kb_search, LV_OBJ_FLAG_HIDDEN);
-        // Shrink list so it fits above the keyboard
-        lv_obj_set_height(emp_list_obj, 140);
-        lv_obj_align(emp_list_obj, LV_ALIGN_TOP_MID, 0, 185);
+        UIManager::openKeyboardFor((lv_obj_t*)lv_event_get_current_target(e));
     }
 }
 
@@ -315,18 +302,27 @@ void buildEmpListScreen() {
   ta_search = lv_textarea_create(scr_emp_list);
   lv_textarea_set_one_line(ta_search, true);
   lv_textarea_set_placeholder_text(ta_search, "Search by name");
-  lv_obj_set_size(ta_search, 360, 44);
+  lv_obj_set_size(ta_search, 540, 44);
   lv_obj_align(ta_search, LV_ALIGN_TOP_LEFT, 20, 90);
   UIManager::styleTextArea(ta_search);
   lv_obj_add_event_cb(ta_search, search_ta_event_cb, LV_EVENT_ALL, NULL);
 
-  ta_dept_search = lv_textarea_create(scr_emp_list);
-  lv_textarea_set_one_line(ta_dept_search, true);
-  lv_textarea_set_placeholder_text(ta_dept_search, "Search by department");
-  lv_obj_set_size(ta_dept_search, 360, 44);
-  lv_obj_align(ta_dept_search, LV_ALIGN_TOP_RIGHT, -20, 90);
-  UIManager::styleTextArea(ta_dept_search);
-  lv_obj_add_event_cb(ta_dept_search, search_ta_event_cb, LV_EVENT_ALL, NULL);
+  // Enrollment status filter dropdown
+  dd_status_filter = lv_dropdown_create(scr_emp_list);
+  lv_dropdown_set_options(dd_status_filter, "All\nEnrolled\nNot Enrolled");
+  lv_obj_set_size(dd_status_filter, 200, 44);
+  lv_obj_align(dd_status_filter, LV_ALIGN_TOP_RIGHT, -20, 90);
+  lv_obj_set_style_bg_color(dd_status_filter, UIManager::rgb(0xFFFFFF), 0);
+  lv_obj_set_style_border_color(dd_status_filter, UIManager::rgb(0xE0E0E0), 0);
+  lv_obj_set_style_border_width(dd_status_filter, 1, 0);
+  lv_obj_set_style_radius(dd_status_filter, 8, 0);
+  lv_obj_set_style_text_color(dd_status_filter, UIManager::rgb(COLOR_TEXT_MAIN), 0);
+  lv_obj_add_event_cb(dd_status_filter, [](lv_event_t *e) {
+      g_status_filter = lv_dropdown_get_selected((lv_obj_t*)lv_event_get_current_target(e));
+      current_page = 0;
+      const char *n = ta_search ? lv_textarea_get_text(ta_search) : "";
+      populate_emp_list(n, "");
+  }, LV_EVENT_VALUE_CHANGED, NULL);
 
   // â”€â”€ Column Headers â”€â”€
   lv_obj_t *col_hdr = lv_obj_create(scr_emp_list);
@@ -408,10 +404,6 @@ void buildEmpListScreen() {
   UIManager::styleLabel(lbl_page_info, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
   lv_obj_center(lbl_page_info);
 
-  // Keyboard (hidden initially)
-  kb_search = lv_keyboard_create(scr_emp_list);
-  lv_keyboard_set_textarea(kb_search, ta_search);
-  lv_obj_add_flag(kb_search, LV_OBJ_FLAG_HIDDEN);
   // NOTE: do NOT call populate_emp_list() here.
   // Ownership of initial population belongs to uiShowEmpList(), which defers
   // it to after the screen is active so it never runs inside an event callback.
@@ -816,8 +808,6 @@ void uiShowChooseFinger(String emp_id, const char *name, const char *dept) {
       scr_emp_list = NULL;
       emp_list_obj = NULL;
       ta_search = NULL;
-      ta_dept_search = NULL;
-      kb_search = NULL;
     }
 
     // 3. Now that we have plenty of RAM, build the new Choose Finger screen.
@@ -899,10 +889,9 @@ void uiShowEmpList() {
       buildEmpListScreen();
     }
 
-    if (ta_search)      { lv_obj_clear_state(ta_search, LV_STATE_FOCUSED);      lv_textarea_set_text(ta_search, ""); }
-    if (ta_dept_search) { lv_obj_clear_state(ta_dept_search, LV_STATE_FOCUSED); lv_textarea_set_text(ta_dept_search, ""); }
-
-    if (kb_search) lv_obj_add_flag(kb_search, LV_OBJ_FLAG_HIDDEN);
+    if (ta_search) { lv_obj_clear_state(ta_search, LV_STATE_FOCUSED); lv_textarea_set_text(ta_search, ""); }
+    if (dd_status_filter) lv_dropdown_set_selected(dd_status_filter, 0);
+    g_status_filter = 0;
     current_page = 0;
     if (emp_list_obj) {
       lv_obj_set_height(emp_list_obj, 208);

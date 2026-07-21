@@ -5,7 +5,6 @@
 
 static lv_obj_t *scr = NULL;
 static lv_obj_t *ta_dev_name = NULL;
-static lv_obj_t *kb_server = NULL;
 
 LV_FONT_DECLARE(lv_font_montserrat_14);
 LV_FONT_DECLARE(lv_font_montserrat_16);
@@ -16,7 +15,6 @@ static void destroy_screen() {
         lv_obj_t *to_del = scr;
         scr = NULL;        // null BEFORE async delete so re-entry always rebuilds
         ta_dev_name = NULL;
-        kb_server = NULL;
         lv_obj_del_async(to_del);
     }
 }
@@ -38,13 +36,7 @@ static void btn_save_cb(lv_event_t * e) {
     btn_back_cb(e);
 }
 
-static void kb_event_cb(lv_event_t *e) {
-    lv_event_code_t code = lv_event_get_code(e);
-    if (code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
-        lv_obj_add_flag(kb_server, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_clear_state(ta_dev_name, LV_STATE_FOCUSED);
-    }
-}
+
 
 static void btn_test_cb(lv_event_t * e) {
     if (Serial) Serial.println("UI Server: btn_test_cb triggered");
@@ -57,9 +49,7 @@ static void ta_event_cb(lv_event_t *e) {
     lv_event_code_t code = lv_event_get_code(e);
     lv_obj_t *ta = (lv_obj_t *)lv_event_get_current_target(e);
     if (code == LV_EVENT_FOCUSED) {
-        lv_keyboard_set_textarea(kb_server, ta);
-        lv_obj_clear_flag(kb_server, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_move_foreground(kb_server);
+        UIManager::openKeyboardFor(ta);
     }
 }
 
@@ -173,10 +163,6 @@ void buildSettingsServerScreen() {
     lv_label_set_text(lbl_save, "Save changes");
     UIManager::styleLabel(lbl_save, 0xFFFFFF, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
     lv_obj_center(lbl_save);
-
-    kb_server = lv_keyboard_create(scr);
-    lv_obj_add_flag(kb_server, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_event_cb(kb_server, kb_event_cb, LV_EVENT_ALL, NULL);
 }
 
 void uiShowSettingsServer() {

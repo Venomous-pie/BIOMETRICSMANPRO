@@ -10,13 +10,14 @@ lv_obj_t *scr_logs = NULL;
 lv_obj_t *logs_list_obj = NULL;
 lv_obj_t *ta_search_name = NULL;
 lv_obj_t *ta_search_date = NULL;
-lv_obj_t *kb_logs = NULL;
 lv_timer_t *logs_search_debounce_timer = NULL;
 
 static int current_page_logs = 0;
+static int g_log_status_filter = 0;  // 0=All, 1=Time In, 2=Time Out
 static lv_obj_t *lbl_page_info_logs = NULL;
 static lv_obj_t *btn_prev_page_logs = NULL;
 static lv_obj_t *btn_next_page_logs = NULL;
+static lv_obj_t *dd_log_filter = NULL;
 
 extern const lv_img_dsc_t icon_calendar;
 
@@ -63,19 +64,7 @@ static void logs_search_cb(lv_event_t * e) {
 
 static void logs_ta_focus_cb(lv_event_t * e) {
     lv_obj_t *ta = lv_event_get_current_target(e);
-    if (kb_logs) {
-        lv_keyboard_set_textarea(kb_logs, ta);
-        lv_obj_clear_flag(kb_logs, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_move_foreground(kb_logs);
-    }
-}
-
-static void logs_kb_event_cb(lv_event_t * e) {
-    lv_event_code_t code = lv_event_get_code(e);
-    if(code == LV_EVENT_READY || code == LV_EVENT_CANCEL) {
-        lv_obj_add_flag(kb_logs, LV_OBJ_FLAG_HIDDEN);
-        lv_keyboard_set_textarea(kb_logs, NULL);
-    }
+    UIManager::openKeyboardFor(ta);
 }
 
 void buildLogsScreen() {
@@ -96,9 +85,9 @@ void buildLogsScreen() {
     lv_obj_set_style_pad_all(filter_cont, 0, 0);
     lv_obj_clear_flag(filter_cont, LV_OBJ_FLAG_SCROLLABLE);
 
-    // Search by name
+    // Search by name (narrower to make room for dropdown)
     ta_search_name = lv_textarea_create(filter_cont);
-    lv_obj_set_size(ta_search_name, 370, 40);
+    lv_obj_set_size(ta_search_name, 540, 40);
     lv_obj_align(ta_search_name, LV_ALIGN_LEFT_MID, 0, 0);
     lv_textarea_set_placeholder_text(ta_search_name, "Search by name");
     lv_textarea_set_one_line(ta_search_name, true);
@@ -106,22 +95,23 @@ void buildLogsScreen() {
     lv_obj_add_event_cb(ta_search_name, logs_search_cb, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(ta_search_name, logs_ta_focus_cb, LV_EVENT_FOCUSED, NULL);
 
-    // Search by date
-    ta_search_date = lv_textarea_create(filter_cont);
-    lv_obj_set_size(ta_search_date, 370, 40);
-    lv_obj_align(ta_search_date, LV_ALIGN_RIGHT_MID, 0, 0);
-    lv_textarea_set_placeholder_text(ta_search_date, "Select date");
-    lv_textarea_set_one_line(ta_search_date, true);
-    UIManager::styleTextArea(ta_search_date);
-    lv_obj_add_event_cb(ta_search_date, logs_search_cb, LV_EVENT_VALUE_CHANGED, NULL);
-    lv_obj_add_event_cb(ta_search_date, logs_ta_focus_cb, LV_EVENT_FOCUSED, NULL);
-
-    lv_obj_t *img_cal = lv_img_create(filter_cont);
-    lv_img_set_src(img_cal, &icon_calendar);
-    lv_obj_align_to(img_cal, ta_search_date, LV_ALIGN_RIGHT_MID, -10, 0);
-    lv_obj_set_style_img_recolor(img_cal, UIManager::rgb(0x666666), 0);
-    lv_obj_set_style_img_recolor_opa(img_cal, LV_OPA_COVER, 0);
-    lv_img_set_zoom(img_cal, 128); // Shrink just in case it's huge
+    // Status filter dropdown (Time In / Time Out / All)
+    dd_log_filter = lv_dropdown_create(filter_cont);
+    lv_dropdown_set_options(dd_log_filter, "All\nTime In\nTime Out");
+    lv_obj_set_size(dd_log_filter, 200, 40);
+    lv_obj_align(dd_log_filter, LV_ALIGN_RIGHT_MID, 0, 0);
+    lv_obj_set_style_bg_color(dd_log_filter, UIManager::rgb(0xFFFFFF), 0);
+    lv_obj_set_style_border_color(dd_log_filter, UIManager::rgb(0xE0E0E0), 0);
+    lv_obj_set_style_border_width(dd_log_filter, 1, 0);
+    lv_obj_set_style_radius(dd_log_filter, 8, 0);
+    lv_obj_set_style_text_color(dd_log_filter, UIManager::rgb(COLOR_TEXT_MAIN), 0);
+    lv_obj_add_event_cb(dd_log_filter, [](lv_event_t *e) {
+        g_log_status_filter = lv_dropdown_get_selected((lv_obj_t*)lv_event_get_current_target(e));
+        current_page_logs = 0;
+        const char *n = ta_search_name ? lv_textarea_get_text(ta_search_name) : "";
+        const char *d = ta_search_date ? lv_textarea_get_text(ta_search_date) : "";
+        populate_logs_list(n, d);
+    }, LV_EVENT_VALUE_CHANGED, NULL);
 
     // --- Table Header ---
     lv_obj_t *col_hdr = lv_obj_create(scr_logs);
@@ -195,13 +185,6 @@ void buildLogsScreen() {
     lv_obj_t *lbl_next = lv_label_create(btn_next_page_logs);
     lv_label_set_text(lbl_next, "Next");
     lv_obj_center(lbl_next);
-
-    // --- Keyboard Setup ---
-    kb_logs = lv_keyboard_create(scr_logs);
-    lv_obj_set_size(kb_logs, 800, 240);
-    lv_obj_align(kb_logs, LV_ALIGN_BOTTOM_MID, 0, 0);
-    lv_obj_add_flag(kb_logs, LV_OBJ_FLAG_HIDDEN);
-    lv_obj_add_event_cb(kb_logs, logs_kb_event_cb, LV_EVENT_ALL, NULL);
 }
 
 static void populate_logs_list(const char* name_filter, const char* date_filter) {
@@ -216,7 +199,6 @@ static void populate_logs_list(const char* name_filter, const char* date_filter)
     String dFilt = date_filter ? String(date_filter) : "";
     dFilt.toLowerCase();
     
-    // Simplistic date filter for mock data
     int items_per_page = 4;
     int filtered_count = 0;
 
@@ -225,6 +207,8 @@ static void populate_logs_list(const char* name_filter, const char* date_filter)
         String dStr = db[i].time_str; dStr.toLowerCase();
         if (nFilt.length() > 0 && nStr.indexOf(nFilt) == -1) continue;
         if (dFilt.length() > 0 && dStr.indexOf(dFilt) == -1) continue;
+        if (g_log_status_filter == 1 && !db[i].is_time_in) continue;
+        if (g_log_status_filter == 2 && db[i].is_time_in) continue;
         filtered_count++;
     }
 
@@ -256,6 +240,8 @@ static void populate_logs_list(const char* name_filter, const char* date_filter)
         String dStr = db[i].time_str; dStr.toLowerCase();
         if (nFilt.length() > 0 && nStr.indexOf(nFilt) == -1) continue;
         if (dFilt.length() > 0 && dStr.indexOf(dFilt) == -1) continue;
+        if (g_log_status_filter == 1 && !db[i].is_time_in) continue;
+        if (g_log_status_filter == 2 && db[i].is_time_in) continue;
 
         if (current_idx >= start_idx && current_idx < end_idx) {
             lv_obj_t *row = lv_obj_create(logs_list_obj);
@@ -316,6 +302,8 @@ void uiShowLogs() {
     
     if (ta_search_name) lv_textarea_set_text(ta_search_name, "");
     if (ta_search_date) lv_textarea_set_text(ta_search_date, "");
+    if (dd_log_filter) lv_dropdown_set_selected(dd_log_filter, 0);
+    g_log_status_filter = 0;
     current_page_logs = 0;
     populate_logs_list("", "");
 }

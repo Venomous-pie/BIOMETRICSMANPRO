@@ -164,6 +164,139 @@ void UIManager::styleTextArea(lv_obj_t *obj) {
     lv_obj_set_style_bg_opa(obj, LV_OPA_TRANSP, LV_PART_CURSOR | LV_STATE_FOCUSED);
 }
 
+// Forward declarations for toast (defined later) so openKeyboardFor can dismiss it
+static lv_obj_t *g_toast = NULL;
+static lv_timer_t *g_toast_timer = NULL;
+
+static lv_obj_t* g_kb_modal = NULL;
+static lv_obj_t* g_kb_ta = NULL;
+static lv_obj_t* g_kb_keyboard = NULL;
+static lv_obj_t* g_current_target_ta = NULL;
+static lv_obj_t* g_previous_screen = NULL;
+
+static const char * kb_map_num_qwerty_lower[] = {
+    "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "\n",
+    "q", "w", "e", "r", "t", "y", "u", "i", "o", "p", "\n",
+    "a", "s", "d", "f", "g", "h", "j", "k", "l", "\n",
+    "ABC", "z", "x", "c", "v", "b", "n", "m", LV_SYMBOL_BACKSPACE, "\n",
+    "1#", "-", " ", "_", LV_SYMBOL_OK, ""
+};
+static const char * kb_map_num_qwerty_upper[] = {
+    "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "\n",
+    "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "\n",
+    "A", "S", "D", "F", "G", "H", "J", "K", "L", "\n",
+    "abc", "Z", "X", "C", "V", "B", "N", "M", LV_SYMBOL_BACKSPACE, "\n",
+    "1#", "-", " ", "_", LV_SYMBOL_OK, ""
+};
+static const lv_btnmatrix_ctrl_t kb_ctrl_num_qwerty[] = {
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+    1, 1, 1, 1, 1, 1, 1, 1, 1,
+    2, 1, 1, 1, 1, 1, 1, 1, 2,
+    2, 2, 6, 2, 2
+};
+
+static void kb_modal_done_action() {
+    if (g_current_target_ta) {
+        lv_textarea_set_text(g_current_target_ta, lv_textarea_get_text(g_kb_ta));
+        lv_event_send(g_current_target_ta, LV_EVENT_VALUE_CHANGED, NULL);
+        lv_obj_clear_state(g_current_target_ta, LV_STATE_FOCUSED);
+    }
+    if (g_previous_screen) lv_scr_load_anim(g_previous_screen, LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
+    g_current_target_ta = NULL;
+}
+
+static void kb_modal_event_cb(lv_event_t * e) {
+    lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_READY) {
+        kb_modal_done_action();
+    } else if (code == LV_EVENT_CANCEL) {
+        if (g_current_target_ta) {
+            lv_obj_clear_state(g_current_target_ta, LV_STATE_FOCUSED);
+        }
+        if (g_previous_screen) lv_scr_load_anim(g_previous_screen, LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
+        g_current_target_ta = NULL;
+    }
+}
+
+static void kb_done_btn_cb(lv_event_t * e) {
+    kb_modal_done_action();
+}
+
+void UIManager::openKeyboardFor(lv_obj_t* target_ta) {
+    if (!g_kb_modal) {
+        g_kb_modal = lv_obj_create(NULL); // Independent screen instead of layer_top to fix typing lag
+        lv_obj_set_style_bg_color(g_kb_modal, rgb(0xFFFFFF), 0); // Clean white background
+        lv_obj_set_style_bg_opa(g_kb_modal, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(g_kb_modal, 0, 0);
+        lv_obj_set_style_radius(g_kb_modal, 0, 0);
+        lv_obj_set_style_pad_all(g_kb_modal, 0, 0);
+        lv_obj_clear_flag(g_kb_modal, LV_OBJ_FLAG_SCROLLABLE);
+
+        // Top section container
+        lv_obj_t* top_cont = lv_obj_create(g_kb_modal);
+        lv_obj_set_size(top_cont, LCD_WIDTH, 120);
+        lv_obj_align(top_cont, LV_ALIGN_TOP_MID, 0, 0);
+        lv_obj_set_style_bg_color(top_cont, rgb(COLOR_WIFI_BG), 0); // Slight off-white to separate from keyboard
+        lv_obj_set_style_bg_opa(top_cont, LV_OPA_COVER, 0);
+        lv_obj_set_style_border_width(top_cont, 0, 0);
+        lv_obj_set_style_radius(top_cont, 0, 0);
+        lv_obj_set_style_pad_all(top_cont, 10, 0);
+
+        // Text area
+        g_kb_ta = lv_textarea_create(top_cont);
+        lv_obj_set_size(g_kb_ta, 640, 100);
+        lv_obj_align(g_kb_ta, LV_ALIGN_LEFT_MID, 0, 0);
+        styleTextArea(g_kb_ta);
+        lv_obj_set_style_radius(g_kb_ta, 8, 0); // Standard app corner radius
+        lv_obj_set_style_text_font(g_kb_ta, &lv_font_montserrat_28, 0);
+
+        // Done button
+        lv_obj_t* btn_done = lv_btn_create(top_cont);
+        lv_obj_set_size(btn_done, 120, 100); // Big, prominent button matching TA height
+        lv_obj_align(btn_done, LV_ALIGN_RIGHT_MID, 0, 0);
+        lv_obj_set_style_bg_color(btn_done, rgb(COLOR_GREEN_MAIN), 0); // App standard green
+        lv_obj_set_style_radius(btn_done, 8, 0);
+        lv_obj_add_event_cb(btn_done, kb_done_btn_cb, LV_EVENT_CLICKED, NULL);
+
+        lv_obj_t* lbl_done = lv_label_create(btn_done);
+        lv_label_set_text(lbl_done, "Done");
+        styleLabel(lbl_done, 0xFFFFFF, &lv_font_montserrat_20, LV_TEXT_ALIGN_CENTER); // White text
+        lv_obj_center(lbl_done);
+
+        g_kb_keyboard = lv_keyboard_create(g_kb_modal);
+        lv_keyboard_set_textarea(g_kb_keyboard, g_kb_ta);
+        lv_obj_set_size(g_kb_keyboard, LCD_WIDTH, 360);
+        lv_obj_align(g_kb_keyboard, LV_ALIGN_BOTTOM_MID, 0, 0);
+        
+        // Apply custom 5-row map with numbers
+        lv_keyboard_set_map(g_kb_keyboard, LV_KEYBOARD_MODE_TEXT_LOWER, kb_map_num_qwerty_lower, kb_ctrl_num_qwerty);
+        lv_keyboard_set_map(g_kb_keyboard, LV_KEYBOARD_MODE_TEXT_UPPER, kb_map_num_qwerty_upper, kb_ctrl_num_qwerty);
+        
+        lv_obj_add_event_cb(g_kb_keyboard, kb_modal_event_cb, LV_EVENT_ALL, NULL);
+    }
+    
+    g_previous_screen = lv_scr_act();
+    
+    g_current_target_ta = target_ta;
+    
+    const char* txt = lv_textarea_get_text(target_ta);
+    const char* placeholder = lv_textarea_get_placeholder_text(target_ta);
+    bool is_pw = lv_textarea_get_password_mode(target_ta);
+    uint32_t max_len = lv_textarea_get_max_length(target_ta);
+    
+    lv_textarea_set_text(g_kb_ta, txt ? txt : "");
+    lv_textarea_set_placeholder_text(g_kb_ta, placeholder ? placeholder : "");
+    lv_textarea_set_password_mode(g_kb_ta, is_pw);
+    lv_textarea_set_max_length(g_kb_ta, max_len);
+    // Dismiss any active toast before switching screens to avoid tearing
+    if (g_toast) { lv_obj_del(g_toast); g_toast = NULL; }
+    if (g_toast_timer) { lv_timer_del(g_toast_timer); g_toast_timer = NULL; }
+
+    lv_scr_load_anim(g_kb_modal, LV_SCR_LOAD_ANIM_NONE, 0, 0, false); // No anim = no tearing
+    lv_obj_add_state(g_kb_ta, LV_STATE_FOCUSED);
+}
+
 void UIManager::buildAllScreens() {
     // Only pre-build the 4 core navigation screens that are always needed.
     // Result, Enroll, and EmpList are lazy-built on first use to conserve
@@ -193,8 +326,6 @@ void UIManager::updateHeaderWifi(bool connected) {
     }
 }
 
-static lv_obj_t *g_toast = NULL;
-static lv_timer_t *g_toast_timer = NULL;
 
 static void toast_timer_cb(lv_timer_t *timer) {
     if (g_toast) {

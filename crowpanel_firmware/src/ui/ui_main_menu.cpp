@@ -99,8 +99,6 @@ void uiShowMainMenu() {
     extern lv_obj_t *scr_emp_list;
     if (scr_emp_list != NULL) {
         extern lv_obj_t *emp_list_obj;
-        extern lv_obj_t *ta_search;
-        extern lv_obj_t *kb_search;
         extern lv_timer_t *search_debounce_timer;
         
         if (search_debounce_timer) {
@@ -110,8 +108,6 @@ void uiShowMainMenu() {
         lv_obj_del_async(scr_emp_list);
         scr_emp_list = NULL;
         emp_list_obj = NULL;
-        ta_search = NULL;
-        kb_search = NULL;
     }
 
     extern lv_obj_t *scr_logs;
@@ -119,7 +115,6 @@ void uiShowMainMenu() {
         extern lv_obj_t *logs_list_obj;
         extern lv_obj_t *ta_search_name;
         extern lv_obj_t *ta_search_date;
-        extern lv_obj_t *kb_logs;
         extern lv_timer_t *logs_search_debounce_timer;
         
         if (logs_search_debounce_timer) {
@@ -131,6 +126,5 @@ void uiShowMainMenu() {
         logs_list_obj = NULL;
         ta_search_name = NULL;
         ta_search_date = NULL;
-        kb_logs = NULL;
     }
 }
