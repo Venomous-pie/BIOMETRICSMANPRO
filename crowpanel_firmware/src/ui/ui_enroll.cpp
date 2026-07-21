@@ -59,9 +59,13 @@ lv_obj_t *scr_emp_list = NULL;
 lv_obj_t *emp_list_obj = NULL;
 static lv_obj_t *ta_search = NULL;
 static lv_obj_t *dd_status_filter = NULL;  // Enrollment status dropdown
+static lv_obj_t *dd_dept_filter = NULL;
+static lv_obj_t *dd_branch_filter = NULL;
 lv_timer_t *search_debounce_timer = NULL;  // fires 400 ms after last keystroke
 
 static int g_status_filter = 0;  // 0=All, 1=Enrolled, 2=Unenrolled
+static String g_dept_filter_str = "All";
+static String g_branch_filter_str = "All";
 
 static int current_page = 0;
 static lv_obj_t *lbl_page_info = NULL;
@@ -135,6 +139,9 @@ static void populate_emp_list(const char* name_filter, const char* dept_filter) 
     // Apply enrollment status filter
     if (g_status_filter == 1 && !db[i].fp_enrolled) continue;
     if (g_status_filter == 2 && db[i].fp_enrolled) continue;
+    // Apply dept & branch filters
+    if (g_dept_filter_str != "All" && !db[i].dept.equalsIgnoreCase(g_dept_filter_str)) continue;
+    if (g_branch_filter_str != "All" && !db[i].branch.equalsIgnoreCase(g_branch_filter_str)) continue;
     filtered_count++;
   }
 
@@ -170,6 +177,8 @@ static void populate_emp_list(const char* name_filter, const char* dept_filter) 
     if (nFilt.length() > 0 && nStr.indexOf(nFilt) == -1) continue;
     if (g_status_filter == 1 && !db[i].fp_enrolled) continue;
     if (g_status_filter == 2 && db[i].fp_enrolled) continue;
+    if (g_dept_filter_str != "All" && !db[i].dept.equalsIgnoreCase(g_dept_filter_str)) continue;
+    if (g_branch_filter_str != "All" && !db[i].branch.equalsIgnoreCase(g_branch_filter_str)) continue;
 
     if (current_idx >= start_idx && current_idx < end_idx) {
       bool enrolled = db[i].fp_enrolled;
@@ -302,27 +311,66 @@ void buildEmpListScreen() {
   ta_search = lv_textarea_create(scr_emp_list);
   lv_textarea_set_one_line(ta_search, true);
   lv_textarea_set_placeholder_text(ta_search, "Search by name");
-  lv_obj_set_size(ta_search, 540, 44);
+  lv_obj_set_size(ta_search, 260, 44);
   lv_obj_align(ta_search, LV_ALIGN_TOP_LEFT, 20, 90);
   UIManager::styleTextArea(ta_search);
   lv_obj_add_event_cb(ta_search, search_ta_event_cb, LV_EVENT_ALL, NULL);
 
+  auto dd_filter_cb = [](lv_event_t *e) {
+      lv_obj_t *dd = (lv_obj_t*)lv_event_get_current_target(e);
+      char buf[64];
+      lv_dropdown_get_selected_str(dd, buf, sizeof(buf));
+      if (lv_dropdown_get_selected(dd) == 0) {
+          if (dd == dd_status_filter) lv_dropdown_set_text(dd, "Status");
+          else if (dd == dd_dept_filter) lv_dropdown_set_text(dd, "Department");
+          else if (dd == dd_branch_filter) lv_dropdown_set_text(dd, "Branch");
+      } else {
+          lv_dropdown_set_text(dd, NULL);
+      }
+      
+      if (dd == dd_status_filter) g_status_filter = lv_dropdown_get_selected(dd);
+      else if (dd == dd_dept_filter) g_dept_filter_str = buf;
+      else if (dd == dd_branch_filter) g_branch_filter_str = buf;
+      
+      current_page = 0;
+      const char *n = ta_search ? lv_textarea_get_text(ta_search) : "";
+      populate_emp_list(n, "");
+  };
+
+  dd_dept_filter = lv_dropdown_create(scr_emp_list);
+  lv_obj_set_size(dd_dept_filter, 150, 44);
+  lv_obj_align(dd_dept_filter, LV_ALIGN_TOP_LEFT, 290, 90);
+  lv_obj_set_style_bg_color(dd_dept_filter, UIManager::rgb(0xFFFFFF), 0);
+  lv_obj_set_style_border_color(dd_dept_filter, UIManager::rgb(0xE0E0E0), 0);
+  lv_obj_set_style_border_width(dd_dept_filter, 1, 0);
+  lv_obj_set_style_radius(dd_dept_filter, 8, 0);
+  lv_obj_set_style_text_color(dd_dept_filter, UIManager::rgb(COLOR_TEXT_MAIN), 0);
+  lv_obj_add_event_cb(dd_dept_filter, dd_filter_cb, LV_EVENT_VALUE_CHANGED, NULL);
+  lv_dropdown_set_text(dd_dept_filter, "Department");
+
+  dd_branch_filter = lv_dropdown_create(scr_emp_list);
+  lv_obj_set_size(dd_branch_filter, 150, 44);
+  lv_obj_align(dd_branch_filter, LV_ALIGN_TOP_LEFT, 450, 90);
+  lv_obj_set_style_bg_color(dd_branch_filter, UIManager::rgb(0xFFFFFF), 0);
+  lv_obj_set_style_border_color(dd_branch_filter, UIManager::rgb(0xE0E0E0), 0);
+  lv_obj_set_style_border_width(dd_branch_filter, 1, 0);
+  lv_obj_set_style_radius(dd_branch_filter, 8, 0);
+  lv_obj_set_style_text_color(dd_branch_filter, UIManager::rgb(COLOR_TEXT_MAIN), 0);
+  lv_obj_add_event_cb(dd_branch_filter, dd_filter_cb, LV_EVENT_VALUE_CHANGED, NULL);
+  lv_dropdown_set_text(dd_branch_filter, "Branch");
+
   // Enrollment status filter dropdown
   dd_status_filter = lv_dropdown_create(scr_emp_list);
   lv_dropdown_set_options(dd_status_filter, "All\nEnrolled\nNot Enrolled");
-  lv_obj_set_size(dd_status_filter, 200, 44);
-  lv_obj_align(dd_status_filter, LV_ALIGN_TOP_RIGHT, -20, 90);
+  lv_obj_set_size(dd_status_filter, 150, 44);
+  lv_obj_align(dd_status_filter, LV_ALIGN_TOP_LEFT, 610, 90);
   lv_obj_set_style_bg_color(dd_status_filter, UIManager::rgb(0xFFFFFF), 0);
   lv_obj_set_style_border_color(dd_status_filter, UIManager::rgb(0xE0E0E0), 0);
   lv_obj_set_style_border_width(dd_status_filter, 1, 0);
   lv_obj_set_style_radius(dd_status_filter, 8, 0);
   lv_obj_set_style_text_color(dd_status_filter, UIManager::rgb(COLOR_TEXT_MAIN), 0);
-  lv_obj_add_event_cb(dd_status_filter, [](lv_event_t *e) {
-      g_status_filter = lv_dropdown_get_selected((lv_obj_t*)lv_event_get_current_target(e));
-      current_page = 0;
-      const char *n = ta_search ? lv_textarea_get_text(ta_search) : "";
-      populate_emp_list(n, "");
-  }, LV_EVENT_VALUE_CHANGED, NULL);
+  lv_obj_add_event_cb(dd_status_filter, dd_filter_cb, LV_EVENT_VALUE_CHANGED, NULL);
+  lv_dropdown_set_text(dd_status_filter, "Status");
 
   // â”€â”€ Column Headers â”€â”€
   lv_obj_t *col_hdr = lv_obj_create(scr_emp_list);
@@ -889,9 +937,46 @@ void uiShowEmpList() {
       buildEmpListScreen();
     }
 
+    // Pre-calculate unique departments and branches dynamically
+    const int MAX_UNIQUE = 30;
+    String unique_depts[MAX_UNIQUE];
+    int num_depts = 0;
+    String unique_branches[MAX_UNIQUE];
+    int num_branches = 0;
+
+    const Employee* db = DataManager::getEmployees();
+    int count = DataManager::getEmployeeCount();
+
+    for (int i = 0; i < count; i++) {
+      String d = db[i].dept;
+      String b = db[i].branch;
+      if (d.length() > 0 && !d.equalsIgnoreCase("admin") && !d.equalsIgnoreCase("All")) {
+          bool found = false;
+          for (int j = 0; j < num_depts; j++) if (unique_depts[j] == d) { found = true; break; }
+          if (!found && num_depts < MAX_UNIQUE) unique_depts[num_depts++] = d;
+      }
+      if (b.length() > 0 && !b.equalsIgnoreCase("All")) {
+          bool found = false;
+          for (int j = 0; j < num_branches; j++) if (unique_branches[j] == b) { found = true; break; }
+          if (!found && num_branches < MAX_UNIQUE) unique_branches[num_branches++] = b;
+      }
+    }
+
+    String dept_opts = "All";
+    for (int i = 0; i < num_depts; i++) dept_opts += "\n" + unique_depts[i];
+    String branch_opts = "All";
+    for (int i = 0; i < num_branches; i++) branch_opts += "\n" + unique_branches[i];
+
+    if (dd_dept_filter) lv_dropdown_set_options(dd_dept_filter, dept_opts.c_str());
+    if (dd_branch_filter) lv_dropdown_set_options(dd_branch_filter, branch_opts.c_str());
+
     if (ta_search) { lv_obj_clear_state(ta_search, LV_STATE_FOCUSED); lv_textarea_set_text(ta_search, ""); }
-    if (dd_status_filter) lv_dropdown_set_selected(dd_status_filter, 0);
+    if (dd_status_filter) { lv_dropdown_set_selected(dd_status_filter, 0); lv_dropdown_set_text(dd_status_filter, "Status"); }
+    if (dd_dept_filter) { lv_dropdown_set_selected(dd_dept_filter, 0); lv_dropdown_set_text(dd_dept_filter, "Department"); }
+    if (dd_branch_filter) { lv_dropdown_set_selected(dd_branch_filter, 0); lv_dropdown_set_text(dd_branch_filter, "Branch"); }
     g_status_filter = 0;
+    g_dept_filter_str = "All";
+    g_branch_filter_str = "All";
     current_page = 0;
     if (emp_list_obj) {
       lv_obj_set_height(emp_list_obj, 208);

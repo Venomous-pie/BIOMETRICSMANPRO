@@ -106,12 +106,19 @@ void buildLogsScreen() {
     lv_obj_set_style_radius(dd_log_filter, 8, 0);
     lv_obj_set_style_text_color(dd_log_filter, UIManager::rgb(COLOR_TEXT_MAIN), 0);
     lv_obj_add_event_cb(dd_log_filter, [](lv_event_t *e) {
-        g_log_status_filter = lv_dropdown_get_selected((lv_obj_t*)lv_event_get_current_target(e));
+        lv_obj_t *dd = (lv_obj_t*)lv_event_get_current_target(e);
+        if (lv_dropdown_get_selected(dd) == 0) {
+            lv_dropdown_set_text(dd, "Status");
+        } else {
+            lv_dropdown_set_text(dd, NULL);
+        }
+        g_log_status_filter = lv_dropdown_get_selected(dd);
         current_page_logs = 0;
         const char *n = ta_search_name ? lv_textarea_get_text(ta_search_name) : "";
         const char *d = ta_search_date ? lv_textarea_get_text(ta_search_date) : "";
         populate_logs_list(n, d);
     }, LV_EVENT_VALUE_CHANGED, NULL);
+    lv_dropdown_set_text(dd_log_filter, "Status");
 
     // --- Table Header ---
     lv_obj_t *col_hdr = lv_obj_create(scr_logs);
@@ -302,7 +309,7 @@ void uiShowLogs() {
     
     if (ta_search_name) lv_textarea_set_text(ta_search_name, "");
     if (ta_search_date) lv_textarea_set_text(ta_search_date, "");
-    if (dd_log_filter) lv_dropdown_set_selected(dd_log_filter, 0);
+    if (dd_log_filter) { lv_dropdown_set_selected(dd_log_filter, 0); lv_dropdown_set_text(dd_log_filter, "Status"); }
     g_log_status_filter = 0;
     current_page_logs = 0;
     populate_logs_list("", "");

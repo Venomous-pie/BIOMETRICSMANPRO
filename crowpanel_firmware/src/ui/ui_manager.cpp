@@ -287,7 +287,7 @@ void UIManager::openKeyboardFor(lv_obj_t* target_ta) {
     
     lv_textarea_set_text(g_kb_ta, txt ? txt : "");
     lv_textarea_set_placeholder_text(g_kb_ta, placeholder ? placeholder : "");
-    lv_textarea_set_password_mode(g_kb_ta, is_pw);
+    lv_textarea_set_password_mode(g_kb_ta, false); // Always show text while actively typing
     lv_textarea_set_max_length(g_kb_ta, max_len);
     // Dismiss any active toast before switching screens to avoid tearing
     if (g_toast) { lv_obj_del(g_toast); g_toast = NULL; }
