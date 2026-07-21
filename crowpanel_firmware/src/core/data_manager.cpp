@@ -5,6 +5,7 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
+#include "sync_protocol.h"
 
 Employee DataManager::empDB[150];
 int DataManager::empCount = 0;
@@ -62,13 +63,13 @@ int    DataManager::_brightness = 200;
 int    DataManager::_screenTimeout = 30;
 bool   DataManager::_wifiConnected = false;
 
+unsigned long DataManager::_lastSyncTimestamp = 0;
+
 void DataManager::begin() {
     if (!LittleFS.begin(true)) {
-        // Serial.println("[FS] LittleFS Mount Failed. Formatting...");
         return;
     }
     
-    // Generate Hardware Code from MAC (XXXX-XXXX format)
     uint32_t mac32 = (uint32_t)ESP.getEfuseMac();
     char hw[10];
     snprintf(hw, sizeof(hw), "%04X-%04X", (mac32 >> 16) & 0xFFFF, mac32 & 0xFFFF);
@@ -84,14 +85,12 @@ void DataManager::createInitialFilesIfMissing() {
     if (!LittleFS.exists("/employees.jsonl")) {
         File f = LittleFS.open("/employees.jsonl", "w");
         if (f) {
-            // No default employees needed for API sync, just an empty file or basic admin
             f.println("{\"id\":1,\"name\":\"Admin\",\"dept\":\"Admin\",\"job_title\":\"System Admin\",\"branch\":\"Main\",\"fp_enrolled\":false,\"enrolled_finger\":-1}");
             f.close();
         }
     }
     
     if (!LittleFS.exists("/config.json")) {
-        // Serial.println("[FS] Creating initial config.json...");
         File f = LittleFS.open("/config.json", "w");
         if (f) {
             f.print("{\"wifiConfigured\":false,\"activated\":false}");
@@ -113,7 +112,7 @@ void DataManager::loadConfig() {
         _brightness = doc["brightness"] | 200;
         _screenTimeout = doc["screenTimeout"] | 30;
         
-        if (_brightness < 50) _brightness = 50; // enforce minimum limit
+        if (_brightness < 50) _brightness = 50;
     }
     f.close();
 }
@@ -136,11 +135,10 @@ void DataManager::saveConfig() {
 void DataManager::loadEmployees() {
     File f = LittleFS.open("/employees.jsonl", "r");
     if (!f) {
-        // Fallback to old file if jsonl doesn't exist yet
         f = LittleFS.open("/employees.json", "r");
         if (!f) return;
         
-        StaticJsonDocument<4096> doc; // Try to parse if it's small enough
+        StaticJsonDocument<4096> doc;
         if (deserializeJson(doc, f) == DeserializationError::Ok) {
             empCount = 0;
             for (JsonObject e : doc["employees"].as<JsonArray>()) {
@@ -161,7 +159,7 @@ void DataManager::loadEmployees() {
             }
         }
         f.close();
-        saveEmployees(); // Upgrade to JSONL
+        saveEmployees();
         return;
     }
 
@@ -184,12 +182,14 @@ void DataManager::loadEmployees() {
         }
     }
     f.close();
+    loadFpState(); // re-apply slot-keyed fp_enrolled after reading employees from disk
 }
 
 const Employee* DataManager::getEmployees() { return empDB; }
 int DataManager::getEmployeeCount() { return empCount; }
 
-// Serialise the current in-RAM empDB back to /employees.jsonl on LittleFS.
+static void writeFpStateEntry(int slot, const String& name, bool enrolled);
+
 void DataManager::saveEmployees() {
     File f = LittleFS.open("/employees.jsonl", "w");
     if (!f) return;
@@ -208,13 +208,15 @@ void DataManager::saveEmployees() {
     f.close();
 }
 
-// Update a single employee's fp_enrolled flag in RAM and persist to flash.
 void DataManager::updateEmployeeFpEnrolled(const String& emp_id, bool enrolled, int finger_index) {
     for (int i = 0; i < empCount; i++) {
         if (empDB[i].id == emp_id) {
             empDB[i].fp_enrolled = enrolled;
             empDB[i].enrolled_finger = finger_index;
+            // Persist to both JSONL (for fast boot re-load) and fp_state.json
+            // (stable across payroll syncs, keyed by slot not by positional id).
             saveEmployees();
+            writeFpStateEntry(finger_index, empDB[i].name, enrolled);
             return;
         }
     }
@@ -226,7 +228,142 @@ void DataManager::setWifiConfigured(bool state) {
     saveConfig(); 
 }
 
-// ── WiFi credential persistence ────────────────────────────────────────────
+unsigned long DataManager::getLastSyncTimestamp() {
+    return _lastSyncTimestamp;
+}
+
+bool DataManager::isDataStale() {
+    if (_lastSyncTimestamp == 0) return true;
+    return (millis() - _lastSyncTimestamp > 7200000);
+}
+
+void DataManager::applySyncBuffer(const uint8_t* buffer, size_t len) {
+    if (len % sizeof(EmployeeSync) != 0) {
+        if (Serial) Serial.println("[DATA] applySyncBuffer: buffer length not a multiple of EmployeeSync — likely corruption, aborting.");
+        return;
+    }
+
+    int count = len / sizeof(EmployeeSync);
+    if (count > MAX_EMP_RECORDS) count = MAX_EMP_RECORDS;
+
+    const EmployeeSync* incoming = (const EmployeeSync*)buffer;
+
+    // Full atomic replace: overwrite empDB with the incoming records.
+    // fp_enrolled / enrolled_finger are NOT carried from the old DB here —
+    // those fields live in fp_state.json (a separate slot-keyed side-table) and
+    // are re-applied by loadFpState() after this call.  See updateEmployeeFpEnrolled()
+    // and the comment at the top of this file for the rationale.
+    empCount = count;
+    for (int i = 0; i < count; i++) {
+        // IMPORTANT: this id is positional (array index + 1), NOT a stable server ID.
+        // It is used only for UI row identification within a single session.
+        // It will shift under employees if the API changes employee ordering between
+        // syncs — nothing outside this session should treat it as stable.
+        // The only stable key CrowPanel owns is the AS608 slot number, stored in
+        // enrolled_finger and in fp_state.json.
+        empDB[i].id            = String(i + 1);
+        empDB[i].name          = String(incoming[i].name);
+        empDB[i].dept          = String(incoming[i].department);
+        empDB[i].job_title     = String(incoming[i].role);
+        empDB[i].branch        = String(incoming[i].branch);
+        empDB[i].fp_enrolled   = false;    // cleared; loadFpState() will re-populate
+        empDB[i].enrolled_finger = -1;
+    }
+
+    _lastSyncTimestamp = millis();
+    saveEmployees();
+    loadFpState(); // re-apply fingerprint enrollment status from the stable side-table
+
+    if (Serial) Serial.printf("[DATA] applySyncBuffer: replaced %d records.\n", count);
+}
+
+// ── Fingerprint-state side-table ──────────────────────────────────────────────
+// fp_state.json stores fingerprint enrollment status keyed by AS608 slot number.
+// It is written only by updateEmployeeFpEnrolled() and never touched by payroll
+// sync, so it survives full employee-list replacements intact.
+//
+// Format: { "slots": [ {"slot":1,"name":"Maria Alaine..."}, ... ] }
+//   - slot   : AS608 physical slot number (stable — assigned at enroll time)
+//   - name   : snapshot of the employee name at enroll time (informational only)
+//
+// At load time loadFpState() scans empDB for a name match and sets fp_enrolled.
+// If a name was corrected between syncs and no match is found, the slot is simply
+// not flagged — the template still exists on the AS608 sensor and will still match
+// on scan.  The UI badge will clear until the next enroll flow updates the record.
+
+static const char* FP_STATE_FILE = "/fp_state.json";
+
+// Writes an entry into fp_state.json for a newly enrolled slot.
+// name is stored as a snapshot so the record is self-describing, but it is NOT
+// used as a matching key at load time — slot is the key.
+static void writeFpStateEntry(int slot, const String& name, bool enrolled) {
+    StaticJsonDocument<4096> doc;
+
+    if (LittleFS.exists(FP_STATE_FILE)) {
+        File f = LittleFS.open(FP_STATE_FILE, "r");
+        if (f) {
+            deserializeJson(doc, f);
+            f.close();
+        }
+    }
+
+    if (!doc.containsKey("slots")) {
+        doc.createNestedArray("slots");
+    }
+
+    JsonArray arr = doc["slots"].as<JsonArray>();
+
+    // Update existing entry if slot already present
+    for (JsonObject entry : arr) {
+        if ((entry["slot"] | -1) == slot) {
+            entry["name"]     = name;
+            entry["enrolled"] = enrolled;
+            File f = LittleFS.open(FP_STATE_FILE, "w");
+            if (f) { serializeJson(doc, f); f.close(); }
+            return;
+        }
+    }
+
+    // New slot
+    JsonObject entry = arr.createNestedObject();
+    entry["slot"]     = slot;
+    entry["name"]     = name;
+    entry["enrolled"] = enrolled;
+
+    File f = LittleFS.open(FP_STATE_FILE, "w");
+    if (f) { serializeJson(doc, f); f.close(); }
+}
+
+// Re-applies fp_enrolled to empDB from fp_state.json after a sync.
+// The match key is slot number: we set fp_enrolled on whichever empDB entry has
+// enrolled_finger == slot (set during enroll), or if enrolled_finger is not yet
+// known, we leave it for the next updateEmployeeFpEnrolled() call.
+void DataManager::loadFpState() {
+    if (!LittleFS.exists(FP_STATE_FILE)) return;
+    File f = LittleFS.open(FP_STATE_FILE, "r");
+    if (!f) return;
+
+    StaticJsonDocument<4096> doc;
+    if (deserializeJson(doc, f) != DeserializationError::Ok) { f.close(); return; }
+    f.close();
+
+    JsonArray arr = doc["slots"].as<JsonArray>();
+    for (JsonObject entry : arr) {
+        int  slot     = entry["slot"]     | -1;
+        bool enrolled = entry["enrolled"] | false;
+        if (slot < 0) continue;
+
+        // Find the employee whose enrolled_finger matches this slot
+        for (int i = 0; i < empCount; i++) {
+            if (empDB[i].enrolled_finger == slot) {
+                empDB[i].fp_enrolled = enrolled;
+                break;
+            }
+        }
+    }
+}
+
+
 void DataManager::loadWifiCredentials() {
     _wifiCount = 0;
     if (!LittleFS.exists("/wifi_creds.json")) return;
@@ -243,7 +380,6 @@ void DataManager::loadWifiCredentials() {
                 _wifiCount++;
             }
         } else {
-            // Fallback for old format
             _wifiSsid[0] = doc["ssid"] | "";
             _wifiPass[0] = doc["pass"] | "";
             if (_wifiSsid[0].length() > 0) _wifiCount = 1;
@@ -268,7 +404,6 @@ void DataManager::saveWifiCredentialsToFs() {
 
 void DataManager::saveWifiCredentials(const String& ssid, const String& pass) {
     if (ssid.length() == 0) return;
-    // Check if it already exists, remove it if it does
     int existing_idx = -1;
     for (int i = 0; i < _wifiCount; i++) {
         if (_wifiSsid[i] == ssid) {
@@ -277,7 +412,6 @@ void DataManager::saveWifiCredentials(const String& ssid, const String& pass) {
         }
     }
     
-    // Shift elements to make room at the front
     int shift_start = (existing_idx != -1) ? existing_idx : ((_wifiCount < 5) ? _wifiCount : 4);
     for (int i = shift_start; i > 0; i--) {
         _wifiSsid[i] = _wifiSsid[i - 1];
@@ -311,28 +445,23 @@ bool DataManager::isWifiConnected() { return _wifiConnected; }
 bool DataManager::isActivated() { return _isActivated; }
 String DataManager::getHardwareCode() { return _hwCode; }
 
-// Returns the full device ID shown on the register page and sent to the API.
 String DataManager::getDeviceId() {
     return String(DEVICE_ID_HARDCODED);
 }
 
-// Called when WROOM receives ACTIVATION_STATUS:activated=true from the server.
-// Persists activated state so it survives reboot, then notifies WROOM to unlock.
 void DataManager::setActivatedByServer(bool state) {
     _isActivated = state;
     saveConfig();
 }
 
-// Stores the real device_token received from the server
 void DataManager::setDeviceToken(const String& token) {
     _activationCode = token;
     saveConfig();
 }
 
-
 bool DataManager::isLockedOut() {
     if (_lockoutStartTime > 0) {
-        if (millis() - _lockoutStartTime >= 600000) { // 10 minutes passed
+        if (millis() - _lockoutStartTime >= 600000) {
             _lockoutStartTime = 0;
             _failedAttempts = 0;
             return false;
@@ -348,11 +477,10 @@ unsigned long DataManager::getLockoutStartTime() { return _lockoutStartTime; }
 bool DataManager::activate(const String& code) {
     if (isLockedOut()) return false;
 
-    // Basic mock logic: 12 uppercase characters
     bool valid = true;
     if (code.length() != 12) valid = false;
     for (int i = 0; i < 12; i++) {
-        if (code[i] < 'A' || code[i] > 'Z') valid = false; // Must be uppercase alpha
+        if (code[i] < 'A' || code[i] > 'Z') valid = false;
     }
     
     if (valid) {
@@ -365,7 +493,6 @@ bool DataManager::activate(const String& code) {
         _failedAttempts++;
         if (_failedAttempts >= 5) {
             _lockoutStartTime = millis();
-            // In a real system, the server would invalidate the old code here.
         }
         return false;
     }
@@ -377,14 +504,11 @@ void DataManager::factoryReset() {
     _activationCode   = "";
     saveConfig();
     clearWifiCredentials();
-    // Serial.println("[FS] Factory reset: config and WiFi credentials cleared.");
 }
 
 String DataManager::getActivationCode() {
     return _activationCode;
 }
-
-// String DataManager::getDeviceId() is implemented at the top using DEVICE_ID_HARDCODED
 
 String DataManager::getDeviceName() {
     return _deviceName;
@@ -400,7 +524,7 @@ int DataManager::getBrightness() {
 }
 
 void DataManager::setBrightness(int val) {
-    if (val < 50) val = 50; // enforce minimum limit
+    if (val < 50) val = 50;
     if (val > 255) val = 255;
     _brightness = val;
     saveConfig();
@@ -415,9 +539,6 @@ void DataManager::setScreenTimeout(int val) {
     _screenTimeout = val;
     saveConfig();
 }
-
-#include <HTTPClient.h>
-#include <WiFiClientSecure.h>
 
 static Employee oldDB[150];
 static int oldEmpCount = 0;
@@ -476,5 +597,3 @@ void DataManager::nukeDatabase() {
     }
     LittleFS.remove("/employees.jsonl");
 }
-
-

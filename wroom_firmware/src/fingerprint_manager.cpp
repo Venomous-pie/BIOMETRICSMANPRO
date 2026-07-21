@@ -11,6 +11,17 @@ Adafruit_Fingerprint finger(&fpSerial);
 // so the next scan for that slot will record Time Out.
 static bool lastIn[MAX_SLOTS + 1] = {};
 
+// ── UART helpers ──────────────────────────────────────────────────────────────
+// Block until the UART has a byte available or deadline is reached.
+// Returns true if a byte was read, false on timeout.
+static bool readByteTimeout(HardwareSerial& s, uint8_t& out, unsigned long deadline) {
+  while (millis() < deadline) {
+    if (s.available()) { out = s.read(); return true; }
+    delay(1);
+  }
+  return false;
+}
+
 void fingerprintManagerInit() {
   fpSerial.begin(57600, SERIAL_8N1, PIN_FP_RX, PIN_FP_TX);
   finger.begin(57600);
@@ -116,3 +127,77 @@ bool doEnroll(int slot) {
   if (p != FINGERPRINT_OK) { Serial.printf("[ENROLL] FAIL: storeModel(%d) = 0x%02X\n", slot, p); return false; }
   return true;
 }
+
+// ── Template extraction ───────────────────────────────────────────────────────
+// After storeModel() the template is still live in the sensor's char buffer.
+// We call getModel() (UpChar command 0x08) which makes the AS608 stream the
+// buffer contents back over UART as structured packets, then we drain the UART
+// into our flat buffer.
+//
+// Packet wire format (from AS608 datasheet):
+//   [EF01][FFFFFFFF][type 1B][length 2B][data 0-256B][checksum 2B]
+//
+// Data packets have type 0x02; the final packet has type 0x08 (end-data).
+// We strip headers/checksums and copy only the payload bytes.
+
+int getTemplateBytes(int slot, uint8_t* buf, size_t bufSize) {
+  // loadModel re-reads the template from flash into the sensor's char buffer.
+  if (finger.loadModel(slot) != FINGERPRINT_OK) {
+    Serial.println("[FP] getTemplateBytes: loadModel failed");
+    return 0;
+  }
+
+  // getModel() sends the "UpChar" command (0x08); the AS608 then streams
+  // the buffer contents as structured packets back over the same UART.
+  if (finger.getModel() != FINGERPRINT_OK) {
+    Serial.println("[FP] getTemplateBytes: getModel failed");
+    return 0;
+  }
+
+  // Drain the UART. Packet wire format (AS608 datasheet):
+  //   Header[EF 01](2) + Address(4) + PktType(1) + PktLen(2) + Data(n) + CRC(2)
+  // Data packets = type 0x02; End-data packet = type 0x08.
+  // We collect only the payload Data bytes from those two packet types.
+  int totalRead = 0;
+  unsigned long deadline = millis() + 3000; // 3-second hard timeout
+  uint8_t b = 0;
+
+  while (millis() < deadline && totalRead < (int)bufSize) {
+    // Sync on EF 01 header
+    if (!readByteTimeout(fpSerial, b, deadline) || b != 0xEF) continue;
+    if (!readByteTimeout(fpSerial, b, deadline) || b != 0x01) continue;
+
+    // Skip 4-byte address
+    for (int i = 0; i < 4; i++) if (!readByteTimeout(fpSerial, b, deadline)) goto done;
+
+    // Packet type
+    uint8_t pktType;
+    if (!readByteTimeout(fpSerial, pktType, deadline)) break;
+
+    // Packet length (includes 2-byte CRC)
+    uint8_t lenHi, lenLo;
+    if (!readByteTimeout(fpSerial, lenHi, deadline)) break;
+    if (!readByteTimeout(fpSerial, lenLo, deadline)) break;
+    int dataLen = (((int)lenHi << 8) | lenLo) - 2;
+
+    // Read payload
+    for (int i = 0; i < dataLen; i++) {
+      if (!readByteTimeout(fpSerial, b, deadline)) goto done;
+      if ((pktType == FINGERPRINT_DATAPACKET || pktType == FINGERPRINT_ENDDATAPACKET)
+          && totalRead < (int)bufSize) {
+        buf[totalRead++] = b;
+      }
+    }
+
+    // Skip 2-byte CRC
+    readByteTimeout(fpSerial, b, deadline);
+    readByteTimeout(fpSerial, b, deadline);
+
+    if (pktType == FINGERPRINT_ENDDATAPACKET) break;
+  }
+
+done:
+  Serial.printf("[FP] getTemplateBytes: read %d bytes from slot %d\n", totalRead, slot);
+  return totalRead;
+}
+

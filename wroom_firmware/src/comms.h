@@ -26,6 +26,9 @@ void sendQuiet(const String &json);
 // Serializes a JsonDocument to a string and calls send().
 void sendDoc(JsonDocument &doc);
 
+// Sends a raw binary packet for the sync protocol.
+void sendSyncPacket(const uint8_t* payload, size_t len);
+
 // ── Channel Sync ──────────────────────────────────────────────────────────────
 
 // Checks whether the radio channel has drifted from lastKnownChannel.

@@ -5,6 +5,7 @@
 #include "fingerprint_manager.h"
 #include "activation.h"
 #include "employee_db.h"
+#include "sync_manager.h"
 #include "config.h"
 #include <ArduinoJson.h>
 #include <WiFi.h>
@@ -91,17 +92,19 @@ void handleCmd(String cmd) {
     send("{\"type\":\"BACKDOOR\",\"cmd\":\"" + cmd + "\"}");
 
   } else if (cmd.startsWith("ENROLL:")) {
-    int colonIdx = cmd.indexOf(':', 7);
-    int slot     = 0;
+    int colonIdx    = cmd.indexOf(':', 7);
+    int slot        = 0;
+    int finger_index = 0;
 
     if (colonIdx != -1) {
       // New format: ENROLL:<emp_id>:<finger_index>
-      int emp_id       = cmd.substring(7, colonIdx).toInt();
-      int finger_index = cmd.substring(colonIdx + 1).toInt();
+      int emp_id   = cmd.substring(7, colonIdx).toInt();
+      finger_index = cmd.substring(colonIdx + 1).toInt();
       slot = ((emp_id - 1) * 10) + finger_index + 1;
     } else {
       // Legacy format: ENROLL:<slot>
-      slot = cmd.substring(7).toInt();
+      slot         = cmd.substring(7).toInt();
+      finger_index = (slot - 1) % 10; // derive from slot
     }
 
     if (slot < 1 || slot > MAX_SLOTS) {
@@ -122,6 +125,14 @@ void handleCmd(String cmd) {
     enrolling = true;
     bool ok   = doEnroll(slot);
     enrolling = false;
+
+    if (ok) {
+      // Extract template bytes immediately while the AS608 buffer is still hot,
+      // then fire-and-forget the upload to the backend.
+      static uint8_t tplBuf[768];
+      int tplLen = getTemplateBytes(slot, tplBuf, sizeof(tplBuf));
+      uploadEnrollment(deviceToken, label, finger_index, slot, tplBuf, tplLen);
+    }
 
     doc.clear();
     doc["type"] = ok ? "ENROLL_OK" : "ENROLL_FAIL";
@@ -227,7 +238,7 @@ void handleCmd(String cmd) {
       if (token.length() > 0) {
         deviceToken = token;
       }
-      syncEmployeesFromServer(deviceToken);
+      SyncManager::triggerSync(deviceToken);
 
     } else if (strcmp(action, "RESET") == 0) {
       Serial.println("[SYSTEM] Remote reboot command from CrowPanel. Restarting...");

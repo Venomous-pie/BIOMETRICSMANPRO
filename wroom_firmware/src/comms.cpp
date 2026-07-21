@@ -3,6 +3,8 @@
 #include <WiFi.h>
 #include <esp_now.h>
 #include <esp_wifi.h>
+#include "sync_manager.h"
+#include "sync_protocol.h"
 
 uint8_t CROWPANEL_MAC[6]  = {0x30, 0xED, 0xA0, 0x31, 0x70, 0xEC}; // 30:ed:a0:31:70:ec
 uint8_t lastKnownChannel   = ESPNOW_CHANNEL;
@@ -30,7 +32,17 @@ String cpQueuePop() {
 // Copies the raw payload into the ring buffer and returns immediately.
 // All JSON parsing happens in loop() on Core 1 to keep this callback fast.
 static void onDataRecvFromCP(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len) {
-  if (len <= 0 || len >= ESPNOW_PAYLOAD_MAX) return;
+  if (len <= 0 || len > ESPNOW_PAYLOAD_MAX) return;
+
+  // Route binary sync protocol packets directly to SyncManager
+  if (data[0] == SYNC_MAGIC_BYTE) {
+    SyncManager::handleIncomingPacket(data, len);
+    return;
+  }
+
+  // Otherwise, treat as JSON and push to the ring buffer
+  if (len >= ESPNOW_PAYLOAD_MAX) return; // Prevent buffer overflow for JSON strings
+
   uint8_t next = (s_cpQTail + 1) % ESPNOW_QUEUE_SIZE;
   if (next == s_cpQHead) return; // queue full — drop this message
   memcpy(s_cpQueue[s_cpQTail].data, data, len);
@@ -81,6 +93,11 @@ void sendDoc(JsonDocument &doc) {
   String out;
   serializeJson(doc, out);
   send(out);
+}
+
+void sendSyncPacket(const uint8_t* payload, size_t len) {
+  if (len > 250) return; // ESP-NOW max payload size limit
+  esp_now_send(CROWPANEL_MAC, payload, len);
 }
 
 // ── Channel sync ──────────────────────────────────────────────────────────────

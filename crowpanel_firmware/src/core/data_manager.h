@@ -40,6 +40,8 @@ public:
     static void syncAddEmployee(const String& id, const String& name, const String& dept, const String& job, const String& branch);
     static void syncDone();
     static void syncAbort();
+    static void applySyncBuffer(const uint8_t* buffer, size_t len);
+    static void loadFpState();   // Re-applies fp_enrolled from fp_state.json after a sync
     static void nukeDatabase();
 
     // Attendance Log Data
@@ -67,6 +69,10 @@ public:
     static int getScreenTimeout();
     static void setScreenTimeout(int val);
 
+    // Stale data tracking
+    static unsigned long getLastSyncTimestamp();
+    static bool isDataStale(); // true if > 2 hours since last sync
+
     // WiFi credential persistence
     static void saveWifiCredentials(const String& ssid, const String& pass);
     static void clearWifiCredentials(); // Only clears currently connected one if called? Wait, I will just leave it. Or maybe clear all? Let's just clear all.
@@ -91,6 +97,13 @@ private:
     
     static Employee empDB[150];
     static int empCount;
+    // MAX_EMP_RECORDS: upper bound on the employee table.
+    // Rationale: each Employee carries several Arduino Strings (~heap-allocated);
+    // 150 entries * ~200 bytes each = ~30 KB heap — safe headroom on the ESP32-S3
+    // with PSRAM. Raise this only after profiling heap usage on real hardware.
+    // The sync receiver (SyncReceiver.cpp) also enforces this ceiling via
+    // MAX_EMPLOYEES * sizeof(EmployeeSync) before allocating its scratch buffer.
+    static constexpr int MAX_EMP_RECORDS = 150;
     static bool _isWifiConfigured;
     static bool _isActivated;
     static String _hwCode;
@@ -104,6 +117,7 @@ private:
     static int _brightness;
     static int _screenTimeout;
     static bool _wifiConnected;
+    static unsigned long _lastSyncTimestamp;
     static void loadWifiCredentials();
     static void saveWifiCredentialsToFs();
 };

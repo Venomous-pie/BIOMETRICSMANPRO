@@ -38,6 +38,7 @@
 #include "src/fingerprint_manager.h"
 #include "src/activation.h"
 #include "src/command_handler.h"
+#include "src/sync_manager.h"
 
 // Initialization
 
@@ -52,6 +53,7 @@ void setup() {
   fingerprintManagerInit();  // Initialize fingerprint sensor
   espNowInit();              // Initialize ESP-NOW
   timeManagerInit();         // Initialize RTC
+  SyncManager::init();       // Initialize binary sync manager
 
   pinMode(PIN_FACTORY_RESET, INPUT_PULLDOWN);
 
@@ -79,6 +81,7 @@ void loop() {
 
   wifiProcess();  // Handle WiFi background tasks
   ntpProcess();   // Check NTP sync status
+  SyncManager::loop(); // Drive background sync machine
 
   // Handle Serial commands
   if (Serial.available()) {

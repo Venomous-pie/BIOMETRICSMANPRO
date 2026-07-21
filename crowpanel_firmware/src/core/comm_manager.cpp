@@ -6,6 +6,8 @@
 #include "display_driver.h"
 #include "../ui/ui_manager.h"
 #include "../splash/manpro_splash.h"
+#include "sync_receiver.h"
+#include "sync_protocol.h"
 
 // UI forward declarations
 extern void uiShowIdle();
@@ -58,7 +60,15 @@ String CommManager::serialBuf = "";
 // ESP-NOW receive callback. Adds incoming data to the queue.
 void CommManager::onEspNowRecv(const esp_now_recv_info_t* recv_info,
                                 const uint8_t* data, int len) {
-    if (len <= 0 || len >= ESPNOW_PAYLOAD_MAX) return;
+    if (len <= 0 || len > ESPNOW_PAYLOAD_MAX) return;
+
+    if (data[0] == SYNC_MAGIC_BYTE) {
+        SyncReceiver::handleIncomingPacket(data, len);
+        return;
+    }
+
+    if (len >= ESPNOW_PAYLOAD_MAX) return; // Prevent buffer overflow for JSON
+    
     uint8_t next = (s_qTail + 1) % ESPNOW_QUEUE_SIZE;
     if (next == s_qHead) return; // queue full — drop
     memcpy(s_queue[s_qTail].data, data, len);
@@ -86,7 +96,8 @@ void CommManager::begin() {
     // Bind the static member as the C callback
     esp_now_register_recv_cb(CommManager::onEspNowRecv);
 
-    // Register WROOM as a unicast peer
+    // Register WROOM as a unicast peer (done on every boot)
+    esp_now_del_peer(WROOM_MAC); // ensure clean state
     esp_now_peer_info_t peer = {};
     memcpy(peer.peer_addr, WROOM_MAC, 6);
     peer.channel = 0;      // 0 = use current channel
@@ -94,6 +105,8 @@ void CommManager::begin() {
     if (esp_now_add_peer(&peer) != ESP_OK) {
         if (Serial) Serial.println("[ESP-NOW] add_peer FAILED — check WROOM_MAC");
     }
+
+    SyncReceiver::init(); // Initialize the binary sync receiver
 
     if (Serial) {
         Serial.printf("[ESP-NOW] Initialized on channel %d\n", ESPNOW_CHANNEL);
@@ -111,8 +124,15 @@ void CommManager::begin() {
     s_beginMs = millis();
 }
 
+void CommManager::sendSyncPacket(const uint8_t* payload, size_t len) {
+    if (len > 250) return;
+    esp_now_send(WROOM_MAC, payload, len);
+}
+
 // Main processing loop: handles incoming messages and connection recovery
 void CommManager::process() {
+    SyncReceiver::loop();
+
     // --- Connection Recovery ---
     // If no message is received for 5 seconds, start scanning channels to find WROOM.
     unsigned long silenceRef = (s_lastRecvMs > 0) ? (unsigned long)s_lastRecvMs : s_beginMs;

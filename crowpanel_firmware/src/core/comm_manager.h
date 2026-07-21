@@ -21,6 +21,7 @@ public:
     static void process();  // Call from loop() — drains ring buffer, dispatches JSON
     static void sendCommand(const String& cmd);
     static void sendDebug(const String& msg);
+    static void sendSyncPacket(const uint8_t* payload, size_t len);
 
     // ESP-NOW receive callback — runs in WiFi task (Core 0).
     // Copies payload into the ring buffer; all parsing is done in process().

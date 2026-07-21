@@ -9,5 +9,8 @@ void validateActivationWithServer(const String &registrationCode);
 // Pings the API_BASE_URL to test connectivity
 void testApiConnection();
 
-// Fetches the employee list and streams it to CrowPanel via ESP-NOW
-void syncEmployeesFromServer(const String &token);
+// Posts a completed fingerprint enrollment to the server.
+// Call after doEnroll() succeeds, before returning ENROLL_OK to CrowPanel.
+void uploadEnrollment(const String& deviceToken, const String& empName,
+                      int fingerIndex, int slot,
+                      const uint8_t* templateBytes, int templateLen);

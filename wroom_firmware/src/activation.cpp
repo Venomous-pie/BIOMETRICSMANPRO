@@ -99,108 +99,82 @@ void testApiConnection() {
   sendDoc(result);
 }
 
-void syncEmployeesFromServer(const String &token) {
+// ── Inline Base64 encoder ─────────────────────────────────────────────────────
+// Encodes binary data to Base64 string (RFC 4648).
+// Returns the encoded string.
+static String base64Encode(const uint8_t* data, size_t len) {
+  static const char tbl[] =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  String out;
+  out.reserve(((len + 2) / 3) * 4);
+  for (size_t i = 0; i < len; i += 3) {
+    uint32_t b = (uint32_t)data[i] << 16;
+    if (i + 1 < len) b |= (uint32_t)data[i + 1] << 8;
+    if (i + 2 < len) b |= (uint32_t)data[i + 2];
+    out += tbl[(b >> 18) & 0x3F];
+    out += tbl[(b >> 12) & 0x3F];
+    out += (i + 1 < len) ? tbl[(b >>  6) & 0x3F] : '=';
+    out += (i + 2 < len) ? tbl[(b      ) & 0x3F] : '=';
+  }
+  return out;
+}
+
+// ── Upload enrollment ─────────────────────────────────────────────────────────
+// POST /api/devices/employees/enroll
+// Body:
+// {
+//   "employee_name": "<name>",
+//   "finger_index":  <0-9>,
+//   "slot":          <1-127>,       // AS608 physical slot number
+//   "device_id":     "<DEVICE_ID>",
+//   "template_data": "<base64>",    // 512-byte (or 768-byte) AS608 template
+//   "template_size": <int>
+// }
+void uploadEnrollment(const String& deviceToken,
+                      const String& empName,
+                      int fingerIndex,
+                      int slot,
+                      const uint8_t* templateBytes,
+                      int templateLen) {
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("[API] fetchEmployees: WiFi not connected");
-    send("{\"type\":\"EMP_SYNC_FAIL\",\"msg\":\"WiFi not connected\"}");
+    Serial.println("[ENROLL_UPLOAD] WiFi not connected — skipping upload.");
     return;
   }
-  if (token.length() == 0) {
-    Serial.println("[API] fetchEmployees: No activation token");
-    send("{\"type\":\"EMP_SYNC_FAIL\",\"msg\":\"No activation token\"}");
+  if (deviceToken.length() == 0) {
+    Serial.println("[ENROLL_UPLOAD] No device token — skipping upload.");
     return;
   }
 
-  Serial.println("[API] Fetching employees from server...");
-  String url = String(API_BASE_URL) + "/api/devices/employees";
+  String templateB64 = (templateLen > 0)
+      ? base64Encode(templateBytes, templateLen)
+      : String("");
 
+  // Build JSON body. DynamicJsonDocument because template_data can be ~700 chars.
+  DynamicJsonDocument body(2048);
+  body["employee_name"]  = empName;
+  body["finger_index"]   = fingerIndex;
+  body["slot"]           = slot;
+  body["device_id"]      = DEVICE_ID;
+  body["template_data"]  = templateB64;
+  body["template_size"]  = templateLen;
+
+  String bodyStr;
+  serializeJson(body, bodyStr);
+
+  String url = String(API_BASE_URL) + "/api/devices/employees/enroll";
   HTTPClient http;
   http.begin(url);
-  http.setTimeout(15000); // 15 seconds timeout
-  http.addHeader("Authorization", "Bearer " + token);
-  http.addHeader("Accept", "application/json");
+  http.setTimeout(10000);
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("Authorization", "Bearer " + deviceToken);
 
-  int httpCode = http.GET();
-  Serial.printf("[API] HTTP GET Response Code: %d\n", httpCode);
-
-  if (httpCode == 200 || httpCode == 201) {
-    send("{\"type\":\"EMP_SYNC_START\"}");
-    delay(50); // give CP time to clear its temp DB
-
-    String payload = http.getString();
-    http.end(); // CRITICAL: Release Wi-Fi TCP resources before blasting ESP-NOW!
-
-    DynamicJsonDocument dDoc(16384);
-    DeserializationError err = deserializeJson(dDoc, payload);
-
-    if (err == DeserializationError::Ok) {
-      JsonArray arr = dDoc["employees"].as<JsonArray>();
-      if (arr.isNull()) {
-        Serial.println("[API] ERROR: Response JSON does not contain 'employees' array!");
-        send("{\"type\":\"EMP_SYNC_FAIL\",\"msg\":\"Invalid JSON response\"}");
-      } else {
-        int count = 0;
-        for (JsonObject e : arr) {
-          // Packet 1: Send the massive ID
-          StaticJsonDocument<512> p1;
-          p1["type"] = "E1";
-          p1["id"] = e["id"].as<String>();
-          sendDoc(p1);
-          delay(60);
-
-          // Packet 2: Send the metadata
-          StaticJsonDocument<256> p2;
-          p2["type"] = "E2";
-          
-          String first = e.containsKey("first_name") ? e["first_name"].as<String>() : "";
-          String last  = e.containsKey("last_name") ? e["last_name"].as<String>() : "";
-          p2["n"] = first + " " + last;
-          
-          p2["d"] = e.containsKey("department_name") ? e["department_name"].as<String>() : "";
-          p2["j"] = e.containsKey("role_name") ? e["role_name"].as<String>() : "";
-          p2["b"] = e.containsKey("branch_name") ? e["branch_name"].as<String>() : "";
-          
-          sendDoc(p2);
-          count++;
-          delay(40); // Base delay between packets
-          
-          if (count % 10 == 0) {
-            send("{\"type\":\"EMP_BATCH_DONE\"}");
-            Serial.println("[API] Sent batch of 10, waiting for ACK...");
-            
-            unsigned long waitStart = millis();
-            bool ackReceived = false;
-            while (millis() - waitStart < 3000) {
-               if (!cpQueueEmpty()) {
-                 String msg = cpQueuePop();
-                 if (msg.indexOf("\"EMP_BATCH_ACK\"") != -1) {
-                   ackReceived = true;
-                   break;
-                 }
-                 // If not an ACK, put it back or handle it in main loop later.
-                 // For now, we drop other messages during sync to prevent queue stalls.
-               }
-               delay(10); 
-            }
-            if (!ackReceived) {
-               Serial.println("[API] Timeout waiting for batch ACK! Aborting sync.");
-               send("{\"type\":\"EMP_SYNC_FAIL\",\"msg\":\"CrowPanel unreachable\"}");
-               return; // abort the entire sync function
-            } else {
-               Serial.println("[API] Batch ACK received!");
-            }
-          }
-        }
-        Serial.printf("[API] Successfully streamed %d employees to CrowPanel.\n", count);
-        send("{\"type\":\"EMP_SYNC_DONE\"}");
-      }
-    } else {
-      Serial.printf("[API] JSON Parse failed: %s\n", err.c_str());
-      send("{\"type\":\"EMP_SYNC_FAIL\",\"msg\":\"JSON parse failed\"}");
-    }
-  } else {
-    Serial.println("[API] Server error: " + http.getString());
-    send("{\"type\":\"EMP_SYNC_FAIL\",\"msg\":\"Server error\"}");
+  int httpCode = http.POST(bodyStr);
+  Serial.printf("[ENROLL_UPLOAD] POST %s → HTTP %d\n", url.c_str(), httpCode);
+  if (httpCode > 0) {
+    Serial.println("[ENROLL_UPLOAD] Response: " + http.getString());
   }
   http.end();
 }
+
+
+
