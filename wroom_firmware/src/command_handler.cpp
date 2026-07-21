@@ -91,6 +91,10 @@ void handleCmd(String cmd) {
     Serial.println("[FWD->CP] Forwarding backdoor command: " + cmd);
     send("{\"type\":\"BACKDOOR\",\"cmd\":\"" + cmd + "\"}");
 
+  } else if (cmd == "CANCEL_ENROLL") {
+    cancelEnroll();
+    Serial.println("[ENROLL] Enrollment cancelled by CrowPanel.");
+
   } else if (cmd.startsWith("ENROLL:")) {
     int colonIdx    = cmd.indexOf(':', 7);
     int slot        = 0;
@@ -125,6 +129,14 @@ void handleCmd(String cmd) {
     enrolling = true;
     bool ok   = doEnroll(slot);
     enrolling = false;
+
+    // If the user cancelled, the CrowPanel already navigated away —
+    // sending ENROLL_FAIL would show a spurious error on the screen.
+    if (enrollCancelled) {
+      Serial.println("[ENROLL] Cancelled — suppressing ENROLL_FAIL to CrowPanel.");
+      enrollCancelled = false;
+      return;
+    }
 
     if (ok) {
       // Extract template bytes immediately while the AS608 buffer is still hot,
@@ -188,6 +200,15 @@ void handleCmd(String cmd) {
     } else if (strcmp(action, "SYNC_NTP") == 0) {
       Serial.println("[NTP] Manual sync requested by CrowPanel.");
       syncNTP();
+
+    } else if (strcmp(action, "SET_TIME") == 0) {
+      Serial.println("[TIME] Manual time setup requested by CrowPanel.");
+      int y   = jcmd["y"] | 2024;
+      int m   = jcmd["m"] | 1;
+      int d   = jcmd["d"] | 1;
+      int h   = jcmd["h"] | 0;
+      int min = jcmd["min"] | 0;
+      setManualTime(y, m, d, h, min);
 
     } else if (strcmp(action, "TEST_API") == 0) {
       Serial.println("[TEST_API] API connection test requested.");

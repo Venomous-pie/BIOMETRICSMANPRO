@@ -173,6 +173,7 @@ static lv_obj_t* g_kb_ta = NULL;
 static lv_obj_t* g_kb_keyboard = NULL;
 static lv_obj_t* g_current_target_ta = NULL;
 static lv_obj_t* g_previous_screen = NULL;
+static bool g_pill_was_visible = false;
 
 static const char * kb_map_num_qwerty_lower[] = {
     "1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "\n",
@@ -204,6 +205,7 @@ static void kb_modal_done_action() {
     }
     if (g_previous_screen) lv_scr_load_anim(g_previous_screen, LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
     g_current_target_ta = NULL;
+    if (g_pill_was_visible) UIManager::showGlobalPill(true);
 }
 
 static void kb_modal_event_cb(lv_event_t * e) {
@@ -216,6 +218,7 @@ static void kb_modal_event_cb(lv_event_t * e) {
         }
         if (g_previous_screen) lv_scr_load_anim(g_previous_screen, LV_SCR_LOAD_ANIM_NONE, 0, 0, false);
         g_current_target_ta = NULL;
+        if (g_pill_was_visible) UIManager::showGlobalPill(true);
     }
 }
 
@@ -292,6 +295,14 @@ void UIManager::openKeyboardFor(lv_obj_t* target_ta) {
     // Dismiss any active toast before switching screens to avoid tearing
     if (g_toast) { lv_obj_del(g_toast); g_toast = NULL; }
     if (g_toast_timer) { lv_timer_del(g_toast_timer); g_toast_timer = NULL; }
+
+    extern lv_obj_t *g_global_wifi_pill;
+    if (g_global_wifi_pill) {
+        g_pill_was_visible = !lv_obj_has_flag(g_global_wifi_pill, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        g_pill_was_visible = false;
+    }
+    showGlobalPill(false);
 
     lv_scr_load_anim(g_kb_modal, LV_SCR_LOAD_ANIM_NONE, 0, 0, false); // No anim = no tearing
     lv_obj_add_state(g_kb_ta, LV_STATE_FOCUSED);

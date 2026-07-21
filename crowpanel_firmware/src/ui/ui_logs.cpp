@@ -242,6 +242,15 @@ static void populate_logs_list(const char* name_filter, const char* date_filter)
     int end_idx = start_idx + items_per_page;
     int current_idx = 0;
 
+    if (filtered_count == 0) {
+        lv_obj_t *empty_label = lv_label_create(logs_list_obj);
+        lv_label_set_text(empty_label, "No attendance logs found");
+        UIManager::styleLabel(empty_label, 0x999999, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
+        lv_obj_set_width(empty_label, 760);
+        lv_obj_set_style_pad_top(empty_label, 80, 0);
+        return;
+    }
+
     for (int i = count - 1; i >= 0; i--) {
         String nStr = db[i].name; nStr.toLowerCase();
         String dStr = db[i].time_str; dStr.toLowerCase();

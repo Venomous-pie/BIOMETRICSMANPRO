@@ -1,4 +1,4 @@
-﻿# Biometrics Time-In/Out System
+# Biometrics Time-In/Out System
 
 An ESP32-based biometric attendance system. A fingerprint scanner node (WROOM) communicates wirelessly via ESP-NOW to a touchscreen display node (CrowPanel), which connects to the backend over WiFi.
 
@@ -10,7 +10,7 @@ Understanding the data flow before touching code will save you hours. The system
 
 ```
 +-----------------------------------+        +-----------------------------------+
-|      WROOM Node (ESP32-WROOM)      |        |     CrowPanel Node (ESP32-S3)      |
+|      WROOM Node (ESP32-D0WD-V3)      |        |   CrowPanel Node (ESP32-S3 QFN56)  |
 |                                     |        |                                     |
 |  AS608 Fingerprint Sensor          |        |  5" 800x480 Touchscreen (LVGL)     |
 |  DS3231 RTC                        |        |  Employee list and logs UI         |
@@ -48,10 +48,10 @@ Understanding the data flow before touching code will save you hours. The system
 
 ## Hardware
 
-| Node | Board | Role |
-|---|---|---|
-| CrowPanel | ESP32-S3 (5" 800x480) | Touchscreen UI, WiFi, backend comms |
-| WROOM | ESP32-WROOM-32 | Fingerprint scanner, RTC, ESP-NOW bridge |
+| Node | Board | Chip | Role |
+|---|---|---|---|
+| CrowPanel | Elecrow CrowPanel 5" 800×480 | **ESP32-S3 (QFN56)** | Touchscreen UI, WiFi, backend comms |
+| WROOM | ESP32-WROOM-32 dev module | **ESP32-D0WD-V3** | Fingerprint scanner, RTC, ESP-NOW bridge |
 
 ---
 
@@ -61,8 +61,8 @@ Understanding the data flow before touching code will save you hours. The system
 
 | Component | Voltage | Typical Current | Peak Current |
 |---|---|---|---|
-| ESP32-WROOM-32 (module) | 3.3 V | ~80 mA idle | ~350 mA WiFi TX burst |
-| CrowPanel ESP32-S3 board | 5 V (USB-C) or 3.3 V regulated | ~150 mA idle | ~500 mA with LCD backlight + WiFi |
+| ESP32-D0WD-V3 (WROOM-32 module) | 3.3 V | ~80 mA idle | ~350 mA WiFi TX burst |
+| CrowPanel ESP32-S3 (QFN56) board | 5 V (USB-C) or 3.3 V regulated | ~150 mA idle | ~500 mA with LCD backlight + WiFi |
 | AS608 Fingerprint Sensor | 3.3 V | ~120 mA scanning | ~140 mA |
 | DS3231 RTC module | 3.3 V | < 1 mA (uses onboard coin cell for timekeeping) | — |
 
@@ -103,7 +103,7 @@ Understanding the data flow before touching code will save you hours. The system
 | **GPIO22** | SCL | DS3231 I2C Clock | 4.7k pull-up to 3.3 V (often built into module) |
 | **GPIO14** | Factory Reset | Active HIGH button | Uses internal pull-down; hold 5 s to wipe |
 
-**Pins to avoid on WROOM-32:**
+**Pins to avoid on ESP32-D0WD-V3 (WROOM-32):**
 
 | GPIO | Reason |
 |---|---|
@@ -158,7 +158,7 @@ The CrowPanel 5" board is a self-contained unit. You do not need to wire any per
 | ESP-NOW radio | Uses onboard antenna; no external connection needed |
 | WiFi | Uses onboard antenna |
 
-**Pins to avoid on ESP32-S3 (if you ever need to expand):**
+**Pins to avoid on ESP32-S3 (QFN56) (if you ever need to expand):**
 
 | GPIO | Reason |
 |---|---|
@@ -220,7 +220,7 @@ The following are used directly but bundled with the ESP32 board package — no 
 
 ---
 
-### 1. CrowPanel — ESP32-S3
+### 1. CrowPanel — ESP32-S3 (QFN56)
 
 #### Board Settings
 
@@ -259,7 +259,7 @@ The following are used directly but bundled with the ESP32 board package — no 
 
 ---
 
-### 2. WROOM Controller — ESP32
+### 2. WROOM Controller — ESP32-D0WD-V3
 
 #### Board Settings
 

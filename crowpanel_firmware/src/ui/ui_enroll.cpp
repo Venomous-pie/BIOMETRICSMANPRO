@@ -48,6 +48,8 @@ const char* getFingerName(int index) {
 }
 
 static void enroll_back_cb(lv_event_t * e) {
+  // Tell the WROOM to abort the active enrollment scan
+  CommManager::sendCommand("CANCEL_ENROLL");
   uiShowChooseFinger(defer_emp_id, defer_name.c_str(), defer_dept.c_str());
 }
 
@@ -166,6 +168,15 @@ static void populate_emp_list(const char* name_filter, const char* dept_filter) 
   int start_idx = current_page * items_per_page;
   int end_idx = start_idx + items_per_page;
   int current_idx = 0;
+
+  if (filtered_count == 0) {
+    lv_obj_t *empty_label = lv_label_create(emp_list_obj);
+    lv_label_set_text(empty_label, "No employees found");
+    UIManager::styleLabel(empty_label, 0x999999, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
+    lv_obj_set_width(empty_label, 760);
+    lv_obj_set_style_pad_top(empty_label, 80, 0);
+    return;
+  }
 
   for (int i = 0; i < count; i++) {
     String nStr = db[i].name; nStr.toLowerCase();
@@ -867,7 +878,7 @@ void uiShowChooseFinger(String emp_id, const char *name, const char *dept) {
     selected_finger_index = -1;
 
     char buf[256];
-    snprintf(buf, sizeof(buf), "Enrolling %s from %s -- pick a finger", defer_name.c_str(), defer_dept.c_str());
+    snprintf(buf, sizeof(buf), "Enrolling %s from %s", defer_name.c_str(), defer_dept.c_str());
     lv_label_set_text(lbl_choose_info, buf);
 
     if (btn_start_scan) {

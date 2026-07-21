@@ -23,3 +23,6 @@ void syncNTP();
 // On success, updates the DS3231 RTC and sends NTP_STATUS to the CrowPanel.
 // Call every loop() iteration.
 void ntpProcess();
+
+// Sets the hardware RTC and system time manually.
+void setManualTime(int y, int m, int d, int h, int min);

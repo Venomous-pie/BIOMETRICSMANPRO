@@ -17,7 +17,14 @@ void doMatch();
 // Runs the 2-scan enrollment sequence for the given slot (1–127).
 // Blocks until complete or a scan times out (15 s per scan step).
 // Returns true on success, false on failure or timeout.
+// Can be aborted mid-scan by calling cancelEnroll().
 bool doEnroll(int slot);
+
+// Requests an in-progress enroll to abort at the next safe polling point.
+void cancelEnroll();
+
+// True while doEnroll() is actively waiting for a finger scan.
+extern volatile bool enrollCancelled;
 
 // Reads the raw template bytes for the given slot from the AS608 sensor.
 // Must be called AFTER a successful storeModel(slot) — the template is still

@@ -11,6 +11,24 @@ Adafruit_Fingerprint finger(&fpSerial);
 // so the next scan for that slot will record Time Out.
 static bool lastIn[MAX_SLOTS + 1] = {};
 
+// ── Enroll cancellation ───────────────────────────────────────────────────────
+// Drains the inbound ESP-NOW queue and sets enrollCancelled if a CANCEL_ENROLL
+// message is found. Called on every poll tick inside doEnroll()'s wait loops so
+// the cancel arrives in <50 ms rather than after the 15-second timeout.
+static inline void pollCancelCheck() {
+  while (!cpQueueEmpty()) {
+    String msg = cpQueuePop();
+    msg.trim();
+    if (msg == "CANCEL_ENROLL") {
+      enrollCancelled = true;
+      Serial.println("[ENROLL] Cancel received via ESP-NOW during scan.");
+    }
+    // Other queued messages are intentionally dropped here — they will be
+    // re-processed by loop() after doEnroll() returns (the queue is separate).
+    // Note: only CANCEL_ENROLL is time-critical inside the blocking scan loop.
+  }
+}
+
 // ── UART helpers ──────────────────────────────────────────────────────────────
 // Block until the UART has a byte available or deadline is reached.
 // Returns true if a byte was read, false on timeout.
@@ -62,9 +80,17 @@ void doMatch() {
   sendDoc(doc);
 }
 
+volatile bool enrollCancelled = false;
+
+void cancelEnroll() {
+  enrollCancelled = true;
+  Serial.println("[ENROLL] Cancel requested by CrowPanel.");
+}
+
 bool doEnroll(int slot) {
   int p;
   unsigned long t, lastPing;
+  enrollCancelled = false;
 
   // ── Scan 1 ────────────────────────────────────────────────────────────────
   send("{\"type\":\"ENROLL_STEP\",\"step\":1,\"msg\":\"Place finger\"}");
@@ -72,6 +98,8 @@ bool doEnroll(int slot) {
   t = millis();
   lastPing = t;
   do {
+    pollCancelCheck();
+    if (enrollCancelled) { Serial.println("[ENROLL] Cancelled at step 1."); return false; }
     if (millis() - t > 15000) { Serial.println("[ENROLL] Step 1 TIMEOUT"); return false; }
     if (millis() - lastPing > 2000) {
         sendQuiet("{\"type\":\"PING\"}");
@@ -90,13 +118,15 @@ bool doEnroll(int slot) {
   send("{\"type\":\"ENROLL_STEP\",\"step\":2,\"msg\":\"Lift finger\"}");
   Serial.println("[ENROLL] Step 2 — lift finger");
   lastPing = millis();
-  do { 
+  do {
+    pollCancelCheck();
+    if (enrollCancelled) { Serial.println("[ENROLL] Cancelled at step 2."); return false; }
     if (millis() - lastPing > 2000) {
         sendQuiet("{\"type\":\"PING\"}");
         lastPing = millis();
     }
-    p = finger.getImage(); 
-    delay(50); 
+    p = finger.getImage();
+    delay(50);
   } while (p != FINGERPRINT_NOFINGER);
   delay(400);
 
@@ -106,6 +136,8 @@ bool doEnroll(int slot) {
   t = millis();
   lastPing = t;
   do {
+    pollCancelCheck();
+    if (enrollCancelled) { Serial.println("[ENROLL] Cancelled at step 3."); return false; }
     if (millis() - t > 15000) { Serial.println("[ENROLL] Step 3 TIMEOUT"); return false; }
     if (millis() - lastPing > 2000) {
         sendQuiet("{\"type\":\"PING\"}");

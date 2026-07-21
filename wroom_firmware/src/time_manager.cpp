@@ -100,3 +100,35 @@ void ntpProcess() {
     send("{\"type\":\"NTP_STATUS\",\"ok\":false,\"err\":\"Sync timed out\"}");
   }
 }
+
+void setManualTime(int y, int m, int d, int h, int min) {
+  if (rtcValid) {
+    rtc.adjust(DateTime(y, m, d, h, min, 0));
+    Serial.println("[TIME] RTC manually updated.");
+  }
+  
+  struct tm t = {};
+  t.tm_year = y - 1900;
+  t.tm_mon = m - 1;
+  t.tm_mday = d;
+  t.tm_hour = h;
+  t.tm_min = min;
+  t.tm_sec = 0;
+  time_t t_of_day = mktime(&t);
+  
+  struct timeval tv;
+  tv.tv_sec = t_of_day;
+  tv.tv_usec = 0;
+  settimeofday(&tv, NULL);
+  
+  Serial.println("[TIME] System clock manually updated.");
+  
+  // Optionally, trigger a broadcast to the display so it immediately reflects the new time
+  char syncTs[20];
+  snprintf(syncTs, sizeof(syncTs), "%04d-%02d-%02d %02d:%02d:%02d", y, m, d, h, min, 0);
+  StaticJsonDocument<128> doc;
+  doc["type"] = "NTP_STATUS";
+  doc["ok"]   = true;
+  doc["ts"]   = syncTs;
+  sendDoc(doc);
+}

@@ -32,11 +32,11 @@ int DataManager::getUnsyncedAttendanceCount() {
 void DataManager::addLog(const String& name, const String& time_str,
                          bool is_time_in, int confidence, int slot) {
     if (liveLogCount < MAX_LOGS) {
-        liveLogs[liveLogCount++] = {name, time_str, is_time_in, false, confidence, slot};
+        liveLogs[liveLogCount++] = AttendanceLog{name, time_str, is_time_in, false, confidence, slot};
     } else {
         // Ring: shift everything left, drop oldest
         memmove(&liveLogs[0], &liveLogs[1], sizeof(AttendanceLog) * (MAX_LOGS - 1));
-        liveLogs[MAX_LOGS - 1] = {name, time_str, is_time_in, false, confidence, slot};
+        liveLogs[MAX_LOGS - 1] = AttendanceLog{name, time_str, is_time_in, false, confidence, slot};
     }
     saveAttendanceLogs();
 }
@@ -51,17 +51,15 @@ void DataManager::loadAttendanceLogs() {
         if (line.length() == 0) continue;
         StaticJsonDocument<256> doc;
         if (deserializeJson(doc, line) != DeserializationError::Ok) continue;
-        liveLogs[liveLogCount++] = {
+        const char* act = doc["action"] | "IN";
+        liveLogs[liveLogCount++] = AttendanceLog{
             doc["name"]   | "",
             doc["ts"]     | "",
-            (bool)(doc["action"] | "IN") == String("IN"),  // store as is_time_in
+            (strcmp(act, "IN") == 0),
             doc["synced"] | false,
             doc["conf"]   | 0,
             doc["slot"]   | 0
         };
-        // Re-derive is_time_in properly
-        const char* act = doc["action"] | "IN";
-        liveLogs[liveLogCount - 1].is_time_in = (strcmp(act, "IN") == 0);
     }
     f.close();
 }
