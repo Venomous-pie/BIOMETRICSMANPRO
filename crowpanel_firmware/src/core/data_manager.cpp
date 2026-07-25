@@ -45,6 +45,31 @@ int DataManager::getUnsyncedAttendanceCount() {
     return count;
 }
 
+bool DataManager::isActionAllowed(int slot, bool is_time_in) {
+    if (s_logMutex) xSemaphoreTake(s_logMutex, portMAX_DELAY);
+    bool last_was_in = false;
+    bool found = false;
+    
+    // Search backward to find the most recent log for this employee
+    for (int i = liveLogCount - 1; i >= 0; i--) {
+        if (liveLogs[i].slot == slot) {
+            last_was_in = liveLogs[i].is_time_in;
+            found = true;
+            break;
+        }
+    }
+    if (s_logMutex) xSemaphoreGive(s_logMutex);
+    
+    if (!found) {
+        // No prior logs in buffer, assume they are outside. Only Time In allowed.
+        return is_time_in;
+    }
+    
+    // If last action was IN, they must OUT (is_time_in == false).
+    // If last action was OUT, they must IN (is_time_in == true).
+    return (last_was_in != is_time_in);
+}
+
 void DataManager::addLog(const String& name, const String& time_str,
                          bool is_time_in, int confidence, int slot) {
     if (s_logMutex) xSemaphoreTake(s_logMutex, portMAX_DELAY);
@@ -383,6 +408,20 @@ extern void uiSyncStatusOnSyncResult(bool ok);
 void uiSyncStatusRefreshLogs();
 
 void DataManager::addSyncLog(const String& message) {
+    // Check if message already exists in the recent logs
+    for (int i = 0; i < _syncLogCount; i++) {
+        if (_syncLogs[i].message == message) {
+            // Move this log to the end (most recent)
+            unsigned long ts = millis();
+            for (int j = i; j < _syncLogCount - 1; j++) {
+                _syncLogs[j] = _syncLogs[j + 1];
+            }
+            _syncLogs[_syncLogCount - 1] = SyncLogEntry{message, ts};
+            uiSyncStatusRefreshLogs();
+            return;
+        }
+    }
+
     if (_syncLogCount < MAX_SYNC_LOGS) {
         _syncLogs[_syncLogCount++] = SyncLogEntry{message, millis()};
     } else {

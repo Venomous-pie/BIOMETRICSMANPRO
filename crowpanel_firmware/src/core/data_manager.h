@@ -50,6 +50,7 @@ public:
     static const AttendanceLog* getAttendanceLogs();
     static int getAttendanceLogCount();
     static int getUnsyncedAttendanceCount();
+    static bool isActionAllowed(int slot, bool is_time_in);
     static void addLog(const String& name, const String& time_str, bool is_time_in, int confidence, int slot);
     static void uploadPendingLogs();              // POST unsynced logs via async task
     static void saveAttendanceLogs(); // Persist to LittleFS

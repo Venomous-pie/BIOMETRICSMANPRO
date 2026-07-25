@@ -15,6 +15,7 @@ extern void uiUpdateClock(const char* ts);
 extern void uiShowPlaceFinger();
 extern void uiShowMatch(const char* name, const char* dept, const char* action, const char* ts);
 extern void uiShowNoMatch();
+extern void uiShowActionDenied(const char* name, bool is_time_in);
 extern void uiShowEnrollStart(const char* name);
 extern void uiShowEnrollStep(int step, const char* msg);
 extern void uiShowEnrollResult(bool ok, const char* name);
@@ -547,9 +548,16 @@ void CommManager::dispatchJson(const String& line) {
             String realName   = "";
             String realDept   = "";
             const char* ts    = doc["ts"]     | "";
-            const char* act   = doc["action"] | "IN";
             int  conf         = doc["conf"]   | 0;
-            bool is_time_in   = (strcmp(act, "IN") == 0);
+
+            extern int pending_action;
+            bool is_time_in = true;
+            if (pending_action == 0) {
+                const char* act = doc["action"] | "IN";
+                is_time_in = (strcmp(act, "IN") == 0);
+            } else {
+                is_time_in = (pending_action == 1);
+            }
 
             // Lookup the real employee name from the local DB using the hardware slot
             const Employee* db = DataManager::getEmployees();
@@ -568,10 +576,15 @@ void CommManager::dispatchJson(const String& line) {
                 // Admin/system slots: jump to main menu instead of logging
                 UIManager::showMainMenu();
             } else {
+                if (!DataManager::isActionAllowed(slot, is_time_in)) {
+                    uiShowActionDenied(realName.c_str(), is_time_in);
+                    return; // Prevent log creation
+                }
+                
                 // Record the attendance log and attempt to upload
                 DataManager::addLog(realName, String(ts), is_time_in, conf, slot);
                 DataManager::uploadPendingLogs();
-                uiShowMatch(realName.c_str(), realDept.c_str(), act, ts);
+                uiShowMatch(realName.c_str(), realDept.c_str(), is_time_in ? "IN" : "OUT", ts);
             }
         }
         else if (strcmp(type, "NOMATCH") == 0)        uiShowNoMatch();

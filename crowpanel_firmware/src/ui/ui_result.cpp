@@ -195,3 +195,42 @@ void uiShowNoMatch() {
   }, 2500, NULL);
   lv_timer_set_repeat_count(returnTimer, 1);
 }
+
+void uiShowActionDenied(const char *name, bool is_time_in) {
+  Serial.println("[UI_RESULT] uiShowActionDenied called");
+  if (scr_result == NULL) buildResultScreen();
+  
+  lv_obj_set_style_bg_color(scr_result, UIManager::rgb(0xFDEDED), 0); // Light red
+
+  lv_obj_set_style_img_recolor(lbl_avatar, UIManager::rgb(COLOR_DANGER), 0);
+  lv_obj_set_style_img_recolor_opa(lbl_avatar, LV_OPA_COVER, 0);
+  lv_label_set_text(lbl_emp_name, name ? name : "Unknown");
+  lv_label_set_text(lbl_emp_dept, "Action Denied");
+  
+  lv_label_set_text(lbl_action, LV_SYMBOL_WARNING " DENIED");
+  lv_obj_set_style_border_color(badge_action, UIManager::rgb(COLOR_DANGER), 0);
+  lv_obj_set_style_bg_color(badge_action, UIManager::rgb(0xFDEDED), 0);
+  lv_obj_set_style_text_color(lbl_action, UIManager::rgb(COLOR_DANGER), 0);
+  
+  if (is_time_in) {
+      lv_label_set_text(lbl_emp_ts, "You must Time Out first.");
+  } else {
+      lv_label_set_text(lbl_emp_ts, "You must Time In first.");
+  }
+
+  lv_scr_load(scr_result);
+
+  if (returnTimer) lv_timer_del(returnTimer);
+  returnTimer = lv_timer_create([](lv_timer_t *t) {
+    // Reset colors back to normal for next scan
+    lv_obj_set_style_bg_color(scr_result, UIManager::rgb(0xF8FBF9), 0);
+    lv_obj_set_style_border_color(badge_action, UIManager::rgb(0x2A800F), 0);
+    lv_obj_set_style_bg_color(badge_action, UIManager::rgb(0xE6F4EA), 0);
+    lv_obj_set_style_text_color(lbl_action, UIManager::rgb(0x2A800F), 0);
+    lv_obj_set_style_img_recolor(lbl_avatar, UIManager::rgb(0x000000), 0);
+    
+    uiShowIdle();
+    returnTimer = NULL;
+  }, 2500, NULL);
+  lv_timer_set_repeat_count(returnTimer, 1);
+}

@@ -151,6 +151,7 @@ void uiShowIdle() {
   }
   lv_obj_clear_flag(img_arrow_left_obj, LV_OBJ_FLAG_HIDDEN);
   lv_obj_clear_flag(img_arrow_right_obj, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(cont_prompt, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_style_text_color(lbl_prompt, UIManager::rgb(COLOR_STROKE), 0);
   lv_scr_load(scr_idle);
   // Signal WROOM that device is activated — enable fingerprint scanning
@@ -214,6 +215,7 @@ void uiShowPlaceFinger() {
   if (pending_action != 0) {
     lv_obj_add_flag(img_arrow_left_obj, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(img_arrow_right_obj, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(cont_prompt, LV_OBJ_FLAG_CLICKABLE);
     lv_label_set_text(lbl_prompt, "Reading fingerprint...");
   }
 }

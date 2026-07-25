@@ -10,6 +10,7 @@ static lv_obj_t *sync_spinner    = NULL;  // arc spinner shown while syncing
 static lv_obj_t *lbl_sync_status = NULL;  // text status line below the spinner
 static lv_timer_t *sync_timeout  = NULL;  // auto-dismiss after 35s
 static lv_obj_t *logs_cont       = NULL;  // container for recent activity logs
+static lv_obj_t *cards_cont      = NULL;  // container for stat cards
 
 // Persists across screen navigations so re-entry can restore spinner state
 static bool g_sync_pending = false;
@@ -71,6 +72,7 @@ static void destroy_screen() {
         sync_spinner    = NULL;
         lbl_sync_status = NULL;
         logs_cont       = NULL;
+        cards_cont      = NULL;
         // NOTE: do NOT reset g_sync_pending here — sync continues in background
         // NOTE: do NOT cancel sync_timeout here — it must still fire
         lv_obj_del_async(to_del);
@@ -109,6 +111,9 @@ static void btn_sync_now_cb(lv_event_t * e) {
     String empCmd = "{\"cmd\":\"SYNC_EMP\",\"token\":\"" + DataManager::getActivationCode() + "\"}";
     CommManager::sendCommand(empCmd);
 }
+
+void uiSyncStatusRefreshLogs();
+void uiSyncStatusRefreshCards();
 
 void buildSyncStatusScreen() {
     if (scr) return;
@@ -167,7 +172,7 @@ void buildSyncStatusScreen() {
     }
 
     // Cards Container
-    lv_obj_t *cards_cont = lv_obj_create(body);
+    cards_cont = lv_obj_create(body);
     lv_obj_set_size(cards_cont, 760, 110);
     lv_obj_align(cards_cont, LV_ALIGN_TOP_LEFT, 0, current_y);
     lv_obj_set_style_bg_opa(cards_cont, LV_OPA_TRANSP, 0);
@@ -178,74 +183,7 @@ void buildSyncStatusScreen() {
     lv_obj_set_flex_align(cards_cont, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_clear_flag(cards_cont, LV_OBJ_FLAG_SCROLLABLE);
 
-    auto create_stat_card = [](lv_obj_t *parent, const char *title, const char *value, bool danger) -> lv_obj_t* {
-        lv_obj_t *card = lv_obj_create(parent);
-        lv_obj_set_size(card, 175, 100);
-        lv_obj_set_style_bg_color(card, UIManager::rgb(danger ? 0xFFF0F0 : 0xFFFFFF), 0);
-        lv_obj_set_style_border_color(card, UIManager::rgb(danger ? 0xFFD0D0 : COLOR_STROKE), 0);
-        lv_obj_set_style_border_width(card, 1, 0);
-        lv_obj_set_style_radius(card, 8, 0);
-        lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
-
-        lv_obj_t *lbl_title = lv_label_create(card);
-        lv_label_set_text(lbl_title, title);
-        UIManager::styleLabel(lbl_title, 0x888888, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
-        lv_obj_align(lbl_title, LV_ALIGN_TOP_LEFT, 0, 0);
-
-        lv_obj_t *lbl_val = lv_label_create(card);
-        lv_label_set_text(lbl_val, value);
-        
-        // Since we don't have font_montserrat_28 built into our UIManager natively via macro yet,
-        // we'll use 20 and scale it or just use 20. Let's use 20 for safety, it's big enough.
-        UIManager::styleLabel(lbl_val, danger ? 0xA02020 : 0x777777, &lv_font_montserrat_20, LV_TEXT_ALIGN_LEFT);
-        if (!danger && strcmp(title, "Pending records") == 0) {
-            lv_obj_set_style_text_color(lbl_val, UIManager::rgb(0xA05020), 0); // Orange-ish for pending
-        }
-        lv_obj_align(lbl_val, LV_ALIGN_TOP_LEFT, 0, 30);
-        
-        return card;
-    };
-
-    // Card 1: Pending records
-    int pending = DataManager::getUnsyncedAttendanceCount();
-    create_stat_card(cards_cont, "Pending records", String(pending).c_str(), false);
-    
-    // Card 2: Offline for
-    String offlineStr = "Online";
-    bool isOfflineDanger = false;
-    if (!isConnected) {
-        isOfflineDanger = true;
-        unsigned long dropMs = DataManager::getWifiDropTime();
-        if (dropMs == 0) dropMs = millis(); // If booted offline
-        unsigned long offlineMs = millis() - dropMs;
-        int mins = (offlineMs / 60000) % 60;
-        int hrs = (offlineMs / 3600000);
-        if (hrs > 0) {
-            offlineStr = String(hrs) + "hrs " + String(mins) + "min";
-        } else {
-            offlineStr = String(mins) + " mins";
-        }
-    }
-    create_stat_card(cards_cont, isConnected ? "Network" : "Offline for", offlineStr.c_str(), isOfflineDanger);
-    
-    // Card 3: Last synced
-    String lastSyncStr = "Never";
-    unsigned long lastSyncMs = DataManager::getLastSyncTimestamp();
-    if (lastSyncMs > 0) {
-        unsigned long elapsed = millis() - lastSyncMs;
-        int mins = (elapsed / 60000) % 60;
-        int hrs = (elapsed / 3600000);
-        if (hrs > 0) {
-            lastSyncStr = String(hrs) + "h " + String(mins) + "m ago";
-        } else {
-            lastSyncStr = String(mins) + "m ago";
-        }
-    }
-    create_stat_card(cards_cont, "Last synced", lastSyncStr.c_str(), false);
-    
-    // Card 4: Employees
-    int empCount = DataManager::getEmployeeCount();
-    create_stat_card(cards_cont, "Employees", String(empCount).c_str(), false);
+    uiSyncStatusRefreshCards();
 
     current_y += 120;
     
@@ -306,6 +244,80 @@ void buildSyncStatusScreen() {
     lv_obj_clear_flag(logs_cont, LV_OBJ_FLAG_SCROLLABLE);
 
     uiSyncStatusRefreshLogs();
+}
+
+void uiSyncStatusRefreshCards() {
+    if (!cards_cont) return;
+    lv_obj_clean(cards_cont);
+
+    bool isConnected = DataManager::isWifiConnected();
+    int pending = DataManager::getUnsyncedAttendanceCount();
+    unsigned long lastSyncMs = DataManager::getLastSyncTimestamp();
+    int empCount = DataManager::getEmployeeCount();
+
+    auto create_stat_card = [](lv_obj_t *parent, const char *title, const char *value, bool danger) -> lv_obj_t* {
+        lv_obj_t *card = lv_obj_create(parent);
+        lv_obj_set_size(card, 175, 100);
+        lv_obj_set_style_bg_color(card, UIManager::rgb(danger ? 0xFFF0F0 : 0xFFFFFF), 0);
+        lv_obj_set_style_border_color(card, UIManager::rgb(danger ? 0xFFD0D0 : COLOR_STROKE), 0);
+        lv_obj_set_style_border_width(card, 1, 0);
+        lv_obj_set_style_radius(card, 8, 0);
+        lv_obj_clear_flag(card, LV_OBJ_FLAG_SCROLLABLE);
+
+        lv_obj_t *lbl_title = lv_label_create(card);
+        lv_label_set_text(lbl_title, title);
+        UIManager::styleLabel(lbl_title, 0x888888, &lv_font_montserrat_14, LV_TEXT_ALIGN_LEFT);
+        lv_obj_align(lbl_title, LV_ALIGN_TOP_LEFT, 0, 0);
+
+        lv_obj_t *lbl_val = lv_label_create(card);
+        lv_label_set_text(lbl_val, value);
+        
+        UIManager::styleLabel(lbl_val, danger ? 0xA02020 : 0x777777, &lv_font_montserrat_20, LV_TEXT_ALIGN_LEFT);
+        if (!danger && strcmp(title, "Pending records") == 0) {
+            lv_obj_set_style_text_color(lbl_val, UIManager::rgb(0xA05020), 0); // Orange-ish for pending
+        }
+        lv_obj_align(lbl_val, LV_ALIGN_TOP_LEFT, 0, 30);
+        
+        return card;
+    };
+
+    // Card 1: Pending records
+    create_stat_card(cards_cont, "Pending records", String(pending).c_str(), false);
+    
+    // Card 2: Offline for
+    String offlineStr = "Online";
+    bool isOfflineDanger = false;
+    if (!isConnected) {
+        isOfflineDanger = true;
+        unsigned long dropMs = DataManager::getWifiDropTime();
+        if (dropMs == 0) dropMs = millis(); // If booted offline
+        unsigned long offlineMs = millis() - dropMs;
+        int mins = (offlineMs / 60000) % 60;
+        int hrs = (offlineMs / 3600000);
+        if (hrs > 0) {
+            offlineStr = String(hrs) + "hrs " + String(mins) + "min";
+        } else {
+            offlineStr = String(mins) + " mins";
+        }
+    }
+    create_stat_card(cards_cont, isConnected ? "Network" : "Offline for", offlineStr.c_str(), isOfflineDanger);
+    
+    // Card 3: Last synced
+    String lastSyncStr = "Never";
+    if (lastSyncMs > 0) {
+        unsigned long elapsed = millis() - lastSyncMs;
+        int mins = (elapsed / 60000) % 60;
+        int hrs = (elapsed / 3600000);
+        if (hrs > 0) {
+            lastSyncStr = String(hrs) + "h " + String(mins) + "m ago";
+        } else {
+            lastSyncStr = String(mins) + "m ago";
+        }
+    }
+    create_stat_card(cards_cont, "Last synced", lastSyncStr.c_str(), false);
+    
+    // Card 4: Employees
+    create_stat_card(cards_cont, "Employees", String(empCount).c_str(), false);
 }
 
 void uiSyncStatusRefreshLogs() {
@@ -388,6 +400,8 @@ void uiSyncStatusRefreshLogs() {
 
 void uiShowSyncStatus() {
     if (!scr) buildSyncStatusScreen();
+    uiSyncStatusRefreshCards(); // Make sure stat cards are live
+    uiSyncStatusRefreshLogs();  // Update relative timestamps
     lv_scr_load(scr);
 }
 
@@ -397,4 +411,5 @@ void uiSyncStatusOnSyncResult(bool ok) {
     // The individual widget checks inside clearSyncState handle NULL pointers safely.
     const char* msg = ok ? "All data synced successfully" : "Sync failed — check connection";
     clearSyncState(ok, msg);
+    uiSyncStatusRefreshCards(); // Update stats now that sync is complete
 }
