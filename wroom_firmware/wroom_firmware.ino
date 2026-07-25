@@ -11,6 +11,17 @@
  *   - Adafruit Fingerprint Sensor Library  (Adafruit)
  *   - RTClib                               (Adafruit)
  *   - ArduinoJson                          (Benoit Blanchon)
+ *   - DFRobotDFPlayerMini                  (DFRobot)
+ *
+ * Hardware Wiring (Audio):
+ *   - DFPlayer TX   -> WROOM GPIO16 (RX2)
+ *   - DFPlayer RX   -> WROOM GPIO17 (TX2)
+ *   - DFPlayer VCC  -> 5V or 3.3V (depends on module/power)
+ *   - DFPlayer GND  -> GND
+ *   - DFPlayer SPK+ -> Speaker +
+ *   - DFPlayer SPK- -> Speaker -
+ *   - Buzzer +      -> WROOM GPIO13
+ *   - Buzzer GND    -> GND
  *
  * Source layout:
  *   src/config.h                   pin definitions, device ID, ESP-NOW constants
@@ -39,6 +50,7 @@
 #include "src/activation.h"
 #include "src/command_handler.h"
 #include "src/sync_manager.h"
+#include "src/audio_manager.h"
 
 // Initialization
 
@@ -54,6 +66,7 @@ void setup() {
   espNowInit();              // Initialize ESP-NOW
   timeManagerInit();         // Initialize RTC
   SyncManager::init();       // Initialize binary sync manager
+  audioManagerInit();        // Initialize DFPlayer and Buzzer
 
   pinMode(PIN_FACTORY_RESET, INPUT_PULLDOWN);
 

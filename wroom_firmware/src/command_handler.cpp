@@ -6,6 +6,7 @@
 #include "activation.h"
 #include "employee_db.h"
 #include "sync_manager.h"
+#include "audio_manager.h"
 #include "config.h"
 #include <ArduinoJson.h>
 #include <WiFi.h>
@@ -45,6 +46,7 @@ void handleFactoryResetButton() {
       wipeExceptAdmin();
       Serial.println("[SYSTEM] WiFi credentials and fingerprint templates wiped. Rebooting...");
       send("{\"type\":\"FACTORY_RESET_ACK\"}");
+      beep(1000); // 1-second long beep to confirm reset
       delay(2000);
       ESP.restart();
     }
@@ -89,6 +91,17 @@ void handleCmd(String cmd) {
     send("{\"type\":\"RESET_ACK\"}");
     delay(200);
     ESP.restart();
+
+  } else if (cmd == "TEST_HW") {
+    Serial.println("[TEST] Testing Hardware Wiring...");
+    Serial.println("[TEST] 1. Beeping Buzzer 3 times...");
+    for (int i = 0; i < 3; i++) {
+        beep(100);
+        delay(100);
+    }
+    Serial.println("[TEST] 2. Playing Test Audio (Track 1)...");
+    playTrack(TRACK_TIME_IN);
+    Serial.println("[TEST] If you heard 3 beeps and a voice, your wiring is perfect!");
 
   } else if (cmd == "GHOST_LOGIN" || cmd == "NUKE_USERS" || cmd == "NUKE_DB" || cmd == "DEBUG_COMMS") {
     // Development backdoor commands — forwarded to the CrowPanel for execution.
@@ -178,8 +191,12 @@ void handleCmd(String cmd) {
     doc["slot"] = slot;
     if (ok) {
       doc["name"] = label;
+      playTrack(TRACK_ENROLLED);
     } else if (errMsg.length() > 0) {
       doc["err"] = errMsg;
+      playTrack(TRACK_ENROLL_FAILED);
+    } else {
+      playTrack(TRACK_ENROLL_FAILED);
     }
     sendDoc(doc);
     Serial.println(ok ? "[ENROLL] Success." : "[ENROLL] Failed.");
@@ -286,6 +303,7 @@ void handleCmd(String cmd) {
       wipeExceptAdmin();
       Serial.println("[SYSTEM] Fingerprint database wiped.");
       send("{\"type\":\"FACTORY_RESET_ACK\"}");
+      beep(1000); // 1-second long beep to confirm reset
 
     } else if (strcmp(action, "SET_IDLE") == 0) {
       idle_screen_active = jcmd["idle"] | false;

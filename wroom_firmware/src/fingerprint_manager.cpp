@@ -3,6 +3,7 @@
 #include "employee_db.h"
 #include "time_manager.h"
 #include "config.h"
+#include "audio_manager.h"
 
 HardwareSerial       fpSerial(1);        // UART1 → AS608
 Adafruit_Fingerprint finger(&fpSerial);
@@ -58,8 +59,9 @@ void fingerprintManagerInit() {
 }
 
 void doMatch() {
-  if (finger.image2Tz()     != FINGERPRINT_OK) { send("{\"type\":\"NOMATCH\"}"); return; }
-  if (finger.fingerSearch() != FINGERPRINT_OK) { send("{\"type\":\"NOMATCH\"}"); return; }
+  beep(50); // instant beep upon finger detection
+  if (finger.image2Tz()     != FINGERPRINT_OK) { send("{\"type\":\"NOMATCH\"}"); playTrack(TRACK_NOT_RECOGNIZED); return; }
+  if (finger.fingerSearch() != FINGERPRINT_OK) { send("{\"type\":\"NOMATCH\"}"); playTrack(TRACK_NOT_RECOGNIZED); return; }
 
   int    id    = finger.fingerID;
   int    conf  = finger.confidence;
@@ -78,6 +80,12 @@ void doMatch() {
   doc["conf"]   = conf;
   doc["ts"]     = getTimestamp();
   sendDoc(doc);
+  
+  if (isIn) {
+    playTrack(TRACK_TIME_IN);
+  } else {
+    playTrack(TRACK_TIME_OUT);
+  }
 }
 
 void doMockMatch(int slot) {
@@ -144,6 +152,7 @@ bool doEnroll(int slot) {
       Serial.printf("[ENROLL] Step 1 image error: 0x%02X\n", p);
     delay(50);
   } while (p != FINGERPRINT_OK);
+  beep(50);
   Serial.println("[ENROLL] Step 1 image captured.");
   p = finger.image2Tz(1);
   if (p != FINGERPRINT_OK) { Serial.printf("[ENROLL] Step 1 FAIL: image2Tz(1) = 0x%02X\n", p); return false; }
@@ -182,6 +191,7 @@ bool doEnroll(int slot) {
       Serial.printf("[ENROLL] Step 3 image error: 0x%02X\n", p);
     delay(50);
   } while (p != FINGERPRINT_OK);
+  beep(50);
   Serial.println("[ENROLL] Step 3 image captured.");
   p = finger.image2Tz(2);
   if (p != FINGERPRINT_OK) { Serial.printf("[ENROLL] Step 3 FAIL: image2Tz(2) = 0x%02X\n", p); return false; }
