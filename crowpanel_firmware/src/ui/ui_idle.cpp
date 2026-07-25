@@ -167,6 +167,10 @@ void uiUpdateClock(const char *ts) {
     int hour = atoi(ts + 11);
     int minute = atoi(ts + 14);
 
+    bool is_pm = (strstr(ts, "PM") != NULL || strstr(ts, "pm") != NULL);
+    if (is_pm && hour < 12) hour += 12;
+    if (!is_pm && hour == 12) hour = 0;
+
     int y = year, m = month;
     if (m < 3) { m += 12; y -= 1; }
     int k = y % 100;

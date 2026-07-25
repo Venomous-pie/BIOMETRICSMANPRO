@@ -2,7 +2,7 @@
 
 // ── Development / Testing ─────────────────────────────────────────────────────
 // Uncomment to simulate fingerprint scans and bypass the physical AS608 hardware.
-// #define MOCK_SENSOR 1   // Uncomment only for hardware-less dev/CI builds
+#define MOCK_SENSOR 1   // Uncomment only for hardware-less dev/CI builds
 
 // ── Fingerprint Sensor (AS608) ────────────────────────────────────────────────
 #define PIN_FP_RX    27   // AS608 TX  → WROOM UART1 RX

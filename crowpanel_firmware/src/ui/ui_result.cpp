@@ -104,7 +104,6 @@ void uiShowMatch(const char *name, const char *dept, const char *action, const c
   }
 
   bool isIn = (pending_action == 0) ? (strcmp(action, "IN") == 0) : (pending_action == 1);
-  pending_action = 0; 
 
   lv_obj_set_style_img_recolor(lbl_avatar, UIManager::rgb(0x000000), 0);
   lv_obj_set_style_img_recolor_opa(lbl_avatar, LV_OPA_COVER, 0);
@@ -120,6 +119,12 @@ void uiShowMatch(const char *name, const char *dept, const char *action, const c
     else timeStart = ts;
 
     if (sscanf(timeStart, "%d:%d", &h, &m) >= 2) {
+      bool is_pm = (strstr(timeStart, "PM") != NULL || strstr(timeStart, "pm") != NULL);
+      bool is_am = (strstr(timeStart, "AM") != NULL || strstr(timeStart, "am") != NULL);
+      
+      if (is_pm && h < 12) h += 12;
+      if (is_am && h == 12) h = 0;
+
       const char *ampm = (h >= 12) ? "pm" : "am";
       int h12 = h % 12;
       if (h12 == 0) h12 = 12;
@@ -137,6 +142,10 @@ void uiShowMatch(const char *name, const char *dept, const char *action, const c
   lv_label_set_text(lbl_action, pillText);
 
   if (isIn) {
+    lv_obj_set_style_border_color(badge_action, UIManager::rgb(0x2A800F), 0);
+    lv_obj_set_style_bg_color(badge_action, UIManager::rgb(0xE6F4EA), 0);
+    lv_obj_set_style_text_color(lbl_action, UIManager::rgb(0x2A800F), 0);
+
     if (h < 12) {
       lv_label_set_text(lbl_emp_ts, "Good morning! Have a great shift.");
     } else if (h < 17) {
@@ -145,6 +154,10 @@ void uiShowMatch(const char *name, const char *dept, const char *action, const c
       lv_label_set_text(lbl_emp_ts, "Good evening! Have a great shift.");
     }
   } else {
+    lv_obj_set_style_border_color(badge_action, UIManager::rgb(0xED6C02), 0);
+    lv_obj_set_style_bg_color(badge_action, UIManager::rgb(0xFFF4E5), 0);
+    lv_obj_set_style_text_color(lbl_action, UIManager::rgb(0xED6C02), 0);
+
     lv_label_set_text(lbl_emp_ts, "Great work today! Have a safe trip home.");
   }
 
