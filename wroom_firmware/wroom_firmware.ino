@@ -83,6 +83,10 @@ void loop() {
   ntpProcess();   // Check NTP sync status
   SyncManager::loop(); // Drive background sync machine
 
+  // Dispatch buffered binary sync packets (queued from the RX callback)
+  // Must be called BEFORE fingerprintPoll() so ACKs go out promptly.
+  syncQueueProcess();
+
   // Handle Serial commands
   if (Serial.available()) {
     handleCmd(Serial.readStringUntil('\n'));

@@ -27,6 +27,7 @@ extern void uiSettingsUpdateWifiStatus(bool connected);
 extern void uiSettingsUpdateNtpStatus(bool ok, const char* ts, const char* err);
 extern void uiActivationResult(bool success, const char* err); // Activation screen result
 extern bool uiIsIdleScreenActive();
+extern void uiSyncStatusOnSyncResult(bool ok); // Sync Status page feedback
 
 // ESP-NOW message queue (Ring Buffer)
 // 16 is enough for bursts. 128 uses too much RAM and caused reboots.
@@ -37,6 +38,17 @@ struct EspNowMsg { char data[ESPNOW_PAYLOAD_MAX]; };
 static EspNowMsg  s_queue[ESPNOW_QUEUE_SIZE];
 static volatile uint8_t s_qHead = 0;
 static volatile uint8_t s_qTail = 0;
+
+// Binary sync packet queue
+// Binary packets (magic byte 0x5A) must NOT be dispatched directly from the
+// ESP-NOW RX callback because SyncReceiver::handleIncomingPacket() calls
+// malloc() for SYNC_START, which is unsafe in ISR/callback context.
+// They are pushed here and dispatched in process() instead.
+#define SYNC_QUEUE_SIZE    8
+struct SyncMsg { uint8_t data[ESPNOW_PAYLOAD_MAX]; uint8_t len; };
+static SyncMsg          s_syncQueue[SYNC_QUEUE_SIZE];
+static volatile uint8_t s_sqHead = 0;
+static volatile uint8_t s_sqTail = 0;
 
 // Connection recovery state
 static volatile unsigned long s_lastRecvMs = 0;
@@ -57,13 +69,20 @@ static bool s_autoReconnectAttempted = false;
 // Static member definitions
 String CommManager::serialBuf = "";
 
-// ESP-NOW receive callback. Adds incoming data to the queue.
+// ESP-NOW receive callback. Adds incoming data to the appropriate queue.
 void CommManager::onEspNowRecv(const esp_now_recv_info_t* recv_info,
                                 const uint8_t* data, int len) {
     if (len <= 0 || len > ESPNOW_PAYLOAD_MAX) return;
 
+    // Binary sync packets go to the sync queue so malloc() is deferred to process().
     if (data[0] == SYNC_MAGIC_BYTE) {
-        SyncReceiver::handleIncomingPacket(data, len);
+        uint8_t next = (s_sqTail + 1) % SYNC_QUEUE_SIZE;
+        if (next != s_sqHead) { // drop silently if full
+            memcpy(s_syncQueue[s_sqTail].data, data, len);
+            s_syncQueue[s_sqTail].len = (uint8_t)len;
+            __atomic_thread_fence(__ATOMIC_RELEASE);
+            s_sqTail = next;
+        }
         return;
     }
 
@@ -133,7 +152,16 @@ void CommManager::sendSyncPacket(const uint8_t* payload, size_t len) {
 void CommManager::process() {
     SyncReceiver::loop();
 
-    // --- Connection Recovery ---
+    // Drain binary sync packets (queued from the RX callback — ISR-safe path)
+    while (s_sqHead != s_sqTail) {
+        __atomic_thread_fence(__ATOMIC_ACQUIRE);
+        SyncReceiver::handleIncomingPacket(
+            s_syncQueue[s_sqHead].data,
+            s_syncQueue[s_sqHead].len);
+        s_sqHead = (s_sqHead + 1) % SYNC_QUEUE_SIZE;
+        s_lastRecvMs = millis(); // treat any sync packet as a heartbeat
+    }
+
     // If no message is received for 5 seconds, start scanning channels to find WROOM.
     unsigned long silenceRef = (s_lastRecvMs > 0) ? (unsigned long)s_lastRecvMs : s_beginMs;
     if (silenceRef > 0 && millis() - silenceRef > 5000) {
@@ -253,7 +281,9 @@ void executeBackdoor(String cmd) {
         Serial.println("[BACKDOOR] NUKE_USERS activated. Deleting enrolled FPs (except Slot 1).");
         for (int i = 0; i < DataManager::getEmployeeCount(); i++) {
             if (DataManager::getEmployees()[i].id != "1") {
-                DataManager::updateEmployeeFpEnrolled(DataManager::getEmployees()[i].id, false);
+                int actualSlot = DataManager::getEmployees()[i].enrolled_finger;
+                // Pass the actual hardware slot so fp_state.json is cleaned correctly (EDGE-09 fix)
+                DataManager::updateEmployeeFpEnrolled(DataManager::getEmployees()[i].id, false, actualSlot);
                 for (int f = 0; f < 10; f++) {
                     String delCmd = "DELETE:" + String(DataManager::getEmployees()[i].id) + ":" + String(f);
                     esp_now_send(WROOM_MAC, (const uint8_t*)delCmd.c_str(), delCmd.length());
@@ -322,6 +352,9 @@ void CommManager::dispatchJson(const String& line) {
             sendCommand(actCmd);  // unlock WROOM scanner
             uiShowIdle();
             if (Serial) Serial.println("[ACTIVATION] Device activated. Scanner unlocked.");
+        } else {
+            // Server rejected the code — ensure the device stays deactivated (BUG-12 fix)
+            DataManager::setActivatedByServer(false);
         }
         // Update activation UI
         uiActivationResult(success, err);
@@ -451,6 +484,11 @@ void CommManager::dispatchJson(const String& line) {
         const char* ts  = doc["ts"]  | "";
         const char* err = doc["err"] | "";
         if (Serial) Serial.printf("[NTP] Status from WROOM: ok=%d ts=%s err=%s\n", ok, ts, err);
+        if (doc["success"] | false) {
+            DataManager::addSyncLog("Time synced via NTP");
+        } else {
+            DataManager::addSyncLog("NTP time sync failed");
+        }
         uiSettingsUpdateNtpStatus(ok, ts, err);
     } else if (strcmp(type, "WIFI_SCAN_RESULT") == 0) {
         const char* ssids = doc["ssids"] | "";
@@ -473,6 +511,7 @@ void CommManager::dispatchJson(const String& line) {
         static String temp_emp_id = "";
 
         if (strcmp(type, "EMP_SYNC_START") == 0) {
+            temp_emp_id = "";  // EDGE-01: reset stale ID from any previous batch
             DataManager::syncStart();
         }
         else if (strcmp(type, "E1") == 0) {
@@ -492,29 +531,47 @@ void CommManager::dispatchJson(const String& line) {
         }
         else if (strcmp(type, "EMP_SYNC_DONE") == 0) {
             DataManager::syncDone();
+            DataManager::addSyncLog("Employee sync successful");
+            uiSyncStatusOnSyncResult(true);
             UIManager::showToast("Employees synced successfully!", false);
         }
         else if (strcmp(type, "EMP_SYNC_FAIL") == 0) {
             DataManager::syncAbort();
+            DataManager::addSyncLog("Employee sync failed");
+            uiSyncStatusOnSyncResult(false);
             UIManager::showToast(doc["msg"] | "Failed to sync employees", true);
         }
         if (strcmp(type, "PLACE_FINGER") == 0)        uiShowPlaceFinger();
         else if (strcmp(type, "MATCH") == 0) {
             int slot          = doc["id"]     | 0;
-            const char* name  = doc["name"]   | "";
+            String realName   = "";
+            String realDept   = "";
             const char* ts    = doc["ts"]     | "";
             const char* act   = doc["action"] | "IN";
             int  conf         = doc["conf"]   | 0;
             bool is_time_in   = (strcmp(act, "IN") == 0);
+
+            // Lookup the real employee name from the local DB using the hardware slot
+            const Employee* db = DataManager::getEmployees();
+            int count = DataManager::getEmployeeCount();
+            for (int i=0; i<count; i++) {
+                if (db[i].enrolled_finger == slot) {
+                    realName = db[i].name;
+                    realDept = db[i].dept;
+                    break;
+                }
+            }
+            if (realName.length() == 0) realName = String("Slot ") + String(slot);
+            if (realDept.length() == 0) realDept = doc["dept"] | "";
 
             if (slot >= 1 && slot <= 5) {
                 // Admin/system slots: jump to main menu instead of logging
                 UIManager::showMainMenu();
             } else {
                 // Record the attendance log and attempt to upload
-                DataManager::addLog(String(name), String(ts), is_time_in, conf, slot);
+                DataManager::addLog(realName, String(ts), is_time_in, conf, slot);
                 DataManager::uploadPendingLogs();
-                uiShowMatch(name, doc["dept"], act, ts);
+                uiShowMatch(realName.c_str(), realDept.c_str(), act, ts);
             }
         }
         else if (strcmp(type, "NOMATCH") == 0)        uiShowNoMatch();

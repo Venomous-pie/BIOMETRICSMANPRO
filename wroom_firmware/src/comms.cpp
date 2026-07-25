@@ -9,7 +9,7 @@
 uint8_t CROWPANEL_MAC[6]  = {0x30, 0xED, 0xA0, 0x31, 0x70, 0xEC}; // 30:ed:a0:31:70:ec
 uint8_t lastKnownChannel   = ESPNOW_CHANNEL;
 
-// ── Lock-free ring buffer ─────────────────────────────────────────────────────
+// ── Lock-free ring buffer (JSON) ──────────────────────────────────────────────
 // Single-producer (Core 0, WiFi task) / single-consumer (Core 1, loop()).
 // Only the producer advances s_cpQTail; only the consumer advances s_cpQHead.
 // No mutex needed as long as both pointers are read/written atomically (uint8_t).
@@ -18,6 +18,17 @@ struct EspNowMsg { char data[ESPNOW_PAYLOAD_MAX]; };
 static EspNowMsg        s_cpQueue[ESPNOW_QUEUE_SIZE];
 static volatile uint8_t s_cpQHead = 0;
 static volatile uint8_t s_cpQTail = 0;
+
+// ── Lock-free ring buffer (binary sync) ──────────────────────────────────────
+// Binary ESP-NOW packets (SYNC_MAGIC_BYTE 0x5A) from CrowPanel are pushed here
+// by the RX callback and dispatched to SyncManager::handleIncomingPacket() in
+// loop() via syncQueueProcess().  malloc() must NEVER be called from the RX
+// callback — this queue avoids that by deferring all SyncManager work to loop().
+#define SYNC_QUEUE_SIZE 8
+struct SyncMsg { uint8_t data[ESPNOW_PAYLOAD_MAX]; uint8_t len; };
+static SyncMsg          s_syncQueue[SYNC_QUEUE_SIZE];
+static volatile uint8_t s_sqHead = 0;
+static volatile uint8_t s_sqTail = 0;
 
 bool cpQueueEmpty() { return s_cpQHead == s_cpQTail; }
 
@@ -28,19 +39,38 @@ String cpQueuePop() {
   return msg;
 }
 
+bool syncQueueEmpty() { return s_sqHead == s_sqTail; }
+
+void syncQueueProcess() {
+  while (s_sqHead != s_sqTail) {
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
+    SyncManager::handleIncomingPacket(
+        s_syncQueue[s_sqHead].data,
+        s_syncQueue[s_sqHead].len);
+    s_sqHead = (s_sqHead + 1) % SYNC_QUEUE_SIZE;
+  }
+}
+
 // ── ESP-NOW receive callback (Core 0, WiFi task) ──────────────────────────────
 // Copies the raw payload into the ring buffer and returns immediately.
 // All JSON parsing happens in loop() on Core 1 to keep this callback fast.
 static void onDataRecvFromCP(const esp_now_recv_info_t *recv_info, const uint8_t *data, int len) {
   if (len <= 0 || len > ESPNOW_PAYLOAD_MAX) return;
 
-  // Route binary sync protocol packets directly to SyncManager
+  // Route binary sync protocol packets to the sync queue (NOT directly to
+  // SyncManager — malloc() inside the RX callback is unsafe / ISR context).
   if (data[0] == SYNC_MAGIC_BYTE) {
-    SyncManager::handleIncomingPacket(data, len);
+    uint8_t next = (s_sqTail + 1) % SYNC_QUEUE_SIZE;
+    if (next != s_sqHead) { // drop silently if full
+      memcpy(s_syncQueue[s_sqTail].data, data, len);
+      s_syncQueue[s_sqTail].len = (uint8_t)len;
+      __atomic_thread_fence(__ATOMIC_RELEASE);
+      s_sqTail = next;
+    }
     return;
   }
 
-  // Otherwise, treat as JSON and push to the ring buffer
+  // Otherwise, treat as JSON and push to the JSON ring buffer
   if (len >= ESPNOW_PAYLOAD_MAX) return; // Prevent buffer overflow for JSON strings
 
   uint8_t next = (s_cpQTail + 1) % ESPNOW_QUEUE_SIZE;

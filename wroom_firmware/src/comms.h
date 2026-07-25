@@ -55,3 +55,14 @@ bool   cpQueueEmpty();
 // Removes and returns the next message from the queue.
 // Returns an empty string if the queue is empty.
 String cpQueuePop();
+
+// ── Binary sync packet queue ──────────────────────────────────────────────────
+// Raw binary ESP-NOW packets (magic byte 0x5A) from the CrowPanel are pushed
+// here by the RX callback (ISR context) and dispatched to SyncManager in loop().
+
+// Returns true when there are no pending binary sync packets.
+bool syncQueueEmpty();
+
+// Drains the binary sync queue and dispatches each packet to SyncManager.
+// Call once per loop() iteration BEFORE fingerprintPoll().
+void syncQueueProcess();

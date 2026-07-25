@@ -7,6 +7,7 @@ extern const lv_img_dsc_t icon_clock_network;
 extern const lv_img_dsc_t icon_server_device;
 extern const lv_img_dsc_t icon_device_info;
 extern const lv_img_dsc_t icon_display_settings;
+extern const lv_img_dsc_t icon_data_synchronization;
 
 extern void uiShowSettingsClock();
 extern void uiShowSettingsServer();
@@ -112,6 +113,13 @@ void buildSettingsScreen() {
     create_card(cards_cont, &icon_clock_network, "Clock & Network", "Wi-Fi", btn_card_clock_cb, false);
     create_card(cards_cont, &icon_server_device, "Server & Device", "API, Device", btn_card_server_cb, false);
     create_card(cards_cont, &icon_display_settings, "Display Settings", "Brightness, Timeout", btn_card_display_cb, false);
+    
+    auto btn_card_sync_cb = [](lv_event_t * e) {
+        extern void uiShowSyncStatus();
+        uiShowSyncStatus();
+    };
+    create_card(cards_cont, &icon_data_synchronization, "Sync Status", "Logs, Manual Sync", btn_card_sync_cb, false);
+
     create_card(cards_cont, &icon_device_info, "Device Info", "Status, Reset", btn_card_danger_cb, false);
 }
 

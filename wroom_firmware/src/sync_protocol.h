@@ -1,8 +1,12 @@
 #pragma once
 #include <Arduino.h>
 
-#define SYNC_MAGIC_BYTE 0x5A
-#define MAX_CHUNK_SIZE  200
+#define SYNC_MAGIC_BYTE     0x5A
+#define MAX_CHUNK_SIZE      200
+// Maximum employees that can be transferred in one binary sync session.
+// Capped at 127 to respect the AS608 sensor's physical slot limit.
+// Both WROOM and CrowPanel must use this constant — do NOT redefine locally.
+#define MAX_SYNC_EMPLOYEES  127
 
 enum SyncPacketType : uint8_t {
     SYNC_PING = 0x01,

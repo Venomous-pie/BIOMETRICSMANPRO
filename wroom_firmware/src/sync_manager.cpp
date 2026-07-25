@@ -7,8 +7,11 @@
 #include <rom/crc.h>
 #include <time.h>
 
-#define MAX_EMPLOYEES 81
-static EmployeeSync s_syncBuffer[MAX_EMPLOYEES];
+#include "certs.h"
+#include <WiFiClientSecure.h>
+
+// Use the unified cap from sync_protocol.h — do NOT redefine locally (BUG-05 fix).
+static EmployeeSync s_syncBuffer[MAX_SYNC_EMPLOYEES];
 static uint16_t s_empCount = 0;
 
 static SyncState s_state = SYNC_STATE_IDLE;
@@ -26,6 +29,11 @@ static uint32_t s_fastRetryStartTime = 0;
 static uint16_t s_missingIndices[64];
 static uint8_t  s_missingCount = 0;
 static uint8_t  s_missingIndex = 0; // index into s_missingIndices for resend
+
+// Tracks how many times SYNC_END has been resent waiting for SYNC_RESULT.
+// Uses a dedicated counter instead of s_retryCount because setState() resets
+// s_retryCount to 0, which made the 3-retry limit unreachable (BUG-10 fix).
+static uint8_t  s_syncEndResendCount = 0;
 
 static void setState(SyncState newState) {
     s_state = newState;
@@ -52,7 +60,18 @@ void SyncManager::triggerSync(const String& token) {
         return;
     }
     
-    s_syncId = (uint32_t)time(NULL);
+    // EDGE-07: guard against pre-NTP epoch values (time(NULL) ≈ 0 when NTP not synced).
+    // If two syncs get the same sync_id, a stale packet from the previous session
+    // could be accepted by the CrowPanel.
+    time_t t = time(NULL);
+    if (t > 1000000000UL) {
+        s_syncId = (uint32_t)t;
+    } else {
+        static uint32_t s_syncIdCounter = 1;
+        s_syncId = s_syncIdCounter++;
+        Serial.printf("[SYNC] NTP not ready — using counter-based sync_id: %u\n", s_syncId);
+    }
+
     Serial.println("[SYNC] Starting sync process...");
     setState(SYNC_STATE_FETCH_WIFI);
 }
@@ -137,17 +156,23 @@ void SyncManager::loop() {
 
         case SYNC_STATE_SEND_SYNC_END:
             sendSyncEnd();
+            s_syncEndResendCount = 0; // reset before we start waiting for SYNC_RESULT
             setState(SYNC_STATE_AWAIT_SYNC_RESULT);
             break;
 
         case SYNC_STATE_AWAIT_SYNC_RESULT:
             if (now - s_stateStartTime > 1000) {
-                if (s_retryCount >= 3) {
-                    failToFastRetry("SYNC_RESULT timeout");
+                s_syncEndResendCount++;
+                if (s_syncEndResendCount >= 3) {
+                    s_syncEndResendCount = 0;
+                    failToFastRetry("SYNC_RESULT timeout after 3 resends");
                 } else {
-                    // Resend SYNC_END
-                    setState(SYNC_STATE_SEND_SYNC_END);
-                    s_retryCount++;
+                    // Resend SYNC_END without calling setState() — that would reset
+                    // s_retryCount and make the counter useless (BUG-10 fix).
+                    Serial.printf("[SYNC] SYNC_RESULT not received, resending SYNC_END (%d/3).\n",
+                                  s_syncEndResendCount);
+                    sendSyncEnd();
+                    s_stateStartTime = now; // reset the 1s window
                 }
             }
             break;
@@ -169,8 +194,10 @@ void SyncManager::fetchEmployeesFromApi() {
     }
 
     String url = "https://demo.manpromanagement.com/api/devices/employees";
+    WiFiClientSecure client;
+    client.setCACert(GTS_ROOT_R4); // EDGE-06: verify server TLS certificate
     HTTPClient http;
-    http.begin(url);
+    http.begin(client, url);
     http.setTimeout(15000);
     http.addHeader("Authorization", "Bearer " + s_deviceToken);
     http.addHeader("Accept", "application/json");
@@ -191,7 +218,7 @@ void SyncManager::fetchEmployeesFromApi() {
 
             s_empCount = 0;
             for (JsonObject e : arr) {
-                if (s_empCount >= MAX_EMPLOYEES) break;
+                if (s_empCount >= MAX_SYNC_EMPLOYEES) break; // BUG-05: use shared cap
 
                 EmployeeSync& emp = s_syncBuffer[s_empCount];
                 memset(&emp, 0, sizeof(EmployeeSync));

@@ -51,7 +51,8 @@ public:
     static int getAttendanceLogCount();
     static int getUnsyncedAttendanceCount();
     static void addLog(const String& name, const String& time_str, bool is_time_in, int confidence, int slot);
-    static void uploadPendingLogs();  // POST unsynced logs to backend; call when WiFi is available
+    static void uploadPendingLogs();              // POST unsynced logs via async task
+    static void saveAttendanceLogs(); // Persist to LittleFS
     
     static bool isWifiConfigured();
     static void setWifiConfigured(bool state);
@@ -76,6 +77,17 @@ public:
     // Stale data tracking
     static unsigned long getLastSyncTimestamp();
     static bool isDataStale(); // true if > 2 hours since last sync
+
+    // Sync Log tracking
+    struct SyncLogEntry {
+        String message;
+        unsigned long timestamp; // millis() when it occurred
+    };
+    static const int MAX_SYNC_LOGS = 5;
+    static void addSyncLog(const String& message);
+    static const SyncLogEntry* getSyncLogs();
+    static int getSyncLogCount();
+    static unsigned long getWifiDropTime();
 
     // WiFi credential persistence
     static void saveWifiCredentials(const String& ssid, const String& pass);
@@ -116,9 +128,13 @@ private:
     static int _screenTimeout;
     static bool _wifiConnected;
     static unsigned long _lastSyncTimestamp;
+    
+    static SyncLogEntry _syncLogs[MAX_SYNC_LOGS];
+    static int _syncLogCount;
+    static unsigned long _wifiDropTime;
+    
     static void loadWifiCredentials();
     static void saveWifiCredentialsToFs();
-    static void saveAttendanceLogs();
     static void loadAttendanceLogs();
 };
 

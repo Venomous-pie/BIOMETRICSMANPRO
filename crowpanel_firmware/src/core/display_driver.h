@@ -72,7 +72,7 @@ public:
     }
     {
       auto cfg = _panel_instance.config_detail();
-      cfg.use_psram = 2;
+      cfg.use_psram = 1; // 1 = allocate frame buffer in PSRAM, but use internal SRAM bounce buffer to prevent tearing during WiFi activity
       _panel_instance.config_detail(cfg);
     }
     {

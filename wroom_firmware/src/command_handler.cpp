@@ -20,9 +20,13 @@ static bool          btnHeld      = false;
 
 void wipeExceptAdmin() {
   Serial.println("[SYSTEM] Wiping database except slots 1-5 (Admin)...");
+#ifdef MOCK_SENSOR
+  Serial.println("[SYSTEM] MOCK_SENSOR active — skipping hardware wipe to prevent timeouts.");
+#else
   for (int i = 6; i <= MAX_SLOTS; i++) {
     finger.deleteModel(i);
   }
+#endif
   Serial.println("[SYSTEM] Wipe complete.");
 }
 
@@ -95,15 +99,33 @@ void handleCmd(String cmd) {
     cancelEnroll();
     Serial.println("[ENROLL] Enrollment cancelled by CrowPanel.");
 
+  } else if (cmd.startsWith("MOCK_SCAN:")) {
+    int slot = cmd.substring(10).toInt();
+    if (slot >= 1 && slot <= MAX_SLOTS) {
+        Serial.printf("[SYSTEM] Triggering MOCK_SCAN for slot %d\n", slot);
+        doMockMatch(slot);
+    } else {
+        Serial.println("[SYSTEM] MOCK_SCAN failed: Invalid slot.");
+    }
+
   } else if (cmd.startsWith("ENROLL:")) {
     int colonIdx    = cmd.indexOf(':', 7);
     int slot        = 0;
     int finger_index = 0;
+    String parsedName = "";
 
     if (colonIdx != -1) {
-      // New format: ENROLL:<emp_id>:<finger_index>
-      int emp_id   = cmd.substring(7, colonIdx).toInt();
-      finger_index = cmd.substring(colonIdx + 1).toInt();
+      // New format: ENROLL:<emp_id>:<finger_index>[:<name>]
+      int nextColon = cmd.indexOf(':', colonIdx + 1);
+      int emp_id = cmd.substring(7, colonIdx).toInt();
+      
+      if (nextColon != -1) {
+          finger_index = cmd.substring(colonIdx + 1, nextColon).toInt();
+          parsedName = cmd.substring(nextColon + 1);
+      } else {
+          finger_index = cmd.substring(colonIdx + 1).toInt();
+      }
+      
       slot = ((emp_id - 1) * 10) + finger_index + 1;
     } else {
       // Legacy format: ENROLL:<slot>
@@ -116,9 +138,7 @@ void handleCmd(String cmd) {
       return;
     }
 
-    String name, dept;
-    lookupEmployee(slot, name, dept);
-    String label = name.length() ? name : ("Slot " + String(slot));
+    String label = parsedName.length() ? parsedName : ("Slot " + String(slot));
 
     StaticJsonDocument<128> doc;
     doc["type"] = "ENROLL_START";
@@ -138,18 +158,29 @@ void handleCmd(String cmd) {
       return;
     }
 
+    String errMsg = "";
     if (ok) {
-      // Extract template bytes immediately while the AS608 buffer is still hot,
-      // then fire-and-forget the upload to the backend.
+      // Extract template bytes immediately while the AS608 buffer is still hot
       static uint8_t tplBuf[768];
       int tplLen = getTemplateBytes(slot, tplBuf, sizeof(tplBuf));
-      uploadEnrollment(deviceToken, label, finger_index, slot, tplBuf, tplLen);
+      
+      bool uploaded = uploadEnrollment(deviceToken, label, finger_index, slot, tplBuf, tplLen, errMsg);
+      if (!uploaded) {
+        Serial.println("[ENROLL] Backend upload failed: " + errMsg);
+        Serial.println("[ENROLL] Rolling back local slot " + String(slot));
+        finger.deleteModel(slot); // rollback
+        ok = false;
+      }
     }
 
     doc.clear();
     doc["type"] = ok ? "ENROLL_OK" : "ENROLL_FAIL";
     doc["slot"] = slot;
-    if (ok) doc["name"] = label;
+    if (ok) {
+      doc["name"] = label;
+    } else if (errMsg.length() > 0) {
+      doc["err"] = errMsg;
+    }
     sendDoc(doc);
     Serial.println(ok ? "[ENROLL] Success." : "[ENROLL] Failed.");
 
@@ -165,7 +196,13 @@ void handleCmd(String cmd) {
       slot = cmd.substring(7).toInt();
     }
 
+#ifdef MOCK_SENSOR
+    bool ok = true;
+    Serial.println("[DEL-MOCK] Pretending to erase slot " + String(slot));
+#else
     bool ok = (finger.deleteModel(slot) == FINGERPRINT_OK);
+#endif
+
     StaticJsonDocument<64> doc;
     doc["type"] = ok ? "DELETE_OK" : "DELETE_FAIL";
     doc["slot"] = slot;
