@@ -52,6 +52,7 @@ public:
     static int getUnsyncedAttendanceCount();
     static void addLog(const String& name, const String& time_str, bool is_time_in, int confidence, int slot);
     static void uploadPendingLogs();  // POST unsynced logs to backend; call when WiFi is available
+    static void saveAttendanceLogs(); // Persist liveLogs to LittleFS
     
     static bool isWifiConfigured();
     static void setWifiConfigured(bool state);
@@ -118,7 +119,6 @@ private:
     static unsigned long _lastSyncTimestamp;
     static void loadWifiCredentials();
     static void saveWifiCredentialsToFs();
-    static void saveAttendanceLogs();
     static void loadAttendanceLogs();
 };
 

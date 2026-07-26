@@ -7,7 +7,7 @@
 #include <rom/crc.h>
 #include <time.h>
 
-#define MAX_EMPLOYEES 81
+#define MAX_EMPLOYEES 150
 static EmployeeSync s_syncBuffer[MAX_EMPLOYEES];
 static uint16_t s_empCount = 0;
 
@@ -168,7 +168,7 @@ void SyncManager::fetchEmployeesFromApi() {
         return;
     }
 
-    String url = "https://demo.manpromanagement.com/api/devices/employees";
+    String url = String(API_BASE_URL) + "/api/devices/employees";
     HTTPClient http;
     http.begin(url);
     http.setTimeout(15000);
@@ -177,15 +177,28 @@ void SyncManager::fetchEmployeesFromApi() {
 
     int httpCode = http.GET();
     if (httpCode == 200 || httpCode == 201) {
-        String payload = http.getString();
-        http.end();
+        WiFiClient* stream = http.getStreamPtr();
 
-        DynamicJsonDocument dDoc(32768);
-        DeserializationError err = deserializeJson(dDoc, payload);
+        StaticJsonDocument<256> filter;
+        filter["employees"][0]["first_name"] = true;
+        filter["employees"][0]["last_name"] = true;
+        filter["employees"][0]["role_name"] = true;
+        filter["employees"][0]["branch_name"] = true;
+        filter["employees"][0]["department_name"] = true;
+        filter["message"] = true;
+
+        DynamicJsonDocument dDoc(16384);
+        DeserializationError err = deserializeJson(dDoc, *stream, DeserializationOption::Filter(filter));
         if (err == DeserializationError::Ok) {
             JsonArray arr = dDoc["employees"].as<JsonArray>();
             if (arr.isNull()) {
-                failToFastRetry("No employees array in JSON");
+                if (dDoc.containsKey("message")) {
+                    String msg = dDoc["message"].as<String>();
+                    Serial.printf("[SYNC] API Error Message: %s\n", msg.c_str());
+                    failToFastRetry(msg.c_str());
+                } else {
+                    failToFastRetry("No employees array in JSON");
+                }
                 return;
             }
 
@@ -220,6 +233,7 @@ void SyncManager::fetchEmployeesFromApi() {
             
             setState(SYNC_STATE_SET_ESPNOW_CHANNEL);
         } else {
+            http.end();
             failToFastRetry("JSON parse failed");
         }
     } else {

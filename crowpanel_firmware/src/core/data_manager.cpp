@@ -17,6 +17,63 @@ int DataManager::empCount = 0;
 static constexpr int MAX_LOGS = 200;
 static AttendanceLog liveLogs[MAX_LOGS];
 static int           liveLogCount = 0;
+static portMUX_TYPE  logMutex = portMUX_INITIALIZER_UNLOCKED;
+
+void attendanceUploadTask(void *pvParameters) {
+    while (true) {
+        if (WiFi.status() == WL_CONNECTED && DataManager::isActivated()) {
+            AttendanceLog logToSync;
+            bool found = false;
+            
+            portENTER_CRITICAL(&logMutex);
+            for (int i = 0; i < liveLogCount; i++) {
+                if (!liveLogs[i].synced) {
+                    logToSync = liveLogs[i];
+                    found = true;
+                    break;
+                }
+            }
+            portEXIT_CRITICAL(&logMutex);
+            
+            if (found) {
+                StaticJsonDocument<384> body;
+                body["employee_name"] = logToSync.name;
+                body["action"]        = logToSync.is_time_in ? "IN" : "OUT";
+                body["timestamp"]     = logToSync.time_str;
+                body["confidence"]    = logToSync.confidence;
+                body["slot"]          = logToSync.slot;
+                body["device_id"]     = DataManager::getDeviceId();
+
+                String bodyStr;
+                serializeJson(body, bodyStr);
+
+                HTTPClient http;
+                String url = String(API_BASE_URL) + "/api/attendance/log";
+                http.begin(url);
+                http.setTimeout(8000);
+                http.addHeader("Content-Type", "application/json");
+                http.addHeader("Authorization", "Bearer " + DataManager::getActivationCode());
+                int code = http.POST(bodyStr);
+                http.end();
+
+                if (code >= 200 && code < 300) {
+                    portENTER_CRITICAL(&logMutex);
+                    for (int i = 0; i < liveLogCount; i++) {
+                        if (!liveLogs[i].synced && 
+                            liveLogs[i].time_str == logToSync.time_str && 
+                            liveLogs[i].name == logToSync.name) {
+                            liveLogs[i].synced = true;
+                            break;
+                        }
+                    }
+                    portEXIT_CRITICAL(&logMutex);
+                    DataManager::saveAttendanceLogs();
+                }
+            }
+        }
+        vTaskDelay(2000 / portTICK_PERIOD_MS);
+    }
+}
 
 const AttendanceLog* DataManager::getAttendanceLogs() { return liveLogs; }
 int  DataManager::getAttendanceLogCount()             { return liveLogCount; }
@@ -31,6 +88,7 @@ int DataManager::getUnsyncedAttendanceCount() {
 
 void DataManager::addLog(const String& name, const String& time_str,
                          bool is_time_in, int confidence, int slot) {
+    portENTER_CRITICAL(&logMutex);
     if (liveLogCount < MAX_LOGS) {
         liveLogs[liveLogCount++] = AttendanceLog{name, time_str, is_time_in, false, confidence, slot};
     } else {
@@ -38,6 +96,7 @@ void DataManager::addLog(const String& name, const String& time_str,
         memmove(&liveLogs[0], &liveLogs[1], sizeof(AttendanceLog) * (MAX_LOGS - 1));
         liveLogs[MAX_LOGS - 1] = AttendanceLog{name, time_str, is_time_in, false, confidence, slot};
     }
+    portEXIT_CRITICAL(&logMutex);
     saveAttendanceLogs();
 }
 
@@ -82,40 +141,7 @@ void DataManager::saveAttendanceLogs() {
 }
 
 void DataManager::uploadPendingLogs() {
-    if (WiFi.status() != WL_CONNECTED) return;
-    if (_activationCode.length() == 0) return;
-
-    String url = String(API_BASE_URL) + "/api/attendance/log";
-    bool anyUploaded = false;
-
-    for (int i = 0; i < liveLogCount; i++) {
-        if (liveLogs[i].synced) continue;
-
-        StaticJsonDocument<384> body;
-        body["employee_name"] = liveLogs[i].name;
-        body["action"]        = liveLogs[i].is_time_in ? "IN" : "OUT";
-        body["timestamp"]     = liveLogs[i].time_str;
-        body["confidence"]    = liveLogs[i].confidence;
-        body["slot"]          = liveLogs[i].slot;
-        body["device_id"]     = getDeviceId();
-
-        String bodyStr;
-        serializeJson(body, bodyStr);
-
-        HTTPClient http;
-        http.begin(url);
-        http.setTimeout(8000);
-        http.addHeader("Content-Type", "application/json");
-        http.addHeader("Authorization", "Bearer " + _activationCode);
-        int code = http.POST(bodyStr);
-        Serial.printf("[ATTENDANCE] POST %s -> HTTP %d\n", url.c_str(), code);
-        if (code >= 200 && code < 300) {
-            liveLogs[i].synced = true;
-            anyUploaded = true;
-        }
-        http.end();
-    }
-    if (anyUploaded) saveAttendanceLogs();
+    // Deprecated: Uploads are now handled automatically by the background attendanceUploadTask.
 }
 
 int DataManager::getEnrolledFingerprintCount() {
@@ -157,6 +183,16 @@ void DataManager::begin() {
     loadEmployees();
     loadWifiCredentials();
     loadAttendanceLogs();
+
+    xTaskCreatePinnedToCore(
+        attendanceUploadTask,
+        "AttendUpload",
+        4096,
+        NULL,
+        1,
+        NULL,
+        0 // Core 0
+    );
 }
 
 void DataManager::createInitialFilesIfMissing() {
@@ -431,10 +467,13 @@ void DataManager::loadFpState() {
         bool enrolled = entry["enrolled"] | false;
         if (slot < 0) continue;
 
-        // Find the employee whose enrolled_finger matches this slot
+        const char* name = entry["name"] | "";
+
+        // Find the employee whose name matches this slot
         for (int i = 0; i < empCount; i++) {
-            if (empDB[i].enrolled_finger == slot) {
+            if (empDB[i].name == name) {
                 empDB[i].fp_enrolled = enrolled;
+                empDB[i].enrolled_finger = slot;
                 break;
             }
         }

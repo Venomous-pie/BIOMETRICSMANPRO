@@ -511,9 +511,8 @@ void CommManager::dispatchJson(const String& line) {
                 // Admin/system slots: jump to main menu instead of logging
                 UIManager::showMainMenu();
             } else {
-                // Record the attendance log and attempt to upload
+                // Record the attendance log (uploading is handled by background task)
                 DataManager::addLog(String(name), String(ts), is_time_in, conf, slot);
-                DataManager::uploadPendingLogs();
                 uiShowMatch(name, doc["dept"], act, ts);
             }
         }
