@@ -32,10 +32,13 @@ String getTimestamp() {
   // NTP is the most accurate source. getLocalTime() succeeds once configTime()
   // has synced and the ESP32 system clock is set.
   if (getLocalTime(&t, 0) && (t.tm_year + 1900) >= 2020) {
-    char buf[20];
-    snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d",
+    char buf[30];
+    int h12 = t.tm_hour % 12;
+    if (h12 == 0) h12 = 12;
+    const char* ampm = (t.tm_hour >= 12) ? "PM" : "AM";
+    snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d %s",
              t.tm_year + 1900, t.tm_mon + 1, t.tm_mday,
-             t.tm_hour, t.tm_min, t.tm_sec);
+             h12, t.tm_min, t.tm_sec, ampm);
     return String(buf);
   }
 
@@ -49,10 +52,13 @@ String getTimestamp() {
     now = DateTime(F(__DATE__), F(__TIME__)) + TimeSpan(millis() / 1000);
   }
 
-  char buf[20];
-  snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d",
+  char buf[30];
+  int h12 = now.hour() % 12;
+  if (h12 == 0) h12 = 12;
+  const char* ampm = (now.hour() >= 12) ? "PM" : "AM";
+  snprintf(buf, sizeof(buf), "%04d-%02d-%02d %02d:%02d:%02d %s",
            now.year(), now.month(), now.day(),
-           now.hour(), now.minute(), now.second());
+           h12, now.minute(), now.second(), ampm);
   return String(buf);
 }
 
@@ -76,10 +82,13 @@ void ntpProcess() {
   if (getLocalTime(&t, 0)) {
     ntpSyncPending = false;
 
-    char syncTs[20];
-    snprintf(syncTs, sizeof(syncTs), "%04d-%02d-%02d %02d:%02d:%02d",
+    char syncTs[30];
+    int h12 = t.tm_hour % 12;
+    if (h12 == 0) h12 = 12;
+    const char* ampm = (t.tm_hour >= 12) ? "PM" : "AM";
+    snprintf(syncTs, sizeof(syncTs), "%04d-%02d-%02d %02d:%02d:%02d %s",
              t.tm_year+1900, t.tm_mon+1, t.tm_mday,
-             t.tm_hour, t.tm_min, t.tm_sec);
+             h12, t.tm_min, t.tm_sec, ampm);
     Serial.printf("[NTP] Synced: %s (UTC+8)\n", syncTs);
 
     if (rtcValid) {
@@ -124,8 +133,11 @@ void setManualTime(int y, int m, int d, int h, int min) {
   Serial.println("[TIME] System clock manually updated.");
   
   // Optionally, trigger a broadcast to the display so it immediately reflects the new time
-  char syncTs[20];
-  snprintf(syncTs, sizeof(syncTs), "%04d-%02d-%02d %02d:%02d:%02d", y, m, d, h, min, 0);
+  char syncTs[30];
+  int h12 = h % 12;
+  if (h12 == 0) h12 = 12;
+  const char* ampm = (h >= 12) ? "PM" : "AM";
+  snprintf(syncTs, sizeof(syncTs), "%04d-%02d-%02d %02d:%02d:%02d %s", y, m, d, h12, min, 0, ampm);
   StaticJsonDocument<128> doc;
   doc["type"] = "NTP_STATUS";
   doc["ok"]   = true;

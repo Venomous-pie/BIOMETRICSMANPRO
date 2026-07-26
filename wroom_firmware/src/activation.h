@@ -11,6 +11,8 @@ void testApiConnection();
 
 // Posts a completed fingerprint enrollment to the server.
 // Call after doEnroll() succeeds, before returning ENROLL_OK to CrowPanel.
-void uploadEnrollment(const String& deviceToken, const String& empName,
+// Returns true if the server accepted it, false otherwise, with outError populated.
+bool uploadEnrollment(const String& deviceToken, const String& empName,
                       int fingerIndex, int slot,
-                      const uint8_t* templateBytes, int templateLen);
+                      const uint8_t* templateBytes, int templateLen,
+                      String& outError);

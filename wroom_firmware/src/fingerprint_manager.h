@@ -14,6 +14,9 @@ void fingerprintManagerInit();
 // Call after finger.getImage() == FINGERPRINT_OK.
 void doMatch();
 
+// Simulates a highly-confident match for testing without hardware
+void doMockMatch(int slot);
+
 // Runs the 2-scan enrollment sequence for the given slot (1–127).
 // Blocks until complete or a scan times out (15 s per scan step).
 // Returns true on success, false on failure or timeout.

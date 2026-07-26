@@ -2,9 +2,10 @@
 #include "comm_manager.h"
 #include "data_manager.h"
 #include "../ui/ui_manager.h"
+#include "../ui/ui_sync_status.h"
 #include <rom/crc.h>
 
-#define MAX_EMPLOYEES 81
+// Use the shared cap from sync_protocol.h (BUG-05 fix — was locally redefined as 81).
 static uint8_t* s_scratchBuffer = nullptr;
 static uint32_t s_expectedBytes = 0;
 static uint16_t s_expectedChunks = 0;
@@ -13,16 +14,52 @@ static bool*    s_chunkReceived = nullptr;
 static bool     s_syncInProgress = false;
 static uint32_t s_lastPacketMs = 0;
 
+// Starting chunk index for the current CRC-mismatch NACK round.
+// On a CRC mismatch we can only request 64 chunks per NACK packet.
+// s_nackRoundStart tracks where the next round begins so we page
+// through all chunks instead of endlessly NACKing only 0–63 (BUG-11 fix).
+static uint16_t s_nackRoundStart = 0;
+
+// Pending TX state (to avoid calling esp_now_send from within rx_cb)
+static volatile bool s_pendingPong = false;
+
+static volatile bool s_pendingChunkAck = false;
+static volatile uint32_t s_pendingAckSyncId = 0;
+static volatile uint16_t s_pendingAckChunk = 0;
+
+static volatile bool s_pendingSyncResult = false;
+static volatile uint32_t s_pendingResultSyncId = 0;
+static volatile SyncStatus s_pendingResultStatus = SYNC_STATUS_OK;
+static volatile uint16_t s_pendingMissingIndices[64];
+static volatile uint8_t s_pendingMissingCount = 0;
+
 void SyncReceiver::init() {
     // Initialized from CommManager
     s_syncInProgress = false;
 }
 
 void SyncReceiver::loop() {
+    // Process pending ESP-NOW responses safely outside the RX interrupt context
+    if (s_pendingPong) {
+        s_pendingPong = false;
+        sendPong();
+    }
+    
+    if (s_pendingChunkAck) {
+        s_pendingChunkAck = false;
+        sendChunkAck(s_pendingAckSyncId, s_pendingAckChunk);
+    }
+    
+    if (s_pendingSyncResult) {
+        s_pendingSyncResult = false;
+        sendSyncResult(s_pendingResultSyncId, s_pendingResultStatus, (const uint16_t*)s_pendingMissingIndices, s_pendingMissingCount);
+    }
+
     // Timeout logic if a sync was started but abandoned mid-way
     if (s_syncInProgress && (millis() - s_lastPacketMs > 5000)) {
         Serial.println("[SYNC_RX] Sync timed out. Aborting.");
         UIManager::showToast("Employee Sync Failed (Timeout)", true);
+        uiSyncStatusOnSyncResult(false);
         s_syncInProgress = false;
         if (s_scratchBuffer) {
             free(s_scratchBuffer);
@@ -78,7 +115,7 @@ void SyncReceiver::handleIncomingPacket(const uint8_t* data, size_t len) {
     switch (hdr->type) {
         case SYNC_PING:
             // Always respond to ping to verify channel alignment
-            sendPong();
+            s_pendingPong = true;
             break;
             
         case SYNC_START: {
@@ -91,8 +128,8 @@ void SyncReceiver::handleIncomingPacket(const uint8_t* data, size_t len) {
                 if (s_scratchBuffer) free(s_scratchBuffer);
                 if (s_chunkReceived) free(s_chunkReceived);
                 
-                // Prevent crazy allocations
-                if (pkt->total_bytes > MAX_EMPLOYEES * sizeof(EmployeeSync)) {
+                // Prevent crazy allocations — use MAX_SYNC_EMPLOYEES (BUG-05 fix)
+                if (pkt->total_bytes > MAX_SYNC_EMPLOYEES * sizeof(EmployeeSync)) {
                     Serial.println("[SYNC_RX] Total bytes too large, ignoring sync.");
                     return;
                 }
@@ -114,6 +151,7 @@ void SyncReceiver::handleIncomingPacket(const uint8_t* data, size_t len) {
                 s_expectedChunks = pkt->total_chunks;
                 s_currentSyncId = pkt->sync_id;
                 s_syncInProgress = true;
+                s_nackRoundStart = 0; // reset paging state for any fresh sync
             }
             break;
         }
@@ -127,7 +165,9 @@ void SyncReceiver::handleIncomingPacket(const uint8_t* data, size_t len) {
                         if (offset + pkt->payload_len <= s_expectedBytes) {
                             memcpy(s_scratchBuffer + offset, pkt->payload, pkt->payload_len);
                             s_chunkReceived[pkt->chunk_index] = true;
-                            sendChunkAck(pkt->sync_id, pkt->chunk_index);
+                            s_pendingAckSyncId = pkt->sync_id;
+                            s_pendingAckChunk = pkt->chunk_index;
+                            s_pendingChunkAck = true;
                         }
                     }
                 }
@@ -152,24 +192,49 @@ void SyncReceiver::handleIncomingPacket(const uint8_t* data, size_t len) {
                     
                     if (missingCount > 0) {
                         Serial.printf("[SYNC_RX] NACK: %d missing chunks.\n", missingCount);
-                        sendSyncResult(s_currentSyncId, SYNC_STATUS_NACK, missing, missingCount);
+                        s_pendingResultSyncId = s_currentSyncId;
+                        s_pendingResultStatus = SYNC_STATUS_NACK;
+                        s_pendingMissingCount = missingCount;
+                        memcpy((void*)s_pendingMissingIndices, missing, missingCount * sizeof(uint16_t));
+                        s_pendingSyncResult = true;
                     } else {
                         // All chunks received, verify CRC
                         uint32_t calcCrc = crc32_le(0, s_scratchBuffer, s_expectedBytes);
                         if (calcCrc == pkt->crc32) {
                             Serial.println("[SYNC_RX] CRC match. Applying sync buffer.");
                             DataManager::applySyncBuffer(s_scratchBuffer, s_expectedBytes);
-                            sendSyncResult(s_currentSyncId, SYNC_STATUS_OK, nullptr, 0);
+                            
+                            s_pendingResultSyncId = s_currentSyncId;
+                            s_pendingResultStatus = SYNC_STATUS_OK;
+                            s_pendingMissingCount = 0;
+                            s_pendingSyncResult = true;
+                            
                             s_syncInProgress = false; // completed
                             UIManager::showToast("Employee Sync Successful", false);
+                            uiSyncStatusOnSyncResult(true);
                         } else {
-                            Serial.printf("[SYNC_RX] CRC MISMATCH! Expected %08X, got %08X\n", pkt->crc32, calcCrc);
-                            // Nack with chunk 0 just to force a retry, or we can just nack everything?
-                            // According to spec, NACK on CRC mismatch should request specific corrupted chunks, but we don't know which one.
-                            // So we just NACK everything.
-                            missingCount = (s_expectedChunks > 64) ? 64 : s_expectedChunks;
-                            for (uint8_t i = 0; i < missingCount; i++) missing[i] = i;
-                            sendSyncResult(s_currentSyncId, SYNC_STATUS_NACK, missing, missingCount);
+                            // CRC mismatch: request the next page of 64 chunks (BUG-11 fix).
+                            // Instead of always requesting chunks 0..63, we page through
+                            // all chunks in rounds so large payloads eventually converge.
+                            Serial.printf("[SYNC_RX] CRC MISMATCH! Expected %08X, got %08X. NACK round from chunk %u.\n",
+                                          pkt->crc32, calcCrc, s_nackRoundStart);
+
+                            uint16_t rangeEnd = s_nackRoundStart + 64;
+                            if (rangeEnd > s_expectedChunks) rangeEnd = s_expectedChunks;
+                            uint8_t pageCount = (uint8_t)(rangeEnd - s_nackRoundStart);
+
+                            uint16_t missing[64];
+                            for (uint8_t i = 0; i < pageCount; i++)
+                                missing[i] = s_nackRoundStart + i;
+
+                            // Advance for next round; wrap around if we reach the end
+                            s_nackRoundStart = (rangeEnd >= s_expectedChunks) ? 0 : rangeEnd;
+
+                            s_pendingResultSyncId = s_currentSyncId;
+                            s_pendingResultStatus = SYNC_STATUS_NACK;
+                            s_pendingMissingCount = pageCount;
+                            memcpy((void*)s_pendingMissingIndices, missing, pageCount * sizeof(uint16_t));
+                            s_pendingSyncResult = true;
                         }
                     }
                 }

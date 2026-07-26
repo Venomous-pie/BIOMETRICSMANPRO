@@ -3,6 +3,7 @@
 #include "employee_db.h"
 #include "time_manager.h"
 #include "config.h"
+#include "audio_manager.h"
 
 HardwareSerial       fpSerial(1);        // UART1 → AS608
 Adafruit_Fingerprint finger(&fpSerial);
@@ -58,8 +59,9 @@ void fingerprintManagerInit() {
 }
 
 void doMatch() {
-  if (finger.image2Tz()     != FINGERPRINT_OK) { send("{\"type\":\"NOMATCH\"}"); return; }
-  if (finger.fingerSearch() != FINGERPRINT_OK) { send("{\"type\":\"NOMATCH\"}"); return; }
+  beep(50); // instant beep upon finger detection
+  if (finger.image2Tz()     != FINGERPRINT_OK) { send("{\"type\":\"NOMATCH\"}"); playTrack(TRACK_NOT_RECOGNIZED); return; }
+  if (finger.fingerSearch() != FINGERPRINT_OK) { send("{\"type\":\"NOMATCH\"}"); playTrack(TRACK_NOT_RECOGNIZED); return; }
 
   int    id    = finger.fingerID;
   int    conf  = finger.confidence;
@@ -78,6 +80,28 @@ void doMatch() {
   doc["conf"]   = conf;
   doc["ts"]     = getTimestamp();
   sendDoc(doc);
+  
+  if (isIn) {
+    playTrack(TRACK_TIME_IN);
+  } else {
+    playTrack(TRACK_TIME_OUT);
+  }
+}
+
+void doMockMatch(int slot) {
+  bool isIn  = !lastIn[slot];
+  lastIn[slot] = isIn;
+
+  StaticJsonDocument<256> doc;
+  doc["type"]   = "MATCH";
+  doc["id"]     = slot;
+  doc["name"]   = "Slot " + String(slot);
+  doc["dept"]   = "";
+  doc["action"] = isIn ? "IN" : "OUT";
+  doc["conf"]   = 99;
+  doc["ts"]     = getTimestamp();
+  sendDoc(doc);
+  Serial.printf("[FP-MOCK] Generated fake %s match for slot %d\n", doc["action"].as<const char*>(), slot);
 }
 
 volatile bool enrollCancelled = false;
@@ -88,6 +112,24 @@ void cancelEnroll() {
 }
 
 bool doEnroll(int slot) {
+#ifdef MOCK_SENSOR
+  enrollCancelled = false;
+  
+  send("{\"type\":\"ENROLL_STEP\",\"step\":1,\"msg\":\"Place finger\"}");
+  Serial.println("[ENROLL-MOCK] Step 1 — place finger on sensor");
+  for(int i=0; i<15; i++) { delay(100); pollCancelCheck(); if(enrollCancelled) return false; }
+
+  send("{\"type\":\"ENROLL_STEP\",\"step\":2,\"msg\":\"Lift finger\"}");
+  Serial.println("[ENROLL-MOCK] Step 2 — lift finger");
+  for(int i=0; i<15; i++) { delay(100); pollCancelCheck(); if(enrollCancelled) return false; }
+
+  send("{\"type\":\"ENROLL_STEP\",\"step\":3,\"msg\":\"Place again\"}");
+  Serial.println("[ENROLL-MOCK] Step 3 — place finger again");
+  for(int i=0; i<15; i++) { delay(100); pollCancelCheck(); if(enrollCancelled) return false; }
+
+  Serial.println("[ENROLL-MOCK] Mock enrollment successful.");
+  return true;
+#else
   int p;
   unsigned long t, lastPing;
   enrollCancelled = false;
@@ -110,6 +152,7 @@ bool doEnroll(int slot) {
       Serial.printf("[ENROLL] Step 1 image error: 0x%02X\n", p);
     delay(50);
   } while (p != FINGERPRINT_OK);
+  beep(50);
   Serial.println("[ENROLL] Step 1 image captured.");
   p = finger.image2Tz(1);
   if (p != FINGERPRINT_OK) { Serial.printf("[ENROLL] Step 1 FAIL: image2Tz(1) = 0x%02X\n", p); return false; }
@@ -148,6 +191,7 @@ bool doEnroll(int slot) {
       Serial.printf("[ENROLL] Step 3 image error: 0x%02X\n", p);
     delay(50);
   } while (p != FINGERPRINT_OK);
+  beep(50);
   Serial.println("[ENROLL] Step 3 image captured.");
   p = finger.image2Tz(2);
   if (p != FINGERPRINT_OK) { Serial.printf("[ENROLL] Step 3 FAIL: image2Tz(2) = 0x%02X\n", p); return false; }
@@ -158,6 +202,7 @@ bool doEnroll(int slot) {
   p = finger.storeModel(slot);
   if (p != FINGERPRINT_OK) { Serial.printf("[ENROLL] FAIL: storeModel(%d) = 0x%02X\n", slot, p); return false; }
   return true;
+#endif
 }
 
 // ── Template extraction ───────────────────────────────────────────────────────
@@ -173,6 +218,15 @@ bool doEnroll(int slot) {
 // We strip headers/checksums and copy only the payload bytes.
 
 int getTemplateBytes(int slot, uint8_t* buf, size_t bufSize) {
+#ifdef MOCK_SENSOR
+  // Generate a fake 512-byte template to test the base64 / upload flow
+  int len = (bufSize < 512) ? bufSize : 512;
+  for (int i = 0; i < len; i++) {
+    buf[i] = (uint8_t)(i % 256);
+  }
+  Serial.printf("[FP-MOCK] Generated %d dummy bytes for slot %d\n", len, slot);
+  return len;
+#else
   // loadModel re-reads the template from flash into the sensor's char buffer.
   if (finger.loadModel(slot) != FINGERPRINT_OK) {
     Serial.println("[FP] getTemplateBytes: loadModel failed");
@@ -231,5 +285,6 @@ int getTemplateBytes(int slot, uint8_t* buf, size_t bufSize) {
 done:
   Serial.printf("[FP] getTemplateBytes: read %d bytes from slot %d\n", totalRead, slot);
   return totalRead;
+#endif
 }
 

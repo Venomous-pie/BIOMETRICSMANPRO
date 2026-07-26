@@ -658,7 +658,8 @@ void uiShowEnrollResult(bool ok, const char *name) {
   lv_obj_clear_flag(lbl_scan_subtext, LV_OBJ_FLAG_HIDDEN);
 
   if (ok) {
-    DataManager::updateEmployeeFpEnrolled(selected_emp_id, true, selected_finger_index);
+    int slot = ((selected_emp_id.toInt() - 1) * 10) + selected_finger_index + 1;
+    DataManager::updateEmployeeFpEnrolled(selected_emp_id, true, slot);
 
     lv_obj_add_flag(btn_enroll_back, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(btn_enroll_done, LV_OBJ_FLAG_HIDDEN);
@@ -744,9 +745,6 @@ static void finger_click_cb(lv_event_t * e) {
 
 static void start_scan_cb(lv_event_t * e) {
   if (selected_finger_index < 0 || selected_emp_id.length() == 0) return;
-  char buf[256];
-  snprintf(buf, sizeof(buf), "ENROLL:%s:%d", selected_emp_id.c_str(), selected_finger_index);
-  CommManager::sendCommand(String(buf));
   
   String n = "";
   const Employee* db = DataManager::getEmployees();
@@ -754,6 +752,11 @@ static void start_scan_cb(lv_event_t * e) {
   for (int i=0; i<count; i++) {
     if (db[i].id == selected_emp_id) { n = db[i].name; break; }
   }
+
+  char buf[256];
+  snprintf(buf, sizeof(buf), "ENROLL:%s:%d:%s", selected_emp_id.c_str(), selected_finger_index, n.c_str());
+  CommManager::sendCommand(String(buf));
+  
   uiShowEnrollStart(n.c_str());
 }
 

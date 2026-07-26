@@ -64,6 +64,8 @@ Understanding the data flow before touching code will save you hours. The system
 | ESP32-D0WD-V3 (WROOM-32 module) | 3.3 V | ~80 mA idle | ~350 mA WiFi TX burst |
 | CrowPanel ESP32-S3 (QFN56) board | 5 V (USB-C) or 3.3 V regulated | ~150 mA idle | ~500 mA with LCD backlight + WiFi |
 | AS608 Fingerprint Sensor | 3.3 V | ~120 mA scanning | ~140 mA |
+| DFPlayer Mini + Speaker | 5.0 V | ~20 mA idle | ~200 mA playing |
+| Active Buzzer | 3.3 V | ~10 mA idle | ~30 mA |
 | DS3231 RTC module | 3.3 V | < 1 mA (uses onboard coin cell for timekeeping) | — |
 
 ### Power Strategy
@@ -101,6 +103,9 @@ Understanding the data flow before touching code will save you hours. The system
 | **GPIO34** | Input-only | AS608 T-OUT (touch detect) | Pulled HIGH by sensor when finger present |
 | **GPIO21** | SDA | DS3231 I2C Data | 4.7k pull-up to 3.3 V (often built into module) |
 | **GPIO22** | SCL | DS3231 I2C Clock | 4.7k pull-up to 3.3 V (often built into module) |
+| **UART2 RX** | **GPIO16** | DFPlayer TX <- | Audio RX (Use Logic Level Shifter!) |
+| **UART2 TX** | **GPIO17** | DFPlayer RX -> | Audio TX (Use Logic Level Shifter!) |
+| **GPIO13** | Output | Active Buzzer | Buzzer signal |
 | **GPIO14** | Factory Reset | Active HIGH button | Uses internal pull-down; hold 5 s to wipe |
 
 **Pins to avoid on ESP32-D0WD-V3 (WROOM-32):**
@@ -130,6 +135,26 @@ Understanding the data flow before touching code will save you hours. The system
 | WAKEUP | Leave floating or tie to GND |
 
 > The AS608 communicates at 57600 baud by default. The firmware initialises UART1 at this speed. Do not change it unless you also update `fingerprint_manager.cpp`.
+
+---
+
+### Audio (DFPlayer Mini & Buzzer) Wiring
+
+> **Logic Level Shifter Required:** The ESP32 is a 3.3V device, but the DFPlayer Mini runs best at 5V. You should route the RX/TX lines through a 4-channel 3.3V-to-5V Logic Level Converter to protect the ESP32 pins.
+
+| Audio Pin | Connects to | Notes |
+|---|---|---|
+| DFPlayer VCC | 5V Power Rail | Provide 5V for loud/clean audio |
+| DFPlayer GND | Common GND | |
+| DFPlayer RX | WROOM GPIO17 via Shifter (HV -> LV) | |
+| DFPlayer TX | WROOM GPIO16 via Shifter (LV -> HV) | |
+| DFPlayer SPK+ | Speaker Positive (+) | |
+| DFPlayer SPK- | Speaker Negative (-) | |
+| Buzzer VCC | WROOM 3V3 (or 5V) | |
+| Buzzer GND | Common GND | |
+| Buzzer I/O (Signal)| WROOM GPIO13 | Direct 3.3V connection is fine |
+
+*Place your audio files (e.g., `0001.mp3`, `0002.mp3`) inside a folder literally named `mp3` on the root of the SD card before inserting it into the DFPlayer.*
 
 ---
 
@@ -462,6 +487,7 @@ Connect at **115200 baud**.
 | `ENROLL:<emp_id>:<finger_index>` | Enroll a finger (e.g. `ENROLL:1:0` = employee 1, first finger) |
 | `DELETE:<emp_id>:<finger_index>` | Erase a stored template (e.g. `DELETE:1:0`) |
 | `RESET` | Reboot the WROOM |
+| `TEST_HW` | Hardware test (Beeps buzzer 3 times and plays Track 1) |
 | `GHOST_LOGIN` | Dev backdoor — bypasses scanner, jumps to Main Menu on CrowPanel |
 | `NUKE_USERS` | Dev backdoor — erases all stored fingerprints except slot 1 |
 | `DEBUG_COMMS` | Dev backdoor — toggles ESP-NOW ping/pong debug output |

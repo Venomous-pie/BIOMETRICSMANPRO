@@ -124,7 +124,6 @@ void my_touch_read(lv_indev_drv_t *indev_drv, lv_indev_data_t *data) {
 // Initialization
 void setup() {
   Serial.begin(115200);
-  Serial.setTxTimeoutMs(0); // Prevent USB from blocking loop
   Serial.printf("[BOOT] Reset reason: %d\n", esp_reset_reason());
 
   delay(500);

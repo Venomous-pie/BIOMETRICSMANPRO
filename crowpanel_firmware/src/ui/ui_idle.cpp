@@ -151,6 +151,7 @@ void uiShowIdle() {
   }
   lv_obj_clear_flag(img_arrow_left_obj, LV_OBJ_FLAG_HIDDEN);
   lv_obj_clear_flag(img_arrow_right_obj, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_flag(cont_prompt, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_style_text_color(lbl_prompt, UIManager::rgb(COLOR_STROKE), 0);
   lv_scr_load(scr_idle);
   // Signal WROOM that device is activated — enable fingerprint scanning
@@ -165,6 +166,10 @@ void uiUpdateClock(const char *ts) {
     int day = atoi(ts + 8);
     int hour = atoi(ts + 11);
     int minute = atoi(ts + 14);
+
+    bool is_pm = (strstr(ts, "PM") != NULL || strstr(ts, "pm") != NULL);
+    if (is_pm && hour < 12) hour += 12;
+    if (!is_pm && hour == 12) hour = 0;
 
     int y = year, m = month;
     if (m < 3) { m += 12; y -= 1; }
@@ -214,6 +219,7 @@ void uiShowPlaceFinger() {
   if (pending_action != 0) {
     lv_obj_add_flag(img_arrow_left_obj, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(img_arrow_right_obj, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_clear_flag(cont_prompt, LV_OBJ_FLAG_CLICKABLE);
     lv_label_set_text(lbl_prompt, "Reading fingerprint...");
   }
 }

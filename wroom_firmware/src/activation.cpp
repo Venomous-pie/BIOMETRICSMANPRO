@@ -1,7 +1,9 @@
 #include "activation.h"
 #include "comms.h"
 #include "config.h"
+#include "certs.h"
 #include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
 #include <WiFi.h>
 
@@ -22,7 +24,9 @@ void validateActivationWithServer(const String &registrationCode) {
              + "&registration_code=" + registrationCode;
 
   HTTPClient http;
-  http.begin(url);
+  WiFiClientSecure client;
+  client.setCACert(GTS_ROOT_R4); // EDGE-06: verify server certificate
+  http.begin(client, url);
   http.addHeader("Content-Type", "application/json");
   int httpCode = http.POST(""); // credentials are in the query string; body is empty
   Serial.printf("[ACTIVATION] HTTP %d\n", httpCode);
@@ -81,8 +85,10 @@ void testApiConnection() {
   }
   
   String url = String(API_BASE_URL);
+  WiFiClientSecure client;
+  client.setCACert(GTS_ROOT_R4); // EDGE-06: verify server certificate
   HTTPClient http;
-  http.begin(url);
+  http.begin(client, url);
   int httpCode = http.GET();
   
   StaticJsonDocument<128> result;
@@ -120,7 +126,7 @@ static String base64Encode(const uint8_t* data, size_t len) {
 }
 
 // ── Upload enrollment ─────────────────────────────────────────────────────────
-// POST /api/devices/employees/enroll
+// POST /api/devices/enrollFingerprint
 // Body:
 // {
 //   "employee_name": "<name>",
@@ -130,27 +136,30 @@ static String base64Encode(const uint8_t* data, size_t len) {
 //   "template_data": "<base64>",    // 512-byte (or 768-byte) AS608 template
 //   "template_size": <int>
 // }
-void uploadEnrollment(const String& deviceToken,
+bool uploadEnrollment(const String& deviceToken,
                       const String& empName,
                       int fingerIndex,
                       int slot,
                       const uint8_t* templateBytes,
-                      int templateLen) {
+                      int templateLen,
+                      String& outError) {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("[ENROLL_UPLOAD] WiFi not connected — skipping upload.");
-    return;
+    outError = "WiFi not connected";
+    return false;
   }
   if (deviceToken.length() == 0) {
     Serial.println("[ENROLL_UPLOAD] No device token — skipping upload.");
-    return;
+    outError = "Device not activated";
+    return false;
   }
 
   String templateB64 = (templateLen > 0)
       ? base64Encode(templateBytes, templateLen)
       : String("");
 
-  // Build JSON body. DynamicJsonDocument because template_data can be ~700 chars.
-  DynamicJsonDocument body(2048);
+  // Build JSON body using ArduinoJson v7 syntax
+  JsonDocument body;
   body["employee_name"]  = empName;
   body["finger_index"]   = fingerIndex;
   body["slot"]           = slot;
@@ -161,19 +170,66 @@ void uploadEnrollment(const String& deviceToken,
   String bodyStr;
   serializeJson(body, bodyStr);
 
-  String url = String(API_BASE_URL) + "/api/devices/employees/enroll";
-  HTTPClient http;
-  http.begin(url);
-  http.setTimeout(10000);
-  http.addHeader("Content-Type", "application/json");
-  http.addHeader("Authorization", "Bearer " + deviceToken);
+  String url = String(API_BASE_URL) + "/api/devices/enrollFingerprint";
+  
+  int maxRetries = 2; // 1 initial + 1 retry
+  for (int attempt = 1; attempt <= maxRetries; attempt++) {
+    HTTPClient http;
+    WiFiClientSecure client;
+    client.setCACert(GTS_ROOT_R4); // EDGE-06: verify server certificate
+    http.begin(client, url);
+    http.setTimeout(10000); // 10s timeout
+    http.addHeader("Content-Type", "application/json");
+    http.addHeader("Authorization", "Bearer " + deviceToken);
 
-  int httpCode = http.POST(bodyStr);
-  Serial.printf("[ENROLL_UPLOAD] POST %s → HTTP %d\n", url.c_str(), httpCode);
-  if (httpCode > 0) {
-    Serial.println("[ENROLL_UPLOAD] Response: " + http.getString());
+    int httpCode = http.POST(bodyStr);
+    Serial.printf("[ENROLL_UPLOAD] POST %s (Attempt %d) → HTTP %d\n", url.c_str(), attempt, httpCode);
+    
+    if (httpCode > 0) {
+      String response = http.getString();
+      Serial.println("[ENROLL_UPLOAD] Response: " + response);
+      http.end();
+
+      if (httpCode >= 200 && httpCode < 300) {
+        JsonDocument doc;
+        DeserializationError err = deserializeJson(doc, response);
+        bool isSuccess = false;
+        
+        if (err == DeserializationError::Ok) {
+            // Some backend routes use {"success":true}, others use {"status":200}
+            if (doc["success"] | false) isSuccess = true;
+            if ((doc["status"] | 0) == 200 || (doc["status"] | 0) == 201) isSuccess = true;
+        }
+
+        if (isSuccess) {
+          return true; // Success
+        } else {
+          outError = doc["error"] | (doc["message"] | "Server rejected enrollment");
+          return false;
+        }
+      } else if (httpCode >= 400 && httpCode < 500) {
+        // 4xx are client errors, do not retry
+        JsonDocument doc;
+        deserializeJson(doc, response);
+        outError = doc["error"] | String("HTTP " + String(httpCode));
+        if (httpCode == 401) outError = "Unauthorized - Check device token";
+        return false;
+      }
+      
+      // 5xx errors fall through to retry
+      outError = "Server Error HTTP " + String(httpCode);
+    } else {
+      outError = http.errorToString(httpCode);
+      http.end();
+    }
+
+    if (attempt < maxRetries) {
+      Serial.println("[ENROLL_UPLOAD] Retrying in 1.5s...");
+      delay(1500);
+    }
   }
-  http.end();
+  
+  return false;
 }
 
 

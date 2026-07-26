@@ -38,12 +38,7 @@ static void btn_save_cb(lv_event_t * e) {
 
 
 
-static void btn_test_cb(lv_event_t * e) {
-    if (Serial) Serial.println("UI Server: btn_test_cb triggered");
-    UIManager::showToast("Syncing via WROOM...", false);
-    String syncCmd = "{\"cmd\":\"SYNC_EMP\",\"token\":\"" + DataManager::getActivationCode() + "\"}";
-    CommManager::sendCommand(syncCmd);
-}
+// Sync Employees action moved to Sync Status screen
 
 static void ta_event_cb(lv_event_t *e) {
     lv_event_code_t code = lv_event_get_code(e);
@@ -116,19 +111,6 @@ void buildSettingsServerScreen() {
     // Show the saved activation code (hidden behind password dots)
     lv_textarea_set_text(ta_token, DataManager::getActivationCode().c_str());
     lv_obj_clear_flag(ta_token, LV_OBJ_FLAG_CLICKABLE);
-
-    lv_obj_t *btn_test = lv_btn_create(body);
-    lv_obj_set_size(btn_test, 160, 40);
-    lv_obj_align(btn_test, LV_ALIGN_TOP_LEFT, 400, 235);
-    lv_obj_set_style_bg_color(btn_test, UIManager::rgb(COLOR_WIFI_BG), 0);
-    lv_obj_set_style_border_color(btn_test, UIManager::rgb(COLOR_GREEN_MAIN), 0);
-    lv_obj_set_style_border_width(btn_test, 1, 0);
-    lv_obj_set_style_radius(btn_test, 8, 0);
-    lv_obj_t *lbl_test = lv_label_create(btn_test);
-    lv_label_set_text(lbl_test, "Sync Employees");
-    UIManager::styleLabel(lbl_test, COLOR_GREEN_MAIN, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
-    lv_obj_center(lbl_test);
-    lv_obj_add_event_cb(btn_test, btn_test_cb, LV_EVENT_CLICKED, NULL);
 
     // Bottom Action Bar
     lv_obj_t *bottom = lv_obj_create(body);

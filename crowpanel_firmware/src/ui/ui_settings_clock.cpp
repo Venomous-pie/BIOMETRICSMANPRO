@@ -10,7 +10,6 @@ static lv_obj_t *lbl_date      = NULL;
 static lv_obj_t *lbl_wifi_ssid = NULL;
 static lv_obj_t *lbl_wifi_pill = NULL;
 static lv_obj_t *lbl_ntp_status = NULL;  // shows last NTP sync result
-static lv_obj_t *btn_sync_ntp   = NULL;
 static lv_obj_t *sw_auto_time   = NULL;
 static lv_obj_t *cont_manual    = NULL;
 static lv_obj_t *dd_year        = NULL;
@@ -34,7 +33,6 @@ static void destroy_screen() {
         lbl_wifi_ssid    = NULL;
         lbl_wifi_pill    = NULL;
         lbl_ntp_status   = NULL;
-        btn_sync_ntp     = NULL;
         sw_auto_time     = NULL;
         cont_manual      = NULL;
         dd_year          = NULL;
@@ -60,21 +58,14 @@ static void btn_manage_wifi_cb(lv_event_t *e) {
     UIManager::showWifiSetup();
 }
 
-// "Sync Now" — asks WROOM to fire an NTP sync immediately
-static void btn_sync_ntp_cb(lv_event_t *e) {
-    if (Serial) Serial.println("UI Clock: btn_sync_ntp_cb triggered");
-    if (lbl_ntp_status) lv_label_set_text(lbl_ntp_status, "Syncing...");
-    CommManager::sendCommand("{\"cmd\":\"SYNC_NTP\"}");
-}
+// Sync Now action moved to Sync Status screen
 
 static void sw_auto_time_cb(lv_event_t *e) {
     bool is_auto = lv_obj_has_state(sw_auto_time, LV_STATE_CHECKED);
     if (is_auto) {
-        if (btn_sync_ntp) lv_obj_clear_flag(btn_sync_ntp, LV_OBJ_FLAG_HIDDEN);
         if (lbl_ntp_status) lv_obj_clear_flag(lbl_ntp_status, LV_OBJ_FLAG_HIDDEN);
         if (cont_manual) lv_obj_add_flag(cont_manual, LV_OBJ_FLAG_HIDDEN);
     } else {
-        if (btn_sync_ntp) lv_obj_add_flag(btn_sync_ntp, LV_OBJ_FLAG_HIDDEN);
         if (lbl_ntp_status) lv_obj_add_flag(lbl_ntp_status, LV_OBJ_FLAG_HIDDEN);
         if (cont_manual) lv_obj_clear_flag(cont_manual, LV_OBJ_FLAG_HIDDEN);
     }
@@ -273,20 +264,7 @@ void buildSettingsClockScreen() {
     lv_obj_add_state(sw_auto_time, LV_STATE_CHECKED);
     lv_obj_add_event_cb(sw_auto_time, sw_auto_time_cb, LV_EVENT_VALUE_CHANGED, NULL);
 
-    // Sync Now button
-    btn_sync_ntp = lv_btn_create(col_left);
-    lv_obj_set_size(btn_sync_ntp, 140, 36);
-    lv_obj_align(btn_sync_ntp, LV_ALIGN_TOP_LEFT, 0, 150);
-    lv_obj_set_style_bg_color(btn_sync_ntp, lv_color_white(), 0);
-    lv_obj_set_style_border_color(btn_sync_ntp, UIManager::rgb(COLOR_STROKE), 0);
-    lv_obj_set_style_border_width(btn_sync_ntp, 1, 0);
-    lv_obj_set_style_radius(btn_sync_ntp, 6, 0);
-    lv_obj_add_event_cb(btn_sync_ntp, btn_sync_ntp_cb, LV_EVENT_CLICKED, NULL);
-
-    lv_obj_t *lbl_sync_btn = lv_label_create(btn_sync_ntp);
-    lv_label_set_text(lbl_sync_btn, LV_SYMBOL_REFRESH " Sync Now");
-    UIManager::styleLabel(lbl_sync_btn, COLOR_TEXT_MAIN, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
-    lv_obj_center(lbl_sync_btn);
+    // Sync Now button moved to Sync Status page
 
     // NTP Status label (to the right of the button)
     lbl_ntp_status = lv_label_create(col_left);
