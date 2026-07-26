@@ -10,6 +10,7 @@
 #include "config.h"
 #include <ArduinoJson.h>
 #include <WiFi.h>
+#include <mbedtls/base64.h>
 
 bool activated          = false;
 bool enrolling          = false;
@@ -124,13 +125,14 @@ void handleCmd(String cmd) {
   } else if (cmd.startsWith("ENROLL:")) {
     int colonIdx    = cmd.indexOf(':', 7);
     int slot        = 0;
+    int emp_id      = 0;
     int finger_index = 0;
     String parsedName = "";
 
     if (colonIdx != -1) {
       // New format: ENROLL:<emp_id>:<finger_index>[:<name>]
       int nextColon = cmd.indexOf(':', colonIdx + 1);
-      int emp_id = cmd.substring(7, colonIdx).toInt();
+      emp_id = cmd.substring(7, colonIdx).toInt();
       
       if (nextColon != -1) {
           finger_index = cmd.substring(colonIdx + 1, nextColon).toInt();
@@ -139,7 +141,11 @@ void handleCmd(String cmd) {
           finger_index = cmd.substring(colonIdx + 1).toInt();
       }
       
-      slot = ((emp_id - 1) * 10) + finger_index + 1;
+      slot = assignL1Slot(emp_id, finger_index);
+      if (slot < 1 || slot > MAX_SLOTS) {
+        Serial.println("[ENROLL] L1 Cache full/error.");
+        return;
+      }
     } else {
       // Legacy format: ENROLL:<slot>
       slot         = cmd.substring(7).toInt();
@@ -147,7 +153,7 @@ void handleCmd(String cmd) {
     }
 
     if (slot < 1 || slot > MAX_SLOTS) {
-      Serial.println("[ENROLL] Invalid slot — must be 1-127.");
+      Serial.println("[ENROLL] Invalid slot.");
       return;
     }
 
@@ -176,13 +182,26 @@ void handleCmd(String cmd) {
       // Extract template bytes immediately while the AS608 buffer is still hot
       static uint8_t tplBuf[768];
       int tplLen = getTemplateBytes(slot, tplBuf, sizeof(tplBuf));
+      String b64 = base64Encode(tplBuf, tplLen);
+      int chunkSize = 140; // Leaves plenty of headroom for the JSON wrapper under 250 bytes
+      int totalChunks = (b64.length() + chunkSize - 1) / chunkSize;
       
-      bool uploaded = uploadEnrollment(deviceToken, label, finger_index, slot, tplBuf, tplLen, errMsg);
-      if (!uploaded) {
-        Serial.println("[ENROLL] Backend upload failed: " + errMsg);
-        Serial.println("[ENROLL] Rolling back local slot " + String(slot));
-        finger.deleteModel(slot); // rollback
-        ok = false;
+      for (int i = 0; i < totalChunks; i++) {
+        StaticJsonDocument<512> chunkDoc;
+        chunkDoc["type"] = "ENROLL_CHUNK";
+        chunkDoc["slot"] = slot;
+        chunkDoc["name"] = label;
+        chunkDoc["emp_id"] = emp_id;
+        chunkDoc["idx"] = finger_index;
+        chunkDoc["c"] = i;
+        chunkDoc["t"] = totalChunks;
+        chunkDoc["d"] = b64.substring(i * chunkSize, (i + 1) * chunkSize);
+        
+        // Send directly. Using sendQuiet to avoid flooding serial output.
+        String out;
+        serializeJson(chunkDoc, out);
+        sendQuiet(out);
+        delay(40); // Allow ESP-NOW to physically transmit
       }
     }
 
@@ -238,8 +257,31 @@ void handleCmd(String cmd) {
       return;
     }
     const char *action = jcmd["cmd"] | "";
+    const char *type = jcmd["type"] | "";
 
-    if (strcmp(action, "DEBUG") == 0) {
+    if (strcmp(type, "CACHE_CHUNK") == 0) {
+      static String b64Buffer = "";
+      int c = jcmd["c"] | 0;
+      int t = jcmd["t"] | 0;
+      int empId = jcmd["emp_id"] | 0;
+      int fIdx = jcmd["f_idx"] | 0;
+      
+      if (c == 0) b64Buffer = "";
+      b64Buffer += jcmd["d"].as<String>();
+      
+      if (c == t - 1) {
+          size_t outputLen = 0;
+          unsigned char decodeBuf[768];
+          int ret = mbedtls_base64_decode(decodeBuf, sizeof(decodeBuf), &outputLen, (const unsigned char*)b64Buffer.c_str(), b64Buffer.length());
+          if (ret == 0 && outputLen == 512) {
+              int slot = assignL1Slot(empId, fIdx);
+              installTemplateBytes(slot, decodeBuf, outputLen);
+              Serial.printf("[CACHE] Cached emp %d finger %d to L1 slot %d\n", empId, fIdx, slot);
+          } else {
+              Serial.println("[CACHE] Failed to decode base64 template chunk.");
+          }
+      }
+    } else if (strcmp(action, "DEBUG") == 0) {
       Serial.println(jcmd["msg"].as<String>());
 
     } else if (strcmp(action, "WIFI_SCAN") == 0) {

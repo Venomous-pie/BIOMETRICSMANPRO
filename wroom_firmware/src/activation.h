@@ -16,3 +16,6 @@ bool uploadEnrollment(const String& deviceToken, const String& empName,
                       int fingerIndex, int slot,
                       const uint8_t* templateBytes, int templateLen,
                       String& outError);
+
+// Encodes binary data to Base64 string (RFC 4648).
+String base64Encode(const uint8_t* data, size_t len);

@@ -21,6 +21,18 @@ static lv_obj_t *lbl_action   = NULL;
 lv_timer_t *returnTimer = NULL;
 extern int pending_action;
 extern void uiShowIdle();
+extern void uiShowEmpList(bool isFallback);
+
+static lv_obj_t *btn_fallback = NULL;
+
+static void fallback_click_cb(lv_event_t *e) {
+    if (returnTimer) {
+        lv_timer_del(returnTimer);
+        returnTimer = NULL;
+    }
+    // Launch the UI for fallback mode
+    uiShowEmpList(true);
+}
 
 void buildResultScreen() {
   if (scr_result != NULL) return;  // Already built, skip
@@ -93,6 +105,19 @@ extern const lv_img_dsc_t icon_user_a;
   lv_label_set_text(lbl_emp_ts, "Good morning! Have a great shift.");
   UIManager::styleLabel(lbl_emp_ts, 0x666666, &lv_font_montserrat_20, LV_TEXT_ALIGN_CENTER);
   lv_obj_align(lbl_emp_ts, LV_ALIGN_BOTTOM_MID, 0, -20);
+
+  // Fallback Button (Hidden by default)
+  btn_fallback = lv_btn_create(scr_result);
+  lv_obj_set_size(btn_fallback, 260, 50);
+  lv_obj_align(btn_fallback, LV_ALIGN_BOTTOM_MID, 0, -60);
+  lv_obj_set_style_bg_color(btn_fallback, UIManager::rgb(0x1976D2), 0); // Blue
+  lv_obj_set_style_radius(btn_fallback, 8, 0);
+  lv_obj_add_flag(btn_fallback, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_add_event_cb(btn_fallback, fallback_click_cb, LV_EVENT_CLICKED, NULL);
+  lv_obj_t *lbl_fb = lv_label_create(btn_fallback);
+  lv_label_set_text(lbl_fb, "Manual Sign-In");
+  UIManager::styleLabel(lbl_fb, 0xFFFFFF, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
+  lv_obj_center(lbl_fb);
 }
 
 void uiShowMatch(const char *name, const char *dept, const char *action, const char *ts) {
@@ -161,6 +186,9 @@ void uiShowMatch(const char *name, const char *dept, const char *action, const c
     lv_label_set_text(lbl_emp_ts, "Great work today! Have a safe trip home.");
   }
 
+  lv_obj_add_flag(btn_fallback, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_clear_flag(lbl_emp_ts, LV_OBJ_FLAG_HIDDEN);
+
   lv_scr_load(scr_result);
 
   if (returnTimer) lv_timer_del(returnTimer);
@@ -188,7 +216,9 @@ void uiShowNoMatch() {
   lv_obj_set_style_border_color(badge_action, UIManager::rgb(COLOR_DANGER), 0);
   lv_obj_set_style_bg_color(badge_action, UIManager::rgb(0xFDEDED), 0);
   lv_obj_set_style_text_color(lbl_action, UIManager::rgb(COLOR_DANGER), 0);
-  lv_label_set_text(lbl_emp_ts, "Please consult HR or Administration.");
+  
+  lv_obj_add_flag(lbl_emp_ts, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_clear_flag(btn_fallback, LV_OBJ_FLAG_HIDDEN);
 
   Serial.println("[UI_RESULT] Loading screen...");
   lv_scr_load(scr_result);
@@ -205,7 +235,7 @@ void uiShowNoMatch() {
     
     uiShowIdle();
     returnTimer = NULL;
-  }, 2500, NULL);
+  }, 5000, NULL);
   lv_timer_set_repeat_count(returnTimer, 1);
 }
 

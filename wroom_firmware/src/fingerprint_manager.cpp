@@ -12,6 +12,49 @@ Adafruit_Fingerprint finger(&fpSerial);
 // so the next scan for that slot will record Time Out.
 static bool lastIn[MAX_SLOTS + 1] = {};
 
+struct L1Slot {
+    int empId;
+    int fingerIdx;
+    unsigned long lastUsed;
+    bool active;
+};
+static L1Slot l1_slots[MAX_SLOTS + 1] = {};
+
+int getL1SlotFor(int empId, int fingerIdx) {
+    for (int i = 1; i <= MAX_SLOTS; i++) {
+        if (l1_slots[i].active && l1_slots[i].empId == empId && l1_slots[i].fingerIdx == fingerIdx) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int assignL1Slot(int empId, int fingerIdx) {
+    int oldestSlot = 1;
+    unsigned long oldestTime = 0xFFFFFFFF;
+    
+    // First, try to find an empty slot
+    for (int i = 1; i <= MAX_SLOTS; i++) {
+        if (!l1_slots[i].active) {
+            l1_slots[i].active = true;
+            l1_slots[i].empId = empId;
+            l1_slots[i].fingerIdx = fingerIdx;
+            l1_slots[i].lastUsed = millis();
+            return i;
+        }
+        if (l1_slots[i].lastUsed < oldestTime) {
+            oldestTime = l1_slots[i].lastUsed;
+            oldestSlot = i;
+        }
+    }
+    
+    // Evict oldest slot
+    l1_slots[oldestSlot].empId = empId;
+    l1_slots[oldestSlot].fingerIdx = fingerIdx;
+    l1_slots[oldestSlot].lastUsed = millis();
+    return oldestSlot;
+}
+
 // ── Enroll cancellation ───────────────────────────────────────────────────────
 // Drains the inbound ESP-NOW queue and sets enrollCancelled if a CANCEL_ENROLL
 // message is found. Called on every poll tick inside doEnroll()'s wait loops so
@@ -53,6 +96,13 @@ void fingerprintManagerInit() {
       liveCount = finger.templateCount;
     }
     Serial.printf("[AS608] Found! Templates stored: %d\n", liveCount);
+    
+    // Smart Cache Architecture: The CrowPanel SD card is Deep Storage.
+    // The AS608 is merely the L1 Cache. We empty it on boot to ensure 
+    // it perfectly matches our volatile l1_slots array.
+    finger.emptyDatabase();
+    Serial.println("[AS608] L1 Cache cleared on boot.");
+    
   } else {
     Serial.println("[AS608] NOT FOUND — check wiring!");
   }
@@ -65,17 +115,29 @@ void doMatch() {
 
   int    id    = finger.fingerID;
   int    conf  = finger.confidence;
-  String name, dept;
-  bool   found = lookupEmployee(id, name, dept);
+  
+  if (!l1_slots[id].active) {
+      // Ghost template matched? Should not happen if we wiped it on boot,
+      // but just in case, ignore it.
+      Serial.printf("[FP] Ghost match on slot %d\n", id);
+      return;
+  }
+  
+  l1_slots[id].lastUsed = millis(); // Refresh LRU
 
-  bool isIn  = !lastIn[id];
-  lastIn[id] = isIn;
+  int empId = l1_slots[id].empId;
+  int fingerIdx = l1_slots[id].fingerIdx;
+  
+  // Wait, the MATCH payload currently sends name and dept from WROOM.
+  // We need to change the protocol so WROOM sends empId, and CrowPanel resolves it.
+  
+  bool isIn  = !lastIn[empId];
+  lastIn[empId] = isIn;
 
   StaticJsonDocument<256> doc;
   doc["type"]   = "MATCH";
-  doc["id"]     = id;
-  doc["name"]   = found ? name : ("Slot " + String(id));
-  doc["dept"]   = found ? dept : "";
+  doc["emp_id"] = empId;
+  doc["f_idx"]  = fingerIdx;
   doc["action"] = isIn ? "IN" : "OUT";
   doc["conf"]   = conf;
   doc["ts"]     = getTimestamp();
@@ -286,5 +348,76 @@ done:
   Serial.printf("[FP] getTemplateBytes: read %d bytes from slot %d\n", totalRead, slot);
   return totalRead;
 #endif
+}
+
+bool installTemplateBytes(int slot, const uint8_t* data, size_t len) {
+    if (len != 512) return false;
+
+    // 1. Send DownChar command (0x09) for CharBuffer1 (0x01)
+    uint8_t cmdPacket[] = {
+        0xEF, 0x01, 
+        0xFF, 0xFF, 0xFF, 0xFF, 
+        0x01, 
+        0x00, 0x04, 
+        0x09, 
+        0x01, 
+        0x00, 0x0F
+    };
+    fpSerial.write(cmdPacket, sizeof(cmdPacket));
+
+    uint8_t b;
+    unsigned long deadline = millis() + 1000;
+    bool ackOk = false;
+    while(millis() < deadline) {
+        if(readByteTimeout(fpSerial, b, deadline) && b == 0xEF) {
+            readByteTimeout(fpSerial, b, deadline); // 0x01
+            for(int i=0; i<4; i++) readByteTimeout(fpSerial, b, deadline); // Addr
+            readByteTimeout(fpSerial, b, deadline); // PID (0x07 = ACK)
+            readByteTimeout(fpSerial, b, deadline); // LenH
+            readByteTimeout(fpSerial, b, deadline); // LenL
+            uint8_t confirmCode;
+            readByteTimeout(fpSerial, confirmCode, deadline); // Confirmation code
+            readByteTimeout(fpSerial, b, deadline); // SumH
+            readByteTimeout(fpSerial, b, deadline); // SumL
+            if(confirmCode == 0x00) ackOk = true;
+            break;
+        }
+    }
+    if(!ackOk) return false;
+
+    // 2. Send 512 bytes in four 128-byte data packets
+    for(int i=0; i<4; i++) {
+        uint8_t pid = (i == 3) ? 0x08 : 0x02; // End data packet vs Data packet
+        uint16_t pktLen = 128 + 2;
+        uint16_t sum = pid + (pktLen >> 8) + (pktLen & 0xFF);
+        
+        uint8_t header[] = {
+            0xEF, 0x01, 
+            0xFF, 0xFF, 0xFF, 0xFF, 
+            pid, 
+            (uint8_t)(pktLen >> 8), (uint8_t)(pktLen & 0xFF)
+        };
+        fpSerial.write(header, sizeof(header));
+        
+        for(int j=0; j<128; j++) {
+            uint8_t d = data[i*128 + j];
+            sum += d;
+            fpSerial.write(d);
+        }
+        uint8_t checksum[] = { (uint8_t)(sum >> 8), (uint8_t)(sum & 0xFF) };
+        fpSerial.write(checksum, sizeof(checksum));
+    }
+
+    // Give sensor a moment to process the buffer
+    delay(50);
+
+    // 3. Store the model in flash at 'slot'
+    if (finger.storeModel(slot) != FINGERPRINT_OK) {
+        Serial.println("[FP] Failed to store installed model");
+        return false;
+    }
+    
+    Serial.printf("[FP] Successfully installed template to slot %d\n", slot);
+    return true;
 }
 

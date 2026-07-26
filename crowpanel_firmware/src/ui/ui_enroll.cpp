@@ -1,7 +1,9 @@
 #include "ui_enroll.h"
 #include "ui_manager.h"
+#include "ui_manager.h"
 #include "../core/data_manager.h"
 #include "../core/comm_manager.h"
+#include <mbedtls/base64.h>
 
 LV_FONT_DECLARE(lv_font_montserrat_20);
 LV_FONT_DECLARE(lv_font_montserrat_24);
@@ -10,6 +12,7 @@ LV_FONT_DECLARE(lv_font_montserrat_36);
 LV_FONT_DECLARE(lv_font_montserrat_48);
 
 lv_obj_t *scr_enroll = NULL;
+bool g_is_fallback = false;
 static lv_obj_t *btn_enroll_back = NULL;
 static lv_obj_t *btn_enroll_done = NULL;
 static lv_obj_t *lbl_enroll_main_title = NULL;
@@ -105,7 +108,11 @@ extern const lv_img_dsc_t icon_people;
 extern const lv_img_dsc_t icon_people_small;
 
 static void btn_back_cb(lv_event_t *e) {
-  UIManager::showMainMenu();
+  if (g_is_fallback) {
+    uiShowIdle();
+  } else {
+    UIManager::showMainMenu();
+  }
 }
 
 static void btn_emp_sync_cb(lv_event_t *e) {
@@ -129,7 +136,7 @@ static void btn_emp_click_cb(lv_event_t * e) {
   const Employee* db = DataManager::getEmployees();
   
   if (index >= 0 && index < DataManager::getEmployeeCount()) {
-      uiShowChooseFinger(db[index].id, db[index].name.c_str(), db[index].dept.c_str());
+      uiShowChooseFinger(db[index].id, db[index].name.c_str(), db[index].dept.c_str(), g_is_fallback);
   }
 }
 
@@ -733,18 +740,59 @@ static void finger_click_cb(lv_event_t * e) {
     lv_obj_clear_state(btn_start_scan, LV_STATE_DISABLED);
     lv_obj_set_style_bg_color(btn_start_scan, UIManager::rgb(0x2E7D32), 0);
     
-    if (f_idx == current_enrolled) {
-        lv_label_set_text(lbl_start_scan_text, "Overwrite " LV_SYMBOL_RIGHT);
-        if (btn_delete_scan) lv_obj_clear_flag(btn_delete_scan, LV_OBJ_FLAG_HIDDEN);
-    } else {
-        lv_label_set_text(lbl_start_scan_text, "Start scan " LV_SYMBOL_RIGHT);
+    if (g_is_fallback) {
+        lv_label_set_text(lbl_start_scan_text, "Load Fingerprint " LV_SYMBOL_UPLOAD);
         if (btn_delete_scan) lv_obj_add_flag(btn_delete_scan, LV_OBJ_FLAG_HIDDEN);
+    } else {
+        if (f_idx == current_enrolled) {
+            lv_label_set_text(lbl_start_scan_text, "Overwrite " LV_SYMBOL_RIGHT);
+            if (btn_delete_scan) lv_obj_clear_flag(btn_delete_scan, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_label_set_text(lbl_start_scan_text, "Start scan " LV_SYMBOL_RIGHT);
+            if (btn_delete_scan) lv_obj_add_flag(btn_delete_scan, LV_OBJ_FLAG_HIDDEN);
+        }
     }
   }
 }
 
 static void start_scan_cb(lv_event_t * e) {
   if (selected_finger_index < 0 || selected_emp_id.length() == 0) return;
+  
+  if (g_is_fallback) {
+      uint8_t tplData[768];
+      size_t tplLen = 0;
+      bool success = DataManager::loadTemplate(selected_emp_id, selected_finger_index, tplData, sizeof(tplData), &tplLen);
+      
+      if (success && tplLen == 512) {
+          unsigned char b64[1024];
+          size_t b64Len = 0;
+          mbedtls_base64_encode(b64, sizeof(b64), &b64Len, tplData, tplLen);
+          String b64Str = String((char*)b64);
+          
+          int chunkSize = 140;
+          int totalChunks = (b64Str.length() + chunkSize - 1) / chunkSize;
+          
+          for (int i=0; i<totalChunks; i++) {
+              StaticJsonDocument<512> doc;
+              doc["type"] = "CACHE_CHUNK";
+              doc["emp_id"] = selected_emp_id.toInt();
+              doc["f_idx"] = selected_finger_index;
+              doc["c"] = i;
+              doc["t"] = totalChunks;
+              doc["d"] = b64Str.substring(i*chunkSize, (i+1)*chunkSize);
+              
+              String out;
+              serializeJson(doc, out);
+              CommManager::sendCommand(out);
+              delay(40);
+          }
+          UIManager::showToast("Finger loaded! Please scan.", true);
+          uiShowIdle();
+      } else {
+          UIManager::showToast("Fingerprint not found on SD card.", false);
+      }
+      return;
+  }
   
   String n = "";
   const Employee* db = DataManager::getEmployees();
@@ -880,7 +928,8 @@ void buildChooseFingerScreen() {
 
 // (Moved deferred state for Choose Finger screen to top)
 
-void uiShowChooseFinger(String emp_id, const char *name, const char *dept) {
+void uiShowChooseFinger(String emp_id, const char *name, const char *dept, bool isFallback) {
+  g_is_fallback = isFallback;
   defer_emp_id = emp_id;
   defer_name = name;
   defer_dept = dept;
@@ -957,7 +1006,8 @@ void uiShowChooseFinger(String emp_id, const char *name, const char *dept) {
 
 // Show the employee list screen with a clean, up-to-date state.
 // Called on first entry from Main Menu, and when navigating back from Choose Finger.
-void uiShowEmpList() {
+void uiShowEmpList(bool isFallback) {
+  g_is_fallback = isFallback;
   if (search_debounce_timer) {
     lv_timer_del(search_debounce_timer);
     search_debounce_timer = NULL;

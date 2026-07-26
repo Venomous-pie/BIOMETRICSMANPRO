@@ -1,7 +1,10 @@
 #include "comm_manager.h"
 #include <ArduinoJson.h>
 #include <WiFi.h>
+#include <esp_now.h>
 #include <esp_wifi.h>
+#include <mbedtls/base64.h>
+#include <HTTPClient.h>
 #include "data_manager.h"
 #include "display_driver.h"
 #include "../ui/ui_manager.h"
@@ -544,7 +547,8 @@ void CommManager::dispatchJson(const String& line) {
         }
         if (strcmp(type, "PLACE_FINGER") == 0)        uiShowPlaceFinger();
         else if (strcmp(type, "MATCH") == 0) {
-            int slot          = doc["id"]     | 0;
+            int empId         = doc["emp_id"] | 0;
+            int fIdx          = doc["f_idx"]  | 0;
             String realName   = "";
             String realDept   = "";
             const char* ts    = doc["ts"]     | "";
@@ -559,35 +563,103 @@ void CommManager::dispatchJson(const String& line) {
                 is_time_in = (pending_action == 1);
             }
 
-            // Lookup the real employee name from the local DB using the hardware slot
+            // Lookup the real employee name from the local DB using empId
             const Employee* db = DataManager::getEmployees();
             int count = DataManager::getEmployeeCount();
             for (int i=0; i<count; i++) {
-                if (db[i].enrolled_finger == slot) {
+                if (db[i].id.toInt() == empId) {
                     realName = db[i].name;
                     realDept = db[i].dept;
                     break;
                 }
             }
-            if (realName.length() == 0) realName = String("Slot ") + String(slot);
+            if (realName.length() == 0) realName = String("Emp ") + String(empId);
             if (realDept.length() == 0) realDept = doc["dept"] | "";
 
-            if (slot >= 1 && slot <= 5) {
+            // Wait, for admins, how do we identify them?
+            // Usually admins were slot 1-5. Now admin might just be empId 1-5.
+            if (empId >= 1 && empId <= 5) {
                 // Admin/system slots: jump to main menu instead of logging
                 UIManager::showMainMenu();
             } else {
-                if (!DataManager::isActionAllowed(slot, is_time_in)) {
+                if (!DataManager::isActionAllowed(empId, is_time_in)) {
                     uiShowActionDenied(realName.c_str(), is_time_in);
                     return; // Prevent log creation
                 }
                 
                 // Record the attendance log and attempt to upload
-                DataManager::addLog(realName, String(ts), is_time_in, conf, slot);
+                DataManager::addLog(realName, String(ts), is_time_in, conf, empId);
                 DataManager::uploadPendingLogs();
                 uiShowMatch(realName.c_str(), realDept.c_str(), is_time_in ? "IN" : "OUT", ts);
             }
         }
         else if (strcmp(type, "NOMATCH") == 0)        uiShowNoMatch();
+        else if (strcmp(type, "ENROLL_CHUNK") == 0) {
+            static String b64Buffer = "";
+            int c = doc["c"] | 0;
+            int t = doc["t"] | 0;
+            if (c == 0) b64Buffer = ""; // reset on first chunk
+            b64Buffer += doc["d"].as<String>();
+            
+            if (c == t - 1) {
+                // Last chunk received. Decode and save to SD card.
+                size_t outputLen = 0;
+                unsigned char decodeBuf[768];
+                int ret = mbedtls_base64_decode(decodeBuf, sizeof(decodeBuf), &outputLen, (const unsigned char*)b64Buffer.c_str(), b64Buffer.length());
+                
+                if (ret == 0 && outputLen > 0) {
+                    int empId = doc["emp_id"] | 0;
+                    int idx = doc["idx"] | 0;
+                    if (empId > 0) {
+                        DataManager::saveTemplate(String(empId), idx, decodeBuf, outputLen);
+                        
+                        // We also need to upload it to the API here so the backend has the backup
+                        // The WROOM used to do this, now we do it.
+                        // We can run this in a fire-and-forget task or queue it.
+                        // Let's just create a quick xTask to POST it.
+                        struct UploadCtx {
+                            String empName;
+                            int fingerIndex;
+                            int slot;
+                            String b64Data;
+                            size_t tplSize;
+                        };
+                        UploadCtx* ctx = new UploadCtx;
+                        ctx->empName = doc["name"].as<String>();
+                        ctx->fingerIndex = idx;
+                        ctx->slot = doc["slot"] | 0;
+                        ctx->b64Data = b64Buffer;
+                        ctx->tplSize = outputLen;
+                        
+                        xTaskCreate([](void* arg) {
+                            UploadCtx* ctx = (UploadCtx*)arg;
+                            if (WiFi.status() == WL_CONNECTED && DataManager::isActivated()) {
+                                HTTPClient http;
+                                String url = String(API_BASE_URL) + "/api/devices/enrollFingerprint";
+                                http.begin(url);
+                                http.addHeader("Content-Type", "application/json");
+                                http.addHeader("Authorization", "Bearer " + DataManager::getActivationCode());
+                                
+                                StaticJsonDocument<1024> body;
+                                body["employee_name"] = ctx->empName;
+                                body["finger_index"] = ctx->fingerIndex;
+                                body["slot"] = ctx->slot;
+                                body["device_id"] = DataManager::getDeviceId();
+                                body["template_data"] = ctx->b64Data;
+                                body["template_size"] = ctx->tplSize;
+                                
+                                String bodyStr;
+                                serializeJson(body, bodyStr);
+                                http.POST(bodyStr);
+                                http.end();
+                            }
+                            delete ctx;
+                            vTaskDelete(NULL);
+                        }, "UploadTpl", 8192, ctx, 1, NULL);
+                    }
+                }
+            }
+        }
         else if (strcmp(type, "ENROLL_START") == 0)   uiShowEnrollStart(doc["name"]);
         else if (strcmp(type, "ENROLL_STEP") == 0)    uiShowEnrollStep(doc["step"] | 0, doc["msg"] | "");
         else if (strcmp(type, "ENROLL_OK") == 0)      uiShowEnrollResult(true, doc["name"]);

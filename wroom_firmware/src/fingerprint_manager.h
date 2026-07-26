@@ -9,6 +9,9 @@ extern Adafruit_Fingerprint finger;
 // Call once from setup().
 void fingerprintManagerInit();
 
+int getL1SlotFor(int empId, int fingerIdx);
+int assignL1Slot(int empId, int fingerIdx);
+
 // Converts the captured image, searches the database, toggles IN/OUT state,
 // and sends a MATCH or NOMATCH event to the CrowPanel.
 // Call after finger.getImage() == FINGERPRINT_OK.
@@ -32,5 +35,8 @@ extern volatile bool enrollCancelled;
 // Reads the raw template bytes for the given slot from the AS608 sensor.
 // Must be called AFTER a successful storeModel(slot) — the template is still
 // in the sensor's internal buffer so no reload is required.
-// buf must be at least 768 bytes. Returns number of bytes read, or 0 on fail.
 int getTemplateBytes(int slot, uint8_t* buf, size_t bufSize);
+
+// Installs a 512-byte template directly to the AS608 flash at the specified slot.
+// Bypasses the Adafruit library's high-level functions to send raw packets.
+bool installTemplateBytes(int slot, const uint8_t* data, size_t len);

@@ -105,6 +105,13 @@ public:
     static int getFailedAttempts();
     static unsigned long getLockoutStartTime();
     static bool isLockedOut();
+    static void setFailedAttempts(int attempts);
+    static void setLockoutStartTime(unsigned long time);
+    
+    // SD Card Deep Storage
+    static bool saveTemplate(const String& empId, int fingerIndex, const uint8_t* data, size_t len);
+    static bool loadTemplate(const String& empId, int fingerIndex, uint8_t* outData, size_t maxLen, size_t* outLen);
+    static bool templateExists(const String& empId, int fingerIndex);
 
 private:
     static void createInitialFilesIfMissing();

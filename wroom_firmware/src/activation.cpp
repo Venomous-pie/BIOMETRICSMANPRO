@@ -108,7 +108,7 @@ void testApiConnection() {
 // ── Inline Base64 encoder ─────────────────────────────────────────────────────
 // Encodes binary data to Base64 string (RFC 4648).
 // Returns the encoded string.
-static String base64Encode(const uint8_t* data, size_t len) {
+String base64Encode(const uint8_t* data, size_t len) {
   static const char tbl[] =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
   String out;

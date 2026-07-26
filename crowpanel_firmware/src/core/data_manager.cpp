@@ -8,6 +8,13 @@
 #include "sync_protocol.h"
 #include "certs.h"
 #include <freertos/semphr.h>
+#include <SPI.h>
+#include <SD.h>
+
+#define SD_MOSI 11
+#define SD_MISO 13
+#define SD_SCK  12
+#define SD_CS   10
 
 Employee DataManager::empDB[150];
 int DataManager::empCount = 0;
@@ -296,6 +303,17 @@ bool   DataManager::_wifiConnected = false;
 void DataManager::begin() {
     if (!LittleFS.begin(true)) {
         return;
+    }
+    
+    // Initialize SD Card
+    SPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
+    if (!SD.begin(SD_CS)) {
+        if (Serial) Serial.println("[DATA] WARNING: SD card mount failed! Deep Storage offline.");
+    } else {
+        if (Serial) Serial.println("[DATA] SD card mounted successfully.");
+        if (!SD.exists("/templates")) {
+            SD.mkdir("/templates");
+        }
     }
     
     // Create the attendance mutex before loading logs (task-safe from here on)
@@ -970,4 +988,49 @@ void DataManager::nukeDatabase() {
     LittleFS.remove("/employees.jsonl");
     // Also wipe fp_state.json so stale enrollment flags don't resurrect on reboot.
     if (LittleFS.exists(FP_STATE_FILE)) LittleFS.remove(FP_STATE_FILE);
+}
+
+// ── SD Card Deep Storage ──────────────────────────────────────────────────────
+
+bool DataManager::saveTemplate(const String& empId, int fingerIndex, const uint8_t* data, size_t len) {
+    String path = "/templates/" + empId + "_" + String(fingerIndex) + ".bin";
+    File f = SD.open(path, FILE_WRITE);
+    if (!f) {
+        if (Serial) Serial.println("[SD] Failed to open " + path + " for writing");
+        return false;
+    }
+    size_t written = f.write(data, len);
+    f.close();
+    if (written == len) {
+        if (Serial) Serial.println("[SD] Saved template: " + path);
+        return true;
+    } else {
+        if (Serial) Serial.println("[SD] Write failed for " + path);
+        return false;
+    }
+}
+
+bool DataManager::loadTemplate(const String& empId, int fingerIndex, uint8_t* outData, size_t maxLen, size_t* outLen) {
+    String path = "/templates/" + empId + "_" + String(fingerIndex) + ".bin";
+    File f = SD.open(path, FILE_READ);
+    if (!f) {
+        return false;
+    }
+    size_t len = f.size();
+    if (len > maxLen) {
+        f.close();
+        return false;
+    }
+    size_t bytesRead = f.read(outData, len);
+    f.close();
+    if (bytesRead == len) {
+        if (outLen) *outLen = bytesRead;
+        return true;
+    }
+    return false;
+}
+
+bool DataManager::templateExists(const String& empId, int fingerIndex) {
+    String path = "/templates/" + empId + "_" + String(fingerIndex) + ".bin";
+    return SD.exists(path);
 }

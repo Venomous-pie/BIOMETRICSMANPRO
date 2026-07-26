@@ -53,6 +53,13 @@ Understanding the data flow before touching code will save you hours. The system
 | CrowPanel | Elecrow CrowPanel 5" 800×480 | **ESP32-S3 (QFN56)** | Touchscreen UI, WiFi, backend comms |
 | WROOM | ESP32-WROOM-32 dev module | **ESP32-D0WD-V3** | Fingerprint scanner, RTC, ESP-NOW bridge |
 
+### CrowPanel SD Card Requirement (Deep Storage)
+The system uses a **Smart Cache** architecture. The WROOM's AS608 fingerprint sensor acts as a fast L1 cache holding 127 active templates. The CrowPanel's SD Card acts as the primary "Deep Storage", holding an unlimited number of fingerprint templates for offline scale.
+
+- **Requirement:** A MicroSD card (FAT32 formatted) must be inserted into the CrowPanel.
+- **Directory Structure:** The firmware expects the directory `/templates/` at the root of the SD card.
+- **File Format:** Templates are stored as raw 512-byte binary files (e.g., `/templates/<emp_id>_<finger_index>.bin`).
+
 ---
 
 ## Power Requirements
@@ -140,19 +147,21 @@ Understanding the data flow before touching code will save you hours. The system
 
 ### Audio (DFPlayer Mini & Buzzer) Wiring
 
-> **Logic Level Shifter Required:** The ESP32 is a 3.3V device, but the DFPlayer Mini runs best at 5V. You should route the RX/TX lines through a 4-channel 3.3V-to-5V Logic Level Converter to protect the ESP32 pins.
+> **Hardware Setup Notes:**
+> - **Logic Level Converter:** The ESP32 is a 3.3V device, but the DFPlayer Mini runs best at 5V. The RX/TX lines are routed through a logic level converter to protect the ESP32 pins.
+> - **Transistor & Diode:** An NPN (EBC pinout) transistor and a diode are used in this build to safely drive the active buzzer from the ESP32.
 
 | Audio Pin | Connects to | Notes |
 |---|---|---|
 | DFPlayer VCC | 5V Power Rail | Provide 5V for loud/clean audio |
 | DFPlayer GND | Common GND | |
-| DFPlayer RX | WROOM GPIO17 via Shifter (HV -> LV) | |
-| DFPlayer TX | WROOM GPIO16 via Shifter (LV -> HV) | |
+| DFPlayer RX | WROOM GPIO17 via Logic Level Converter | |
+| DFPlayer TX | WROOM GPIO16 via Logic Level Converter | |
 | DFPlayer SPK+ | Speaker Positive (+) | |
 | DFPlayer SPK- | Speaker Negative (-) | |
-| Buzzer VCC | WROOM 3V3 (or 5V) | |
-| Buzzer GND | Common GND | |
-| Buzzer I/O (Signal)| WROOM GPIO13 | Direct 3.3V connection is fine |
+| Buzzer VCC | 3.3V or 5V Power Rail | Positive terminal of the buzzer |
+| Buzzer GND | NPN Collector (C) | Negative terminal of the buzzer (with diode across buzzer) |
+| Buzzer I/O (Signal)| WROOM GPIO13 -> NPN Base (B) | NPN Emitter (E) to Common GND |
 
 *Place your audio files (e.g., `0001.mp3`, `0002.mp3`) inside a folder literally named `mp3` on the root of the SD card before inserting it into the DFPlayer.*
 
