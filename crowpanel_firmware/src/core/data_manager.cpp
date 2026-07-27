@@ -19,6 +19,7 @@
 Employee DataManager::empDB[150];
 int DataManager::empCount = 0;
 
+String DataManager::_adminPin = "0000";
 unsigned long DataManager::_lastSyncTimestamp = 0;
 DataManager::SyncLogEntry DataManager::_syncLogs[MAX_SYNC_LOGS];
 int DataManager::_syncLogCount = 0;
@@ -371,6 +372,7 @@ void DataManager::loadConfig() {
         _deviceName = doc["deviceName"] | "ManPro Biometric";
         _brightness = doc["brightness"] | 200;
         _screenTimeout = doc["screenTimeout"] | 30;
+        _adminPin = doc["admin_pin"] | "0000";
         
         if (_brightness < 50) _brightness = 50;
     }
@@ -388,6 +390,7 @@ void DataManager::saveConfig() {
     doc["deviceName"] = _deviceName;
     doc["brightness"] = _brightness;
     doc["screenTimeout"] = _screenTimeout;
+    doc["admin_pin"] = _adminPin;
     serializeJson(doc, f);
     f.close();
 }
@@ -879,6 +882,15 @@ int DataManager::getScreenTimeout() {
 void DataManager::setScreenTimeout(int val) {
     if (val < 0) val = 0;
     _screenTimeout = val;
+    saveConfig();
+}
+
+String DataManager::getAdminPin() {
+    return _adminPin;
+}
+
+void DataManager::setAdminPin(const String& pin) {
+    _adminPin = pin;
     saveConfig();
 }
 

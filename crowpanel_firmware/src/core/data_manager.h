@@ -75,6 +75,9 @@ public:
     static int getScreenTimeout();
     static void setScreenTimeout(int val);
 
+    static String getAdminPin();
+    static void setAdminPin(const String& pin);
+
     // Stale data tracking
     static unsigned long getLastSyncTimestamp();
     static bool isDataStale(); // true if > 2 hours since last sync
@@ -134,6 +137,7 @@ private:
     static String _deviceName;
     static int _brightness;
     static int _screenTimeout;
+    static String _adminPin;
     static bool _wifiConnected;
     static unsigned long _lastSyncTimestamp;
     

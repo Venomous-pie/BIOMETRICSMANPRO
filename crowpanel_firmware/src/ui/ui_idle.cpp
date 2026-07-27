@@ -1,5 +1,6 @@
 #include "ui_idle.h"
 #include "ui_manager.h"
+#include "ui_pin.h"
 #include "../core/data_manager.h"
 #include "../core/comm_manager.h"
 
@@ -76,12 +77,17 @@ static void btn_factory_reset_cb(lv_event_t * e) {
   DataManager::factoryReset();
 }
 
+static void idle_screen_click_cb(lv_event_t * e) {
+    uiShowPinScreen(PIN_MODE_AUTH);
+}
+
 void buildIdleScreen() {
   scr_idle = lv_obj_create(NULL);
   lv_obj_set_style_bg_color(scr_idle, UIManager::rgb(COLOR_GREEN_DARK), 0);
   lv_obj_set_style_bg_opa(scr_idle, LV_OPA_COVER, 0);
   lv_obj_set_scrollbar_mode(scr_idle, LV_SCROLLBAR_MODE_OFF);
   lv_obj_add_flag(scr_idle, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(scr_idle, idle_screen_click_cb, LV_EVENT_CLICKED, NULL);
   // Status pill is now managed globally by UIManager on lv_layer_top()
 
   // ── ManPro Logo ─────────────────────────────────────────

@@ -206,18 +206,38 @@ void SyncManager::fetchEmployeesFromApi() {
     if (httpCode == 200 || httpCode == 201) {
         WiFiClient* stream = http.getStreamPtr();
 
-        StaticJsonDocument<256> filter;
+        StaticJsonDocument<512> filter;
         filter["employees"][0]["first_name"] = true;
         filter["employees"][0]["last_name"] = true;
         filter["employees"][0]["role_name"] = true;
         filter["employees"][0]["branch_name"] = true;
         filter["employees"][0]["department_name"] = true;
+        
+        filter["data"][0]["first_name"] = true;
+        filter["data"][0]["last_name"] = true;
+        filter["data"][0]["role_name"] = true;
+        filter["data"][0]["branch_name"] = true;
+        filter["data"][0]["department_name"] = true;
+        
+        filter[0]["first_name"] = true;
+        filter[0]["last_name"] = true;
+        filter[0]["role_name"] = true;
+        filter[0]["branch_name"] = true;
+        filter[0]["department_name"] = true;
+        
         filter["message"] = true;
 
         DynamicJsonDocument dDoc(16384);
         DeserializationError err = deserializeJson(dDoc, *stream, DeserializationOption::Filter(filter));
         if (err == DeserializationError::Ok) {
-            JsonArray arr = dDoc["employees"].as<JsonArray>();
+            JsonArray arr;
+            if (dDoc.is<JsonArray>()) {
+                arr = dDoc.as<JsonArray>();
+            } else if (dDoc.containsKey("employees")) {
+                arr = dDoc["employees"].as<JsonArray>();
+            } else if (dDoc.containsKey("data")) {
+                arr = dDoc["data"].as<JsonArray>();
+            }
             if (arr.isNull()) {
                 if (dDoc.containsKey("message")) {
                     String msg = dDoc["message"].as<String>();

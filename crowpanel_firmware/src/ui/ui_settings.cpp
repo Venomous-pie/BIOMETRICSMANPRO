@@ -1,5 +1,6 @@
 #include "ui_settings.h"
 #include "ui_manager.h"
+#include "ui_pin.h"
 
 lv_obj_t *scr_settings = NULL;
 
@@ -119,6 +120,11 @@ void buildSettingsScreen() {
         uiShowSyncStatus();
     };
     create_card(cards_cont, &icon_data_synchronization, "Sync Status", "Logs, Manual Sync", btn_card_sync_cb, false);
+
+    auto btn_card_security_cb = [](lv_event_t * e) {
+        uiShowPinScreen(PIN_MODE_SETUP);
+    };
+    create_card(cards_cont, &icon_device_info, "Security", "Admin PIN", btn_card_security_cb, false);
 
     create_card(cards_cont, &icon_device_info, "Device Info", "Status, Reset", btn_card_danger_cb, false);
 }

@@ -28,7 +28,7 @@ LGFX lcd;
 // Screen blanking state
 bool screen_is_awake = true;
 unsigned long last_touch_time = 0;
-unsigned long wake_ignore_until = 0;
+static bool wait_for_release = false;
 
 void manpro_wake_display() {
   if (!screen_is_awake) {
@@ -65,10 +65,10 @@ void my_touch_read(lv_indev_t *indev, lv_indev_data_t *data) {
   if (touched) {
     if (!screen_is_awake) {
       manpro_wake_display();
-      wake_ignore_until = millis() + 300; // Ignore touches for 300ms
+      wait_for_release = true;
     }
     
-    if (millis() < wake_ignore_until) {
+    if (wait_for_release) {
       data->state = LV_INDEV_STATE_RELEASED;
       return;
     }
@@ -78,6 +78,7 @@ void my_touch_read(lv_indev_t *indev, lv_indev_data_t *data) {
     data->point.x = touchX;
     data->point.y = touchY;
   } else {
+    wait_for_release = false;
     data->state = LV_INDEV_STATE_RELEASED;
   }
 }
@@ -103,10 +104,10 @@ void my_touch_read(lv_indev_drv_t *indev_drv, lv_indev_data_t *data) {
   if (touched) {
     if (!screen_is_awake) {
       manpro_wake_display();
-      wake_ignore_until = millis() + 300; // Ignore touches for 300ms
+      wait_for_release = true;
     }
     
-    if (millis() < wake_ignore_until) {
+    if (wait_for_release) {
       data->state = LV_INDEV_STATE_REL;
       return;
     }
@@ -116,6 +117,7 @@ void my_touch_read(lv_indev_drv_t *indev_drv, lv_indev_data_t *data) {
     data->point.x = touchX;
     data->point.y = touchY;
   } else {
+    wait_for_release = false;
     data->state = LV_INDEV_STATE_REL;
   }
 }
