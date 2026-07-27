@@ -34,16 +34,18 @@ static void onWiFiEvent(WiFiEvent_t event, arduino_event_info_t info) {
       // briefly right after connect, making the event struct the authoritative source.
       uint8_t apChannel = info.wifi_sta_connected.channel;
       Serial.printf("[WIFI] Connected to AP on channel %d\n", apChannel);
-      s_wifiDropped    = false;
-      s_wifiBackoffMs  = 5000;
       lastKnownChannel = apChannel;
-      resyncEspNow();
-
-      StaticJsonDocument<128> wstat;
-      wstat["type"]      = "WIFI_STATUS";
-      wstat["connected"] = true;
-      wstat["ssid"]      = s_savedSsid;
-      sendDoc(wstat);
+      
+      // Update ESP-NOW peer channel to match the new AP channel.
+      // We do this here instead of handleWifiConnect() to prevent ESP-IDF E(88422) core errors
+      // if background ESP-NOW traffic occurs before the radio physically switches.
+      esp_now_del_peer(CROWPANEL_MAC);
+      esp_now_peer_info_t peer = {};
+      memcpy(peer.peer_addr, CROWPANEL_MAC, 6);
+      peer.channel = apChannel;
+      peer.encrypt = false;
+      esp_now_add_peer(&peer);
+      
       break;
     }
 
@@ -113,26 +115,14 @@ void wifiProcess() {
       sendDoc(resp);
       syncNTP();
 
-    } else if (millis() - wifiConnectStart > 10000) {
-      // Timed out. Restore ESP-NOW state only — do NOT call handleWifiDisconnect()
-      // because that clears s_wifiDropped, which would stop auto-reconnect retries.
+    } else if (millis() - wifiConnectStart > 20000) {
+      // Timed out. Do NOT call handleWifiDisconnect() because that clears credentials.
+      // Instead, we clear the suppression window and disconnect, so the STA_DISCONNECTED
+      // event sees this as an unexpected drop and arms auto-reconnect.
       wifiConnecting           = false;
-      s_intentionalDiscUntilMs = millis() + 3000;
+      s_intentionalDiscUntilMs = 0; 
       Serial.println("[WIFI] Connection timed out.");
       WiFi.disconnect(false);
-      delay(50);
-      esp_wifi_set_channel(ESPNOW_CHANNEL, WIFI_SECOND_CHAN_NONE);
-      lastKnownChannel = ESPNOW_CHANNEL;
-      esp_now_del_peer(CROWPANEL_MAC);
-      {
-        esp_now_peer_info_t p = {};
-        memcpy(p.peer_addr, CROWPANEL_MAC, 6);
-        p.channel = 0;
-        p.encrypt = false;
-        esp_now_add_peer(&p);
-      }
-      // STA_DISCONNECTED is suppressed above, so we send the status update here.
-      send("{\"type\":\"WIFI_STATUS\",\"connected\":false}");
     }
   }
 
@@ -228,13 +218,11 @@ void handleWifiConnect(const String &ssidStr, const String &passStr) {
     send(hopOut);
     delay(100);
 
-    lastKnownChannel = targetCh;
-    esp_now_del_peer(CROWPANEL_MAC);
-    esp_now_peer_info_t peerInfo = {};
-    memcpy(peerInfo.peer_addr, CROWPANEL_MAC, 6);
-    peerInfo.channel = targetCh;
-    peerInfo.encrypt = false;
-    esp_now_add_peer(&peerInfo);
+    // We intentionally DO NOT update lastKnownChannel or the ESP-NOW peer channel here.
+    // Doing so before the WiFi radio physically switches channels causes ESP-IDF to
+    // throw E(88422) core errors if any background ESP-NOW traffic occurs.
+    // The peer channel will be correctly updated by resyncEspNow() when
+    // ARDUINO_EVENT_WIFI_STA_CONNECTED fires.
   }
 
   if (targetCh != 0) {

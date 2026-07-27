@@ -172,16 +172,22 @@ void CommManager::process() {
         if (!s_scanningChannels) {
             s_scanningChannels = true;
             if (Serial) Serial.println("[ESP-NOW] Link lost! Entering auto-recovery channel scan...");
-        }
-        
-        // Scan each channel for 1.5 seconds
-        if (millis() - s_lastScanMs > 1500) {
-            s_lastScanMs = millis();
-            s_currentChannel++;
-            if (s_currentChannel > 13) s_currentChannel = 1;
             
-            if (Serial) Serial.printf("[ESP-NOW] Scanning channel %d...\n", s_currentChannel);
+            // JUMP TO DEFAULT CHANNEL IMMEDIATELY
+            // This recovers the link instantly if WROOM dropped back to default after a failed WiFi connection.
+            s_currentChannel = ESPNOW_CHANNEL;
             esp_wifi_set_channel(s_currentChannel, WIFI_SECOND_CHAN_NONE);
+            s_lastScanMs = millis();
+        } else {
+            // Scan each channel for 1.5 seconds
+            if (millis() - s_lastScanMs > 1500) {
+                s_lastScanMs = millis();
+                s_currentChannel++;
+                if (s_currentChannel > 13) s_currentChannel = 1;
+                
+                if (Serial) Serial.printf("[ESP-NOW] Scanning channel %d...\n", s_currentChannel);
+                esp_wifi_set_channel(s_currentChannel, WIFI_SECOND_CHAN_NONE);
+            }
         }
     } else if (s_scanningChannels && s_lastRecvMs > 0 && millis() - s_lastRecvMs <= 1000) {
         // Connection recovered

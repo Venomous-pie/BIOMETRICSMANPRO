@@ -206,24 +206,36 @@ void SyncManager::fetchEmployeesFromApi() {
     if (httpCode == 200 || httpCode == 201) {
         WiFiClient* stream = http.getStreamPtr();
 
-        StaticJsonDocument<512> filter;
+        StaticJsonDocument<1024> filter;
         filter["employees"][0]["first_name"] = true;
         filter["employees"][0]["last_name"] = true;
+        filter["employees"][0]["name"] = true;
         filter["employees"][0]["role_name"] = true;
+        filter["employees"][0]["job_title"] = true;
         filter["employees"][0]["branch_name"] = true;
+        filter["employees"][0]["branch"] = true;
         filter["employees"][0]["department_name"] = true;
+        filter["employees"][0]["dept"] = true;
         
         filter["data"][0]["first_name"] = true;
         filter["data"][0]["last_name"] = true;
+        filter["data"][0]["name"] = true;
         filter["data"][0]["role_name"] = true;
+        filter["data"][0]["job_title"] = true;
         filter["data"][0]["branch_name"] = true;
+        filter["data"][0]["branch"] = true;
         filter["data"][0]["department_name"] = true;
+        filter["data"][0]["dept"] = true;
         
         filter[0]["first_name"] = true;
         filter[0]["last_name"] = true;
+        filter[0]["name"] = true;
         filter[0]["role_name"] = true;
+        filter[0]["job_title"] = true;
         filter[0]["branch_name"] = true;
+        filter[0]["branch"] = true;
         filter[0]["department_name"] = true;
+        filter[0]["dept"] = true;
         
         filter["message"] = true;
 
@@ -256,18 +268,21 @@ void SyncManager::fetchEmployeesFromApi() {
                 EmployeeSync& emp = s_syncBuffer[s_empCount];
                 memset(&emp, 0, sizeof(EmployeeSync));
 
-                String first = e.containsKey("first_name") ? e["first_name"].as<String>() : "";
-                String last  = e.containsKey("last_name") ? e["last_name"].as<String>() : "";
-                String name  = first + " " + last;
+                String name = e.containsKey("name") ? e["name"].as<String>() : "";
+                if (name.length() == 0) {
+                    String first = e.containsKey("first_name") ? e["first_name"].as<String>() : "";
+                    String last  = e.containsKey("last_name") ? e["last_name"].as<String>() : "";
+                    name = first + " " + last;
+                }
                 strncpy(emp.name, name.c_str(), sizeof(emp.name) - 1);
                 
-                String role = e.containsKey("role_name") ? e["role_name"].as<String>() : "";
+                String role = e.containsKey("role_name") ? e["role_name"].as<String>() : (e.containsKey("job_title") ? e["job_title"].as<String>() : "");
                 strncpy(emp.role, role.c_str(), sizeof(emp.role) - 1);
                 
-                String branch = e.containsKey("branch_name") ? e["branch_name"].as<String>() : "";
+                String branch = e.containsKey("branch_name") ? e["branch_name"].as<String>() : (e.containsKey("branch") ? e["branch"].as<String>() : "");
                 strncpy(emp.branch, branch.c_str(), sizeof(emp.branch) - 1);
                 
-                String dept = e.containsKey("department_name") ? e["department_name"].as<String>() : "";
+                String dept = e.containsKey("department_name") ? e["department_name"].as<String>() : (e.containsKey("dept") ? e["dept"].as<String>() : "");
                 strncpy(emp.department, dept.c_str(), sizeof(emp.department) - 1);
 
                 s_empCount++;
