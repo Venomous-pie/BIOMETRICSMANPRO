@@ -40,3 +40,6 @@ int getTemplateBytes(int slot, uint8_t* buf, size_t bufSize);
 // Installs a 512-byte template directly to the AS608 flash at the specified slot.
 // Bypasses the Adafruit library's high-level functions to send raw packets.
 bool installTemplateBytes(int slot, const uint8_t* data, size_t len);
+
+// Deletes the given slot from the AS608 and clears it from the L1 Cache.
+void deleteL1Slot(int slot);

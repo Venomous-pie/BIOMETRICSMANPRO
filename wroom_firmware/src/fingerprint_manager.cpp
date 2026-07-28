@@ -30,11 +30,20 @@ int getL1SlotFor(int empId, int fingerIdx) {
 }
 
 int assignL1Slot(int empId, int fingerIdx) {
-    int oldestSlot = 1;
+    if (empId >= 1 && empId <= 5) {
+        // Reserve slots 1-5 strictly for Admins/System.
+        l1_slots[empId].active = true;
+        l1_slots[empId].empId = empId;
+        l1_slots[empId].fingerIdx = fingerIdx;
+        l1_slots[empId].lastUsed = millis();
+        return empId;
+    }
+
+    int oldestSlot = 6; // Start eviction check from 6 onwards
     unsigned long oldestTime = 0xFFFFFFFF;
     
-    // First, try to find an empty slot
-    for (int i = 1; i <= MAX_SLOTS; i++) {
+    // First, try to find an empty slot (6 to MAX_SLOTS)
+    for (int i = 6; i <= MAX_SLOTS; i++) {
         if (!l1_slots[i].active) {
             l1_slots[i].active = true;
             l1_slots[i].empId = empId;
@@ -53,6 +62,16 @@ int assignL1Slot(int empId, int fingerIdx) {
     l1_slots[oldestSlot].fingerIdx = fingerIdx;
     l1_slots[oldestSlot].lastUsed = millis();
     return oldestSlot;
+}
+
+void deleteL1Slot(int slot) {
+    if (slot >= 1 && slot <= MAX_SLOTS) {
+#ifndef MOCK_SENSOR
+        finger.deleteModel(slot);
+#endif
+        l1_slots[slot].active = false;
+        Serial.printf("[FP] Deleted physical slot %d from AS608\n", slot);
+    }
 }
 
 // ── Enroll cancellation ───────────────────────────────────────────────────────
@@ -151,19 +170,33 @@ void doMatch() {
 }
 
 void doMockMatch(int slot) {
-  bool isIn  = !lastIn[slot];
-  lastIn[slot] = isIn;
+  if (!l1_slots[slot].active) {
+      send("{\"type\":\"NOMATCH\"}");
+      Serial.printf("[FP-MOCK] Slot %d is empty, returning NOMATCH\n", slot);
+      return;
+  }
+  
+  int empId = l1_slots[slot].empId;
+  int fingerIdx = l1_slots[slot].fingerIdx;
+
+  bool isIn  = !lastIn[empId];
+  lastIn[empId] = isIn;
 
   StaticJsonDocument<256> doc;
   doc["type"]   = "MATCH";
-  doc["id"]     = slot;
-  doc["name"]   = "Slot " + String(slot);
-  doc["dept"]   = "";
+  doc["emp_id"] = empId;
+  doc["f_idx"]  = fingerIdx;
   doc["action"] = isIn ? "IN" : "OUT";
   doc["conf"]   = 99;
   doc["ts"]     = getTimestamp();
   sendDoc(doc);
-  Serial.printf("[FP-MOCK] Generated fake %s match for slot %d\n", doc["action"].as<const char*>(), slot);
+  Serial.printf("[FP-MOCK] Generated fake %s match for slot %d (empId: %d)\n", doc["action"].as<const char*>(), slot, empId);
+  
+  if (isIn) {
+    playTrack(TRACK_TIME_IN);
+  } else {
+    playTrack(TRACK_TIME_OUT);
+  }
 }
 
 volatile bool enrollCancelled = false;

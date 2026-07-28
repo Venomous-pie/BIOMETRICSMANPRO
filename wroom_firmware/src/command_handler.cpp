@@ -123,6 +123,15 @@ void handleCmd(String cmd) {
         Serial.println("[SYSTEM] MOCK_SCAN failed: Invalid slot.");
     }
 
+  } else if (cmd.startsWith("DELETE_FP:")) {
+    int slot = cmd.substring(10).toInt();
+    if (slot >= 1 && slot <= MAX_SLOTS) {
+        deleteL1Slot(slot);
+        send("{\"type\":\"DELETE_FP_OK\",\"slot\":" + String(slot) + "}");
+    } else {
+        Serial.println("[SYSTEM] DELETE_FP failed: Invalid slot.");
+    }
+
   } else if (cmd.startsWith("ENROLL:")) {
     int colonIdx    = cmd.indexOf(':', 7);
     int slot        = 0;

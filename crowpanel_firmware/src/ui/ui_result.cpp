@@ -10,6 +10,7 @@ LV_FONT_DECLARE(lv_font_montserrat_36);
 LV_FONT_DECLARE(lv_font_montserrat_48);
 
 static lv_obj_t *scr_result = NULL;
+static lv_obj_t *scr_nomatch = NULL;
 static lv_obj_t *card_result  = NULL;
 static lv_obj_t *lbl_avatar   = NULL;
 static lv_obj_t *lbl_emp_name = NULL;
@@ -217,43 +218,36 @@ void uiShowMatch(const char *name, const char *dept, const char *action, const c
   lv_timer_set_repeat_count(returnTimer, 1);
 }
 
+void buildNoMatchScreen() {
+  if (scr_nomatch != NULL) return;
+  
+  scr_nomatch = lv_obj_create(NULL);
+  if (!scr_nomatch) return;
+  
+  lv_obj_set_style_bg_color(scr_nomatch, UIManager::rgb(0xFFFFFF), 0); // White background
+  lv_obj_set_style_bg_opa(scr_nomatch, LV_OPA_COVER, 0);
+  
+  lv_obj_t *lbl_nomatch = lv_label_create(scr_nomatch);
+  lv_label_set_text(lbl_nomatch, "NO MATCH");
+  UIManager::styleLabel(lbl_nomatch, COLOR_DANGER, &lv_font_montserrat_36, LV_TEXT_ALIGN_CENTER);
+  lv_obj_align(lbl_nomatch, LV_ALIGN_CENTER, 0, -20);
+  lv_obj_t *lbl_nomatch_msg = lv_label_create(scr_nomatch);
+  lv_label_set_text(lbl_nomatch_msg, "Please contact an admin if you think this is a mistake.");
+  UIManager::styleLabel(lbl_nomatch_msg, COLOR_SUBTEXT, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
+  lv_obj_align(lbl_nomatch_msg, LV_ALIGN_CENTER, 0, 20);
+}
+
 void uiShowNoMatch() {
   Serial.println("[UI_RESULT] uiShowNoMatch called");
-  if (scr_result == NULL) buildResultScreen();  // Lazy build on first use
-  
-  Serial.println("[UI_RESULT] Setting danger styles...");
-  lv_obj_set_style_bg_color(scr_result, UIManager::rgb(0xFDEDED), 0); // Light red
+  if (scr_nomatch == NULL) buildNoMatchScreen();
 
-  Serial.println("[UI_RESULT] Setting labels...");
-  lv_obj_set_style_img_recolor(lbl_avatar, UIManager::rgb(COLOR_DANGER), 0);
-  lv_obj_set_style_img_recolor_opa(lbl_avatar, LV_OPA_COVER, 0);
-  lv_label_set_text(lbl_emp_name, "Unknown");
-  lv_label_set_text(lbl_emp_dept, "Fingerprint not registered");
-  
-  lv_label_set_text(lbl_action, LV_SYMBOL_WARNING " DENIED");
-  lv_obj_set_style_border_color(badge_action, UIManager::rgb(COLOR_DANGER), 0);
-  lv_obj_set_style_bg_color(badge_action, UIManager::rgb(0xFDEDED), 0);
-  lv_obj_set_style_text_color(lbl_action, UIManager::rgb(COLOR_DANGER), 0);
-  
-  lv_obj_add_flag(lbl_emp_ts, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_clear_flag(btn_fallback, LV_OBJ_FLAG_HIDDEN);
-
-  Serial.println("[UI_RESULT] Loading screen...");
-  lv_scr_load(scr_result);
-  Serial.println("[UI_RESULT] Screen loaded.");
+  lv_scr_load(scr_nomatch);
 
   if (returnTimer) lv_timer_del(returnTimer);
   returnTimer = lv_timer_create([](lv_timer_t *t) {
-    // Reset colors back to normal for next scan
-    lv_obj_set_style_bg_color(scr_result, UIManager::rgb(0xF8FBF9), 0);
-    lv_obj_set_style_border_color(badge_action, UIManager::rgb(0x2A800F), 0);
-    lv_obj_set_style_bg_color(badge_action, UIManager::rgb(0xE6F4EA), 0);
-    lv_obj_set_style_text_color(lbl_action, UIManager::rgb(0x2A800F), 0);
-    lv_obj_set_style_img_recolor(lbl_avatar, UIManager::rgb(0x000000), 0);
-    
     uiShowIdle();
     returnTimer = NULL;
-  }, 5000, NULL);
+  }, 3000, NULL);
   lv_timer_set_repeat_count(returnTimer, 1);
 }
 

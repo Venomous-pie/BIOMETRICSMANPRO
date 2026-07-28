@@ -9,12 +9,6 @@
 #include "certs.h"
 #include <freertos/semphr.h>
 #include <SPI.h>
-#include <SD.h>
-
-#define SD_MOSI 11
-#define SD_MISO 13
-#define SD_SCK  12
-#define SD_CS   10
 
 Employee DataManager::empDB[150];
 int DataManager::empCount = 0;
@@ -324,15 +318,12 @@ void DataManager::begin() {
         return;
     }
     
-    // Initialize SD Card
-    SPI.begin(SD_SCK, SD_MISO, SD_MOSI, SD_CS);
-    if (!SD.begin(SD_CS)) {
-        if (Serial) Serial.println("[DATA] WARNING: SD card mount failed! Deep Storage offline.");
-    } else {
-        if (Serial) Serial.println("[DATA] SD card mounted successfully.");
-        if (!SD.exists("/templates")) {
-            SD.mkdir("/templates");
-        }
+    if (Serial) Serial.println("[FS] Loaded device configuration.");
+
+    // Ensure templates directory exists on LittleFS
+    if (!LittleFS.exists("/templates")) {
+        // LittleFS will automatically create directories if the file is written with a path,
+        // but we can create a dummy file to ensure it's mapped if needed. Not strictly required.
     }
     
     // Create the attendance mutex before loading logs (task-safe from here on)
@@ -469,6 +460,26 @@ void DataManager::loadEmployees() {
         }
     }
     f.close();
+    
+    // Inject mock employee for testing
+    bool mockExists = false;
+    for (int i=0; i<empCount; i++) {
+        if (empDB[i].id == "999") {
+            mockExists = true;
+            break;
+        }
+    }
+    if (!mockExists && empCount < 150) {
+        empDB[empCount].id = "999";
+        empDB[empCount].name = "Claire Jem Dedicatoria";
+        empDB[empCount].dept = "IOT";
+        empDB[empCount].job_title = "Technical Team Lead";
+        empDB[empCount].branch = "NEMSU";
+        empDB[empCount].fp_enrolled = false;
+        empDB[empCount].enrolled_finger = -1;
+        empCount++;
+    }
+
     loadFpState(); // re-apply slot-keyed fp_enrolled after reading employees from disk
 }
 
@@ -497,6 +508,13 @@ void DataManager::saveEmployees() {
 }
 
 void DataManager::updateEmployeeFpEnrolled(const String& emp_id, bool enrolled, int finger_index) {
+    int idInt = emp_id.toInt();
+    if (idInt >= 1 && idInt <= 5) {
+        // Admin fingerprint. Not in empDB, but must be persisted in state.
+        writeFpStateEntry(finger_index, "Admin", enrolled);
+        return;
+    }
+
     for (int i = 0; i < empCount; i++) {
         if (empDB[i].id == emp_id) {
             empDB[i].fp_enrolled = enrolled;
@@ -1032,33 +1050,59 @@ void DataManager::nukeDatabase() {
         empDB[i].enrolled_finger = -1;
     }
     LittleFS.remove("/employees.jsonl");
-    // Also wipe fp_state.json so stale enrollment flags don't resurrect on reboot.
-    if (LittleFS.exists(FP_STATE_FILE)) LittleFS.remove(FP_STATE_FILE);
+    
+    // Preserve Admin slots (1-5) in fp_state.json, wipe the rest
+    if (LittleFS.exists(FP_STATE_FILE)) {
+        File f = LittleFS.open(FP_STATE_FILE, "r");
+        DynamicJsonDocument doc(4096);
+        DynamicJsonDocument newDoc(4096);
+        JsonArray newArr = newDoc.createNestedArray("slots");
+        
+        if (f && deserializeJson(doc, f) == DeserializationError::Ok) {
+            JsonArray arr = doc["slots"].as<JsonArray>();
+            for (JsonObject entry : arr) {
+                int slot = entry["slot"] | -1;
+                if (slot >= 1 && slot <= 5) {
+                    JsonObject newEntry = newArr.createNestedObject();
+                    newEntry["slot"] = entry["slot"];
+                    newEntry["name"] = entry["name"];
+                    newEntry["enrolled"] = entry["enrolled"];
+                }
+            }
+        }
+        if (f) f.close();
+        
+        File fOut = LittleFS.open(FP_STATE_FILE, "w");
+        if (fOut) {
+            serializeJson(newDoc, fOut);
+            fOut.close();
+        }
+    }
 }
 
-// ── SD Card Deep Storage ──────────────────────────────────────────────────────
+// ── Internal Flash Deep Storage ──────────────────────────────────────────────────────
 
 bool DataManager::saveTemplate(const String& empId, int fingerIndex, const uint8_t* data, size_t len) {
     String path = "/templates/" + empId + "_" + String(fingerIndex) + ".bin";
-    File f = SD.open(path, FILE_WRITE);
+    File f = LittleFS.open(path, "w");
     if (!f) {
-        if (Serial) Serial.println("[SD] Failed to open " + path + " for writing");
+        if (Serial) Serial.println("[FS] Failed to open " + path + " for writing");
         return false;
     }
     size_t written = f.write(data, len);
     f.close();
     if (written == len) {
-        if (Serial) Serial.println("[SD] Saved template: " + path);
+        if (Serial) Serial.println("[FS] Saved template: " + path);
         return true;
     } else {
-        if (Serial) Serial.println("[SD] Write failed for " + path);
+        if (Serial) Serial.println("[FS] Write failed for " + path);
         return false;
     }
 }
 
 bool DataManager::loadTemplate(const String& empId, int fingerIndex, uint8_t* outData, size_t maxLen, size_t* outLen) {
     String path = "/templates/" + empId + "_" + String(fingerIndex) + ".bin";
-    File f = SD.open(path, FILE_READ);
+    File f = LittleFS.open(path, "r");
     if (!f) {
         return false;
     }
@@ -1078,5 +1122,13 @@ bool DataManager::loadTemplate(const String& empId, int fingerIndex, uint8_t* ou
 
 bool DataManager::templateExists(const String& empId, int fingerIndex) {
     String path = "/templates/" + empId + "_" + String(fingerIndex) + ".bin";
-    return SD.exists(path);
+    return LittleFS.exists(path);
+}
+
+bool DataManager::deleteTemplate(const String& empId, int fingerIndex) {
+    String path = "/templates/" + empId + "_" + String(fingerIndex) + ".bin";
+    if (LittleFS.exists(path)) {
+        return LittleFS.remove(path);
+    }
+    return false;
 }

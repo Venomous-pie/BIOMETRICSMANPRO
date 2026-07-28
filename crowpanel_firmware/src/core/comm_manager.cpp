@@ -627,6 +627,7 @@ void CommManager::dispatchJson(const String& line) {
                     int idx = doc["idx"] | 0;
                     if (empId > 0) {
                         DataManager::saveTemplate(String(empId), idx, decodeBuf, outputLen);
+                        DataManager::updateEmployeeFpEnrolled(String(empId), true, idx);
                         
                         // We also need to upload it to the API here so the backend has the backup
                         // The WROOM used to do this, now we do it.
