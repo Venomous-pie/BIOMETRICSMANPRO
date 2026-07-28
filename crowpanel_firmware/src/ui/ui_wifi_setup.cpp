@@ -77,10 +77,16 @@ static void btn_show_pass_cb(lv_event_t *e) {
     }
 }
 
+// Debounce timer for all connection attempts
+static unsigned long last_connect_click = 0;
+
 // ── saved network row tap → auto connect ──────────────────────────────────
 static void saved_network_cb(lv_event_t *e) {
+    if (millis() - last_connect_click < 2000) return; // 2-second debounce
+    
     lv_event_code_t code = lv_event_get_code(e);
     if (code == LV_EVENT_CLICKED) {
+        last_connect_click = millis();
         int idx = (intptr_t)lv_event_get_user_data(e);
         String ssid = DataManager::getWifiSsid(idx);
         String pass = DataManager::getWifiPass(idx);
@@ -160,6 +166,9 @@ static void btn_scan_cb(lv_event_t *e) {
 
 // ── Connect button ─────────────────────────────────────────────────────────
 static void btn_connect_cb(lv_event_t *e) {
+    if (millis() - last_connect_click < 2000) return; // 2-second debounce
+    last_connect_click = millis();
+
     const char *ssid = lv_textarea_get_text(ta_ssid);
     const char *pass = lv_textarea_get_text(ta_pass);
 

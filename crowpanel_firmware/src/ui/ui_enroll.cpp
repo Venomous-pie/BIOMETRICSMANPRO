@@ -115,7 +115,12 @@ static void btn_back_cb(lv_event_t *e) {
   }
 }
 
+static unsigned long last_emp_sync_click = 0;
+
 static void btn_emp_sync_cb(lv_event_t *e) {
+  if (millis() - last_emp_sync_click < 2000) return; // 2-second debounce
+  last_emp_sync_click = millis();
+
   if (Serial) Serial.println("UI EmpList: Sync button clicked");
   UIManager::showToast("Syncing via WROOM...", false);
   String syncCmd = "{\"cmd\":\"SYNC_EMP\",\"token\":\"" + DataManager::getActivationCode() + "\"}";

@@ -34,13 +34,26 @@ static void btn_back_cb(lv_event_t * e) {
     }
 }
 
+static int failed_attempts = 0;
+static unsigned long lockout_start = 0;
+static const int MAX_ATTEMPTS = 5;
+static const unsigned long LOCKOUT_DURATION_MS = 60000; // 60 seconds
+
 static void process_pin_submission() {
     if (current_mode == PIN_MODE_AUTH) {
         if (input_pin == DataManager::getAdminPin()) {
+            failed_attempts = 0; // Reset on success
             input_pin = "";
             UIManager::showMainMenu();
         } else {
-            UIManager::showToast("Incorrect PIN!", true);
+            failed_attempts++;
+            if (failed_attempts >= MAX_ATTEMPTS) {
+                lockout_start = millis();
+                UIManager::showToast("Too many attempts! Locked for 60s.", true);
+            } else {
+                String msg = "Incorrect PIN! (" + String(MAX_ATTEMPTS - failed_attempts) + " left)";
+                UIManager::showToast(msg.c_str(), true);
+            }
             input_pin = "";
             update_pin_display();
         }
@@ -53,6 +66,18 @@ static void process_pin_submission() {
 }
 
 static void btnm_event_cb(lv_event_t * e) {
+    if (current_mode == PIN_MODE_AUTH && failed_attempts >= MAX_ATTEMPTS) {
+        unsigned long elapsed = millis() - lockout_start;
+        if (elapsed < LOCKOUT_DURATION_MS) {
+            unsigned long remaining_sec = (LOCKOUT_DURATION_MS - elapsed) / 1000;
+            String msg = "Locked out. Try again in " + String(remaining_sec) + "s";
+            UIManager::showToast(msg.c_str(), true);
+            return; // Ignore keypresses during lockout
+        } else {
+            failed_attempts = 0; // Lockout expired, reset attempts
+        }
+    }
+
     lv_obj_t * obj = lv_event_get_target(e);
     uint32_t id = lv_btnmatrix_get_selected_btn(obj);
     const char * txt = lv_btnmatrix_get_btn_text(obj, id);

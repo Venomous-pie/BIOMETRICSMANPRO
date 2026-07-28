@@ -853,6 +853,7 @@ void DataManager::factoryReset() {
     _isActivated      = false;
     _isWifiConfigured = false;
     _activationCode   = "";
+    _adminPin         = "0000"; // Reset admin PIN to default
     saveConfig();
     clearWifiCredentials();
 
