@@ -86,6 +86,9 @@ void buildMainMenuScreen() {
 }
 
 void uiShowMainMenu() {
+    if (scr_main_menu == NULL) {
+        buildMainMenuScreen();
+    }
     lv_scr_load(scr_main_menu);
     // Refresh WiFi status to show current connection state
     UIManager::updateHeaderWifi(DataManager::isWifiConnected());
@@ -126,5 +129,13 @@ void uiShowMainMenu() {
         logs_list_obj = NULL;
         ta_search_name = NULL;
         ta_search_date = NULL;
+    }
+}
+
+void uiDestroyMainMenu() {
+    if (scr_main_menu != NULL) {
+        lv_obj_del(scr_main_menu);
+        scr_main_menu = NULL;
+        lbl_emp_subtitle = NULL;
     }
 }

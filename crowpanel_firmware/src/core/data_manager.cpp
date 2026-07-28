@@ -327,6 +327,11 @@ void DataManager::begin() {
     
     createInitialFilesIfMissing();
     loadConfig();
+    
+    // --- TEMPORARY BYPASS FOR TESTING ---
+    _isActivated = true;
+    // ------------------------------------
+    
     loadEmployees();
     loadWifiCredentials();
     loadAttendanceLogs();

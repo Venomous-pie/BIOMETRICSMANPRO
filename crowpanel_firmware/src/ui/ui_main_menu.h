@@ -5,5 +5,6 @@
 
 void buildMainMenuScreen();
 void uiShowMainMenu();
+void uiDestroyMainMenu();
 
 #endif // UI_MAIN_MENU_H

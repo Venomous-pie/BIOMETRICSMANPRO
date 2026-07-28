@@ -622,6 +622,10 @@ void buildWifiSetupScreen() {
 }
 
 void uiShowWifiSetup() {
+    if (scr_wifi == NULL) {
+        buildWifiSetupScreen();
+    }
+    
     if (lbl_step) {
         if (DataManager::isActivated()) {
             lv_obj_add_flag(lbl_step, LV_OBJ_FLAG_HIDDEN);

@@ -1,6 +1,6 @@
 #include "ui_enroll.h"
 #include "ui_manager.h"
-#include "ui_manager.h"
+#include "ui_main_menu.h"
 #include "../core/data_manager.h"
 #include "../core/comm_manager.h"
 #include <mbedtls/base64.h>
@@ -140,6 +140,34 @@ static void btn_emp_click_cb(lv_event_t * e) {
   }
 }
 
+static bool containsIgnoreCase(const char* haystack, const char* needle) {
+    if (!haystack || !needle) return false;
+    int hlen = strlen(haystack);
+    int nlen = strlen(needle);
+    if (nlen == 0) return true;
+    if (hlen < nlen) return false;
+    for (int i = 0; i <= hlen - nlen; i++) {
+        bool match = true;
+        for (int j = 0; j < nlen; j++) {
+            if (tolower((unsigned char)haystack[i+j]) != tolower((unsigned char)needle[j])) {
+                match = false;
+                break;
+            }
+        }
+        if (match) return true;
+    }
+    return false;
+}
+
+static bool equalsIgnoreCase(const char* a, const char* b) {
+    if (!a || !b) return a == b;
+    while (*a && *b) {
+        if (tolower((unsigned char)*a) != tolower((unsigned char)*b)) return false;
+        a++; b++;
+    }
+    return *a == *b;
+}
+
 static void populate_emp_list(const char* name_filter, const char* dept_filter) {
   if (!emp_list_obj) return; // Prevent crash if screen creation failed due to OOM
   lv_obj_clean(emp_list_obj);
@@ -154,19 +182,20 @@ static void populate_emp_list(const char* name_filter, const char* dept_filter) 
   int filtered_count = 0;
 
   for (int i = 0; i < count; i++) {
-    String nStr = db[i].name; nStr.toLowerCase();
-    String dStr = db[i].dept; dStr.toLowerCase();
-    String jStr = db[i].job_title; jStr.toLowerCase();
+    const char* n = db[i].name.c_str();
+    const char* d = db[i].dept.c_str();
+    const char* j = db[i].job_title.c_str();
+    const char* b = db[i].branch.c_str();
     
     // Hide Admin from the UI list
-    if (nStr.indexOf("admin") != -1 || dStr.indexOf("admin") != -1 || jStr.indexOf("admin") != -1) continue;
-    if (nFilt.length() > 0 && nStr.indexOf(nFilt) == -1) continue;
+    if (containsIgnoreCase(n, "admin") || containsIgnoreCase(d, "admin") || containsIgnoreCase(j, "admin")) continue;
+    if (name_filter && strlen(name_filter) > 0 && !containsIgnoreCase(n, name_filter)) continue;
     // Apply enrollment status filter
     if (g_status_filter == 1 && !db[i].fp_enrolled) continue;
     if (g_status_filter == 2 && db[i].fp_enrolled) continue;
     // Apply dept & branch filters
-    if (g_dept_filter_str != "All" && !db[i].dept.equalsIgnoreCase(g_dept_filter_str)) continue;
-    if (g_branch_filter_str != "All" && !db[i].branch.equalsIgnoreCase(g_branch_filter_str)) continue;
+    if (g_dept_filter_str != "All" && !equalsIgnoreCase(d, g_dept_filter_str.c_str())) continue;
+    if (g_branch_filter_str != "All" && !equalsIgnoreCase(b, g_branch_filter_str.c_str())) continue;
     filtered_count++;
   }
 
@@ -202,17 +231,18 @@ static void populate_emp_list(const char* name_filter, const char* dept_filter) 
   }
 
   for (int i = 0; i < count; i++) {
-    String nStr = db[i].name; nStr.toLowerCase();
-    String dStr = db[i].dept; dStr.toLowerCase();
-    String jStr = db[i].job_title; jStr.toLowerCase();
+    const char* n = db[i].name.c_str();
+    const char* d = db[i].dept.c_str();
+    const char* j = db[i].job_title.c_str();
+    const char* b = db[i].branch.c_str();
 
     // Hide Admin from the UI list
-    if (nStr.indexOf("admin") != -1 || dStr.indexOf("admin") != -1 || jStr.indexOf("admin") != -1) continue;
-    if (nFilt.length() > 0 && nStr.indexOf(nFilt) == -1) continue;
+    if (containsIgnoreCase(n, "admin") || containsIgnoreCase(d, "admin") || containsIgnoreCase(j, "admin")) continue;
+    if (name_filter && strlen(name_filter) > 0 && !containsIgnoreCase(n, name_filter)) continue;
     if (g_status_filter == 1 && !db[i].fp_enrolled) continue;
     if (g_status_filter == 2 && db[i].fp_enrolled) continue;
-    if (g_dept_filter_str != "All" && !db[i].dept.equalsIgnoreCase(g_dept_filter_str)) continue;
-    if (g_branch_filter_str != "All" && !db[i].branch.equalsIgnoreCase(g_branch_filter_str)) continue;
+    if (g_dept_filter_str != "All" && !equalsIgnoreCase(d, g_dept_filter_str.c_str())) continue;
+    if (g_branch_filter_str != "All" && !equalsIgnoreCase(b, g_branch_filter_str.c_str())) continue;
 
     if (current_idx >= start_idx && current_idx < end_idx) {
       bool enrolled = db[i].fp_enrolled;
@@ -283,7 +313,6 @@ static void populate_emp_list(const char* name_filter, const char* dept_filter) 
 
 // Debounce timer callback — runs 400 ms after the last keystroke
 static void search_debounce_cb(lv_timer_t *t) {
-    lv_timer_del(search_debounce_timer);
     search_debounce_timer = NULL;
     current_page = 0;
     const char *n = ta_search ? lv_textarea_get_text(ta_search) : "";
@@ -309,13 +338,15 @@ static void search_ta_event_cb(lv_event_t * e) {
 
 
 void buildEmpListScreen() {
-  if (scr_emp_list != NULL) return;  // Already built, skip
+  if (scr_emp_list != NULL) return;
   scr_emp_list = lv_obj_create(NULL);
+  if (!scr_emp_list) return; // Prevent LoadProhibited crash on OOM
+
   lv_obj_set_style_bg_color(scr_emp_list, UIManager::rgb(0xFFFFFF), 0);
   lv_obj_set_style_bg_opa(scr_emp_list, LV_OPA_COVER, 0);
   lv_obj_set_scrollbar_mode(scr_emp_list, LV_SCROLLBAR_MODE_OFF);
 
-  // â”€â”€ Header â”€â”€
+  // ─── Header ───
   // Back button (green, left)
   lv_obj_t *btn_back = lv_btn_create(scr_emp_list);
   lv_obj_set_size(btn_back, 56, 44);
@@ -1014,13 +1045,19 @@ void uiShowEmpList(bool isFallback) {
   }
 
   lv_timer_t *defer = lv_timer_create([](lv_timer_t *t) {
-    // 1. Create a tiny temporary screen and make it active.
-    lv_obj_t *temp_scr = lv_obj_create(NULL);
-    lv_obj_set_style_bg_color(temp_scr, UIManager::rgb(0x1A1A1A), 0);
-    lv_scr_load(temp_scr);
+    lv_obj_t *temp_scr = NULL;
 
-    // 2. Synchronously delete the heavy Choose Finger screen to completely free RAM.
+    // 1. Delete Choose Finger if transitioning from it
     if (scr_choose_finger != NULL) {
+      temp_scr = lv_obj_create(NULL);
+      if (temp_scr) {
+        lv_obj_set_style_bg_color(temp_scr, UIManager::rgb(0x1A1A1A), 0);
+        lv_scr_load(temp_scr);
+      } else {
+        extern void uiShowIdle();
+        uiShowIdle();
+      }
+
       lv_obj_del(scr_choose_finger);
       scr_choose_finger = NULL;
       btn_start_scan = NULL;
@@ -1028,40 +1065,64 @@ void uiShowEmpList(bool isFallback) {
       for (int i = 0; i < 10; i++) finger_objs[i] = NULL;
     }
 
-    // 3. Now that we have plenty of RAM, build the Employee List screen.
+    // 2. Delete Main Menu if transitioning from it to save RAM
+    if (!temp_scr) {
+      temp_scr = lv_obj_create(NULL);
+      if (temp_scr) {
+        lv_obj_set_style_bg_color(temp_scr, UIManager::rgb(0x1A1A1A), 0);
+        lv_scr_load(temp_scr);
+      } else {
+        extern void uiShowIdle();
+        uiShowIdle();
+      }
+    }
+    uiDestroyMainMenu();
+
+    // 3. Now that we have RAM, build the Employee List screen.
     if (scr_emp_list == NULL) {
       buildEmpListScreen();
+    }
+    
+    // If it STILL failed to build due to OOM, abort gracefully
+    if (scr_emp_list == NULL || emp_list_obj == NULL) {
+      UIManager::showToast("Memory Full!", true);
+      if (temp_scr) lv_obj_del_async(temp_scr);
+      
+      // Since we deleted main menu, force fallback to Idle or rebuild Main Menu
+      extern void uiShowMainMenu();
+      uiShowMainMenu();
+      return;
     }
 
     // Pre-calculate unique departments and branches dynamically
     const int MAX_UNIQUE = 30;
-    String unique_depts[MAX_UNIQUE];
+    const char* unique_depts[MAX_UNIQUE];
     int num_depts = 0;
-    String unique_branches[MAX_UNIQUE];
+    const char* unique_branches[MAX_UNIQUE];
     int num_branches = 0;
 
     const Employee* db = DataManager::getEmployees();
     int count = DataManager::getEmployeeCount();
 
     for (int i = 0; i < count; i++) {
-      String d = db[i].dept;
-      String b = db[i].branch;
-      if (d.length() > 0 && !d.equalsIgnoreCase("admin") && !d.equalsIgnoreCase("All")) {
+      const char* d = db[i].dept.c_str();
+      const char* b = db[i].branch.c_str();
+      if (strlen(d) > 0 && !equalsIgnoreCase(d, "admin") && !equalsIgnoreCase(d, "All")) {
           bool found = false;
-          for (int j = 0; j < num_depts; j++) if (unique_depts[j] == d) { found = true; break; }
+          for (int j = 0; j < num_depts; j++) if (equalsIgnoreCase(unique_depts[j], d)) { found = true; break; }
           if (!found && num_depts < MAX_UNIQUE) unique_depts[num_depts++] = d;
       }
-      if (b.length() > 0 && !b.equalsIgnoreCase("All")) {
+      if (strlen(b) > 0 && !equalsIgnoreCase(b, "All")) {
           bool found = false;
-          for (int j = 0; j < num_branches; j++) if (unique_branches[j] == b) { found = true; break; }
+          for (int j = 0; j < num_branches; j++) if (equalsIgnoreCase(unique_branches[j], b)) { found = true; break; }
           if (!found && num_branches < MAX_UNIQUE) unique_branches[num_branches++] = b;
       }
     }
 
     String dept_opts = "All";
-    for (int i = 0; i < num_depts; i++) dept_opts += "\n" + unique_depts[i];
+    for (int i = 0; i < num_depts; i++) { dept_opts += "\n"; dept_opts += unique_depts[i]; }
     String branch_opts = "All";
-    for (int i = 0; i < num_branches; i++) branch_opts += "\n" + unique_branches[i];
+    for (int i = 0; i < num_branches; i++) { branch_opts += "\n"; branch_opts += unique_branches[i]; }
 
     if (dd_dept_filter) lv_dropdown_set_options(dd_dept_filter, dept_opts.c_str());
     if (dd_branch_filter) lv_dropdown_set_options(dd_branch_filter, branch_opts.c_str());
@@ -1081,7 +1142,9 @@ void uiShowEmpList(bool isFallback) {
 
     // 4. Load the Employee List screen and auto-delete the temporary screen.
     lv_scr_load(scr_emp_list);
-    lv_obj_del_async(temp_scr);
+    if (temp_scr) {
+      lv_obj_del_async(temp_scr);
+    }
 
     // 5. Populate the list in a SECOND deferred timer so it runs AFTER LVGL
     //    has fully committed the screen load (prevents freeze from running

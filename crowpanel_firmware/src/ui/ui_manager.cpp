@@ -120,7 +120,8 @@ extern void uiShowMainMenu();
 
 void UIManager::begin() {
     initGlobalPill();
-    buildAllScreens();
+    // buildAllScreens() is no longer called to save massive amounts of RAM.
+    // Screens are now built strictly on-demand.
 }
 
 void UIManager::loadInitialScreen() {

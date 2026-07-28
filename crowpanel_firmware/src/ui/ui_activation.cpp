@@ -376,6 +376,9 @@ void buildActivationScreen() {
 }
 
 void uiShowActivation() {
+    if (scr_activation == NULL) {
+        buildActivationScreen();
+    }
     lv_scr_load(scr_activation);
     
     if (!lockout_timer) {
