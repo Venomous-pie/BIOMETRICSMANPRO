@@ -6,6 +6,7 @@ lv_obj_t *scr_settings = NULL;
 
 extern const lv_img_dsc_t icon_clock_network;
 extern const lv_img_dsc_t icon_server_device;
+extern const lv_img_dsc_t icon_secure_data;
 extern const lv_img_dsc_t icon_device_info;
 extern const lv_img_dsc_t icon_display_settings;
 extern const lv_img_dsc_t icon_data_synchronization;
@@ -124,7 +125,7 @@ void buildSettingsScreen() {
     auto btn_card_security_cb = [](lv_event_t * e) {
         uiShowPinScreen(PIN_MODE_SETUP);
     };
-    create_card(cards_cont, &icon_device_info, "Security", "Admin PIN", btn_card_security_cb, false);
+    create_card(cards_cont, &icon_secure_data, "Security", "Admin PIN", btn_card_security_cb, false);
 
     create_card(cards_cont, &icon_device_info, "Device Info", "Status, Reset", btn_card_danger_cb, false);
 }
