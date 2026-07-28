@@ -330,6 +330,7 @@ void DataManager::begin() {
     
     // --- TEMPORARY BYPASS FOR TESTING ---
     _isActivated = true;
+    _isWifiConfigured = true;
     // ------------------------------------
     
     loadEmployees();

@@ -94,7 +94,9 @@ void uiShowMainMenu() {
     UIManager::updateHeaderWifi(DataManager::isWifiConnected());
 
     if (lbl_emp_subtitle) {
-        String subtitle = String(DataManager::getEmployeeCount()) + " employees";
+        int displayCount = DataManager::getEmployeeCount();
+        if (displayCount > 0) displayCount--; // Exclude the built-in Admin
+        String subtitle = String(displayCount) + " employees";
         lv_label_set_text(lbl_emp_subtitle, subtitle.c_str());
     }
 

@@ -72,7 +72,7 @@ static void btn_modal_confirm_cb(lv_event_t * e) {
         lv_obj_clean(modal_overlay);
         
         lv_obj_t *loading_card = lv_obj_create(modal_overlay);
-        lv_obj_set_size(loading_card, 300, 160);
+        lv_obj_set_size(loading_card, 400, 260); // Dramatically increased height
         lv_obj_align(loading_card, LV_ALIGN_CENTER, 0, 0);
         lv_obj_set_style_bg_color(loading_card, lv_color_white(), 0);
         lv_obj_set_style_radius(loading_card, 16, 0);
@@ -84,15 +84,15 @@ static void btn_modal_confirm_cb(lv_event_t * e) {
 #else
         lv_obj_t *spinner = lv_spinner_create(loading_card, 1000, 60);
 #endif
-        lv_obj_set_size(spinner, 50, 50);
-        lv_obj_align(spinner, LV_ALIGN_TOP_MID, 0, 25);
+        lv_obj_set_size(spinner, 60, 60);
+        lv_obj_align(spinner, LV_ALIGN_TOP_MID, 0, 30); // Pushed further down from top
         lv_obj_set_style_arc_color(spinner, UIManager::rgb(COLOR_DANGER), LV_PART_INDICATOR);
         lv_obj_set_style_arc_color(spinner, UIManager::rgb(0xeeeeee), LV_PART_MAIN);
 
         lv_obj_t *lbl = lv_label_create(loading_card);
-        lv_label_set_text(lbl, "Factory resetting...\nPlease wait.");
+        lv_label_set_text(lbl, "Wiping fingerprint databases\nand system settings...\n(This can take up to 10 seconds)");
         UIManager::styleLabel(lbl, 0x333333, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
-        lv_obj_align(lbl, LV_ALIGN_BOTTOM_MID, 0, -25);
+        lv_obj_align(lbl, LV_ALIGN_BOTTOM_MID, 0, -30); // Pushed further up from bottom
     }
 }
 

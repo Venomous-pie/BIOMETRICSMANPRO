@@ -155,13 +155,15 @@ The system uses a **Smart Cache** architecture. The WROOM's AS608 fingerprint se
 |---|---|---|
 | DFPlayer VCC | 5V Power Rail | Provide 5V for loud/clean audio |
 | DFPlayer GND | Common GND | |
-| DFPlayer RX | WROOM GPIO17 via Logic Level Converter | |
-| DFPlayer TX | WROOM GPIO16 via Logic Level Converter | |
+| DFPlayer RX | Logic Level Converter (HV) -> (LV) -> WROOM GPIO17 (TX) | Converts 3.3V TX to 5V |
+| DFPlayer TX | Logic Level Converter (HV) -> (LV) -> WROOM GPIO16 (RX) | Converts 5V TX to 3.3V |
 | DFPlayer SPK+ | Speaker Positive (+) | |
 | DFPlayer SPK- | Speaker Negative (-) | |
-| Buzzer VCC | 3.3V or 5V Power Rail | Positive terminal of the buzzer |
-| Buzzer GND | NPN Collector (C) | Negative terminal of the buzzer (with diode across buzzer) |
-| Buzzer I/O (Signal)| WROOM GPIO13 -> NPN Base (B) | NPN Emitter (E) to Common GND |
+| Buzzer VCC | 5V Power Rail | Positive terminal of the buzzer |
+| Buzzer GND | Transistor Collector (C) | Negative terminal of the buzzer |
+| Buzzer Protection | Diode (e.g. 1N4148) | Connect in parallel with buzzer: Anode to Buzzer GND, Cathode to Buzzer VCC |
+| Buzzer Signal | WROOM GPIO13 -> 1kΩ Resistor -> Transistor Base (B) | Limits current from the GPIO pin to the transistor base |
+| Transistor GND | Transistor Emitter (E) | Connect to Common GND |
 
 *Place your audio files (e.g., `0001.mp3`, `0002.mp3`) inside a folder literally named `mp3` on the root of the SD card before inserting it into the DFPlayer.*
 

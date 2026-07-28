@@ -169,6 +169,8 @@ void uiShowIdle() {
 }
 
 void uiUpdateClock(const char *ts) {
+  if (!scr_idle || !lbl_time || !lbl_date) return;
+  
   if (strlen(ts) >= 19) {
     int year = atoi(ts);
     int month = atoi(ts + 5);

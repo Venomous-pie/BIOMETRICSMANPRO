@@ -78,6 +78,13 @@ void SyncManager::triggerSync(const String& token) {
 
 void SyncManager::failToFastRetry(const char* reason) {
     Serial.printf("[SYNC] Failed: %s. Entering FAST_RETRY_MODE.\n", reason);
+    
+    // Notify CrowPanel immediately so it can stop its UI loading animation
+    StaticJsonDocument<128> failDoc;
+    failDoc["type"] = "EMP_SYNC_FAIL";
+    failDoc["msg"] = reason;
+    sendDoc(failDoc);
+    
     setState(SYNC_STATE_FAST_RETRY_MODE);
     s_fastRetryStartTime = millis();
 }

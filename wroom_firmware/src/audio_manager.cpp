@@ -31,6 +31,8 @@ void audioManagerInit() {
 
 void playTrack(int trackNum) {
   Serial.printf("[AUDIO] Playing MP3 track %d\n", trackNum);
+  beep(100); // 100ms beep before audio
+  delay(50); // Short pause
   myDFPlayer.playMp3Folder(trackNum); // Plays files in the /mp3/ folder named 0001.mp3, 0002.mp3...
 }
 

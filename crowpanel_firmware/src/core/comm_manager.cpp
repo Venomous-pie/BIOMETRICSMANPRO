@@ -473,8 +473,8 @@ void CommManager::dispatchJson(const String& line) {
                     // Skip reconnect if password is empty
                 }
             } else {
-                // Reconnect failed
-                UIManager::showToast("Failed to reconnect to Wi-Fi", true);
+                // Reconnect failed / WROOM is handling backoff retries in the background.
+                // We intentionally don't show a toast here to avoid spamming the UI.
             }
         }
     } else if (strcmp(type, "CHANNEL_HOP") == 0) {

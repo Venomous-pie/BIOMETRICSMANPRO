@@ -323,7 +323,8 @@ void UIManager::buildAllScreens() {
 extern LGFX lcd;
 
 void uiFactoryResetComplete() {
-    if (Serial) Serial.println("[SYSTEM] Factory Reset complete. Rebooting...");
+    if (Serial) Serial.println("[SYSTEM] Factory Reset complete. Wiping local data...");
+    DataManager::factoryReset();
     lcd.setBrightness(0);
     delay(200);
     ESP.restart();
@@ -370,13 +371,15 @@ void UIManager::showToast(const char* msg, bool is_error) {
         g_toast_timer = NULL;
     }
 
-    g_toast = lv_obj_create(lv_layer_sys());
-    lv_obj_set_size(g_toast, 300, LV_SIZE_CONTENT);
+    g_toast = lv_obj_create(lv_layer_top());
+    if (!g_toast) return; // Safely exit if OOM
+    
+    lv_obj_set_size(g_toast, 280, 50);
     lv_obj_align(g_toast, LV_ALIGN_TOP_MID, 0, 20);
-    lv_obj_set_style_bg_color(g_toast, rgb(is_error ? COLOR_DANGER : 0x333333), 0);
-    lv_obj_set_style_radius(g_toast, 20, 0);
-    lv_obj_set_style_border_width(g_toast, 0, 0);
-    lv_obj_set_style_pad_all(g_toast, 10, 0);
+    lv_obj_set_style_bg_color(g_toast, rgb(COLOR_BG), 0);
+    lv_obj_set_style_border_color(g_toast, is_error ? rgb(COLOR_DANGER) : rgb(COLOR_GREEN_MAIN), 0);
+    lv_obj_set_style_border_width(g_toast, 2, 0);
+    lv_obj_set_style_radius(g_toast, 8, 0);
     lv_obj_clear_flag(g_toast, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_layout(g_toast, LV_LAYOUT_FLEX);
     lv_obj_set_flex_flow(g_toast, LV_FLEX_FLOW_ROW);

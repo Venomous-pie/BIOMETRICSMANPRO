@@ -317,6 +317,8 @@ void uiSyncStatusRefreshCards() {
     create_stat_card(cards_cont, "Last synced", lastSyncStr.c_str(), false);
     
     // Card 4: Employees
+    empCount = DataManager::getEmployeeCount();
+    if (empCount > 0) empCount--; // Exclude the built-in Admin
     create_stat_card(cards_cont, "Employees", String(empCount).c_str(), false);
 }
 
@@ -351,20 +353,25 @@ void uiSyncStatusRefreshLogs() {
             lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
 
             String msgStr = logs[i].message;
+            String lowerMsg = msgStr;
+            lowerMsg.toLowerCase();
+            
             const char* symbol = LV_SYMBOL_REFRESH;
             int color = 0x3BB143; // Default green
             
-            if (msgStr.indexOf("fail") >= 0 || msgStr.indexOf("lost") >= 0) {
+            if (lowerMsg.indexOf("fail") >= 0 || lowerMsg.indexOf("lost") >= 0 || lowerMsg.indexOf("error") >= 0 || lowerMsg.indexOf("timeout") >= 0) {
                 symbol = LV_SYMBOL_WARNING;
                 color = COLOR_DANGER;
-            } else if (msgStr.indexOf("Connection") >= 0) {
+                lv_obj_set_style_bg_color(row, UIManager::rgb(COLOR_DANGER), 0);
+                lv_obj_set_style_bg_opa(row, LV_OPA_10, 0); // Subtle red tint for error rows
+            } else if (lowerMsg.indexOf("connection") >= 0) {
                 symbol = LV_SYMBOL_WIFI;
-            } else if (msgStr.indexOf("Uploaded") >= 0) {
+            } else if (lowerMsg.indexOf("uploaded") >= 0) {
                 symbol = LV_SYMBOL_UPLOAD;
                 color = 0x2196F3;
-            } else if (msgStr.indexOf("Time") >= 0) {
+            } else if (lowerMsg.indexOf("time") >= 0) {
                 symbol = LV_SYMBOL_SETTINGS;
-            } else if (msgStr.indexOf("Synced") >= 0) {
+            } else if (lowerMsg.indexOf("synced") >= 0) {
                 symbol = LV_SYMBOL_DOWNLOAD;
                 color = 0x2196F3;
             } else {
@@ -387,7 +394,8 @@ void uiSyncStatusRefreshLogs() {
             int hrs = (elapsed / 3600000);
             String timeStr = "";
             if (hrs > 0) timeStr = String(hrs) + "h " + String(mins) + "m ago";
-            else timeStr = String(mins) + "m ago";
+            else if (mins > 0) timeStr = String(mins) + "m ago";
+            else timeStr = "Just now";
 
             lv_label_set_text(time_lbl, timeStr.c_str());
             UIManager::styleLabel(time_lbl, 0xAAAAAA, &lv_font_montserrat_14, LV_TEXT_ALIGN_RIGHT);

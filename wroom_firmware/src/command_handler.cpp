@@ -42,11 +42,12 @@ void handleFactoryResetButton() {
       Serial.println("[SYSTEM] Factory reset button held. Release within 5 s to cancel.");
     } else if (millis() - btnPressTime > 5000) {
       Serial.println("[SYSTEM] HARDWARE FACTORY RESET TRIGGERED.");
+      send("{\"type\":\"FACTORY_RESET_ACK\"}");
+      delay(100); // Allow time for ESP-NOW packet to transmit
       WiFi.disconnect(true, true);
       prefs.clear();
       wipeExceptAdmin();
       Serial.println("[SYSTEM] WiFi credentials and fingerprint templates wiped. Rebooting...");
-      send("{\"type\":\"FACTORY_RESET_ACK\"}");
       beep(1000); // 1-second long beep to confirm reset
       delay(2000);
       ESP.restart();
@@ -342,10 +343,15 @@ void handleCmd(String cmd) {
     } else if (strcmp(action, "FACTORY_RESET") == 0) {
       activated = false;
       Serial.println("[SYSTEM] Factory reset received from CrowPanel. Scanner disabled.");
-      wipeExceptAdmin();
-      Serial.println("[SYSTEM] Fingerprint database wiped.");
       send("{\"type\":\"FACTORY_RESET_ACK\"}");
+      delay(100); // Allow time for ESP-NOW packet to transmit
+      WiFi.disconnect(true, true);
+      prefs.clear();
+      wipeExceptAdmin();
+      Serial.println("[SYSTEM] WiFi credentials and fingerprint database wiped. Rebooting...");
       beep(1000); // 1-second long beep to confirm reset
+      delay(2000);
+      ESP.restart();
 
     } else if (strcmp(action, "SET_IDLE") == 0) {
       idle_screen_active = jcmd["idle"] | false;
