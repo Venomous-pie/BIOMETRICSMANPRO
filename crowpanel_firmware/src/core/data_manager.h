@@ -22,7 +22,7 @@ struct Employee {
 struct AttendanceLog {
     String name;
     String time_str;    // ISO-style: "YYYY-MM-DD HH:MM:SS"
-    bool is_time_in;
+    uint8_t action_type; // 1=IN, 2=OUT, 3=OT_IN, 4=OT_OUT
     bool synced;
     int  confidence;    // AS608 match confidence score
     int  slot;          // AS608 physical template slot
@@ -50,8 +50,8 @@ public:
     static const AttendanceLog* getAttendanceLogs();
     static int getAttendanceLogCount();
     static int getUnsyncedAttendanceCount();
-    static bool isActionAllowed(int slot, bool is_time_in);
-    static void addLog(const String& name, const String& time_str, bool is_time_in, int confidence, int slot);
+    static bool isActionAllowed(int slot, uint8_t action_type);
+    static void addLog(const String& name, const String& time_str, uint8_t action_type, int confidence, int slot);
     static void uploadPendingLogs();              // POST unsynced logs via async task
     static void saveAttendanceLogs(); // Persist to LittleFS
     

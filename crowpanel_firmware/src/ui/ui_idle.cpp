@@ -33,12 +33,16 @@ extern void uiShowEmpList();
 
 static void prompt_click_cb(lv_event_t * e) {
   pending_action++;
-  if (pending_action > 2) pending_action = 1;
+  if (pending_action > 4) pending_action = 1;
 
   if (pending_action == 1) {
     lv_label_set_text(lbl_prompt, " Time - In ");
   } else if (pending_action == 2) {
     lv_label_set_text(lbl_prompt, " Time - Out ");
+  } else if (pending_action == 3) {
+    lv_label_set_text(lbl_prompt, " Overtime - In ");
+  } else if (pending_action == 4) {
+    lv_label_set_text(lbl_prompt, " Overtime - Out ");
   }
   lv_obj_clear_flag(img_arrow_left_obj, LV_OBJ_FLAG_HIDDEN);
   lv_obj_clear_flag(img_arrow_right_obj, LV_OBJ_FLAG_HIDDEN);
@@ -46,16 +50,12 @@ static void prompt_click_cb(lv_event_t * e) {
 }
 
 static void btn_time_in_cb(lv_event_t * e) {
-  pending_action = 1;
-  lv_label_set_text(lbl_prompt, "Ready for TIME IN. Place finger");
-  lv_obj_add_flag(img_arrow_left_obj, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_add_flag(img_arrow_right_obj, LV_OBJ_FLAG_HIDDEN);
-  lv_obj_set_style_text_color(lbl_prompt, UIManager::rgb(COLOR_SUBTEXT), 0);
-}
-
-static void btn_time_out_cb(lv_event_t * e) {
-  pending_action = 2;
-  lv_label_set_text(lbl_prompt, "Ready for TIME OUT. Place finger");
+  // Now this button doesn't force to IN, it just acknowledges the current selection and hides arrows
+  if (pending_action == 1) lv_label_set_text(lbl_prompt, "Ready for TIME IN. Place finger");
+  else if (pending_action == 2) lv_label_set_text(lbl_prompt, "Ready for TIME OUT. Place finger");
+  else if (pending_action == 3) lv_label_set_text(lbl_prompt, "Ready for OVERTIME IN. Place finger");
+  else if (pending_action == 4) lv_label_set_text(lbl_prompt, "Ready for OVERTIME OUT. Place finger");
+  
   lv_obj_add_flag(img_arrow_left_obj, LV_OBJ_FLAG_HIDDEN);
   lv_obj_add_flag(img_arrow_right_obj, LV_OBJ_FLAG_HIDDEN);
   lv_obj_set_style_text_color(lbl_prompt, UIManager::rgb(COLOR_SUBTEXT), 0);
@@ -198,17 +198,31 @@ void uiUpdateClock(const char *ts) {
     if (hour != last_hour) {
         last_hour = hour;
         int expected_action = 1;
-        if ((hour >= 12 && hour < 13) || (hour >= 17)) {
-            expected_action = 2; // Time Out
+        
+        if (hour < 12) {
+            expected_action = 1; // 12:00 AM - 11:59 AM: Time In
+        } else if (hour >= 12 && hour < 13) {
+            expected_action = 2; // 12:00 PM - 12:59 PM: Time Out (Lunch)
+        } else if (hour >= 13 && hour < 17) {
+            expected_action = 1; // 1:00 PM - 4:59 PM: Time In (Afternoon)
+        } else if (hour >= 17 && hour < 18) {
+            expected_action = 2; // 5:00 PM - 5:59 PM: Time Out (End of shift)
+        } else if (hour >= 18 && hour < 21) {
+            expected_action = 3; // 6:00 PM - 8:59 PM: Overtime In
         } else {
-            expected_action = 1; // Time In
+            expected_action = 4; // 9:00 PM onwards: Overtime Out
         }
+
         if (pending_action != expected_action) {
             pending_action = expected_action;
             if (pending_action == 1) {
                 if (lbl_prompt) lv_label_set_text(lbl_prompt, " Time - In ");
-            } else {
+            } else if (pending_action == 2) {
                 if (lbl_prompt) lv_label_set_text(lbl_prompt, " Time - Out ");
+            } else if (pending_action == 3) {
+                if (lbl_prompt) lv_label_set_text(lbl_prompt, " Overtime - In ");
+            } else if (pending_action == 4) {
+                if (lbl_prompt) lv_label_set_text(lbl_prompt, " Overtime - Out ");
             }
         }
     }

@@ -128,7 +128,8 @@ void uiShowMatch(const char *name, const char *dept, const char *action, const c
     return;
   }
 
-  bool isIn = (pending_action == 0) ? (strcmp(action, "IN") == 0) : (pending_action == 1);
+  bool isIn = (strcmp(action, "IN") == 0 || strcmp(action, "OT IN") == 0);
+  bool isOT = (strcmp(action, "OT IN") == 0 || strcmp(action, "OT OUT") == 0);
 
   lv_obj_set_style_img_recolor(lbl_avatar, UIManager::rgb(0x000000), 0);
   lv_obj_set_style_img_recolor_opa(lbl_avatar, LV_OPA_COVER, 0);
@@ -159,16 +160,21 @@ void uiShowMatch(const char *name, const char *dept, const char *action, const c
     }
   }
 
+  const char* act_lbl = "Time in";
+  if (strcmp(action, "OUT") == 0) act_lbl = "Time out";
+  else if (strcmp(action, "OT IN") == 0) act_lbl = "OT in";
+  else if (strcmp(action, "OT OUT") == 0) act_lbl = "OT out";
+
   char pillText[64];
   snprintf(pillText, sizeof(pillText), "%s %s   •   %s", 
            isIn ? LV_SYMBOL_RIGHT : LV_SYMBOL_LEFT, 
-           isIn ? "Time in" : "Time out", 
+           act_lbl, 
            formattedTime);
   lv_label_set_text(lbl_action, pillText);
 
-  if (isIn) {
+  if (strcmp(action, "IN") == 0) {
     lv_obj_set_style_border_color(badge_action, UIManager::rgb(0x2A800F), 0);
-    lv_obj_set_style_bg_color(badge_action, UIManager::rgb(0xE6F4EA), 0);
+    lv_obj_set_style_bg_color(badge_action, UIManager::rgb(0xE6F4EA), 0); // Light green
     lv_obj_set_style_text_color(lbl_action, UIManager::rgb(0x2A800F), 0);
 
     if (h < 12) {
@@ -178,12 +184,24 @@ void uiShowMatch(const char *name, const char *dept, const char *action, const c
     } else {
       lv_label_set_text(lbl_emp_ts, "Good evening! Have a great shift.");
     }
-  } else {
+  } else if (strcmp(action, "OUT") == 0) {
     lv_obj_set_style_border_color(badge_action, UIManager::rgb(0xED6C02), 0);
-    lv_obj_set_style_bg_color(badge_action, UIManager::rgb(0xFFF4E5), 0);
+    lv_obj_set_style_bg_color(badge_action, UIManager::rgb(0xFFF4E5), 0); // Light red/orange
     lv_obj_set_style_text_color(lbl_action, UIManager::rgb(0xED6C02), 0);
 
     lv_label_set_text(lbl_emp_ts, "Great work today! Have a safe trip home.");
+  } else if (strcmp(action, "OT IN") == 0) {
+    lv_obj_set_style_border_color(badge_action, UIManager::rgb(0x1565C0), 0);
+    lv_obj_set_style_bg_color(badge_action, UIManager::rgb(0xE4F2FC), 0); // Light blue
+    lv_obj_set_style_text_color(lbl_action, UIManager::rgb(0x1565C0), 0);
+
+    lv_label_set_text(lbl_emp_ts, "Starting overtime! Keep up the great work.");
+  } else if (strcmp(action, "OT OUT") == 0) {
+    lv_obj_set_style_border_color(badge_action, UIManager::rgb(0xEF6C00), 0);
+    lv_obj_set_style_bg_color(badge_action, UIManager::rgb(0xFCF2E4), 0); // Light orange
+    lv_obj_set_style_text_color(lbl_action, UIManager::rgb(0xEF6C00), 0);
+
+    lv_label_set_text(lbl_emp_ts, "Overtime complete! Take a well-deserved rest.");
   }
 
   lv_obj_add_flag(btn_fallback, LV_OBJ_FLAG_HIDDEN);
@@ -239,7 +257,7 @@ void uiShowNoMatch() {
   lv_timer_set_repeat_count(returnTimer, 1);
 }
 
-void uiShowActionDenied(const char *name, bool is_time_in) {
+void uiShowActionDenied(const char *name, uint8_t action_type) {
   Serial.println("[UI_RESULT] uiShowActionDenied called");
   if (scr_result == NULL) buildResultScreen();
   
@@ -255,7 +273,7 @@ void uiShowActionDenied(const char *name, bool is_time_in) {
   lv_obj_set_style_bg_color(badge_action, UIManager::rgb(0xFDEDED), 0);
   lv_obj_set_style_text_color(lbl_action, UIManager::rgb(COLOR_DANGER), 0);
   
-  if (is_time_in) {
+  if (action_type == 1 || action_type == 3) {
       lv_label_set_text(lbl_emp_ts, "You must Time Out first.");
   } else {
       lv_label_set_text(lbl_emp_ts, "You must Time In first.");

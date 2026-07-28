@@ -214,8 +214,8 @@ static void populate_logs_list(const char* name_filter, const char* date_filter)
         String dStr = db[i].time_str; dStr.toLowerCase();
         if (nFilt.length() > 0 && nStr.indexOf(nFilt) == -1) continue;
         if (dFilt.length() > 0 && dStr.indexOf(dFilt) == -1) continue;
-        if (g_log_status_filter == 1 && !db[i].is_time_in) continue;
-        if (g_log_status_filter == 2 && db[i].is_time_in) continue;
+        if (g_log_status_filter == 1 && (db[i].action_type != 1 && db[i].action_type != 3)) continue;
+        if (g_log_status_filter == 2 && (db[i].action_type != 2 && db[i].action_type != 4)) continue;
         filtered_count++;
     }
 
@@ -256,8 +256,8 @@ static void populate_logs_list(const char* name_filter, const char* date_filter)
         String dStr = db[i].time_str; dStr.toLowerCase();
         if (nFilt.length() > 0 && nStr.indexOf(nFilt) == -1) continue;
         if (dFilt.length() > 0 && dStr.indexOf(dFilt) == -1) continue;
-        if (g_log_status_filter == 1 && !db[i].is_time_in) continue;
-        if (g_log_status_filter == 2 && db[i].is_time_in) continue;
+        if (g_log_status_filter == 1 && (db[i].action_type != 1 && db[i].action_type != 3)) continue;
+        if (g_log_status_filter == 2 && (db[i].action_type != 2 && db[i].action_type != 4)) continue;
 
         if (current_idx >= start_idx && current_idx < end_idx) {
             lv_obj_t *row = lv_obj_create(logs_list_obj);
@@ -296,14 +296,22 @@ static void populate_logs_list(const char* name_filter, const char* date_filter)
             lv_obj_clear_flag(pill, LV_OBJ_FLAG_SCROLLABLE);
 
             lv_obj_t *pill_lbl = lv_label_create(pill);
-            if (db[i].is_time_in) {
+            if (db[i].action_type == 1) {
                 lv_label_set_text(pill_lbl, "Time in");
                 lv_obj_set_style_bg_color(pill, UIManager::rgb(0xDDF9E5), 0); // Light green
                 UIManager::styleLabel(pill_lbl, 0x2A800F, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
-            } else {
+            } else if (db[i].action_type == 2) {
                 lv_label_set_text(pill_lbl, "Time out");
                 lv_obj_set_style_bg_color(pill, UIManager::rgb(0xFCE4E4), 0); // Light red
                 UIManager::styleLabel(pill_lbl, 0xC62828, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
+            } else if (db[i].action_type == 3) {
+                lv_label_set_text(pill_lbl, "OT in");
+                lv_obj_set_style_bg_color(pill, UIManager::rgb(0xE4F2FC), 0); // Light blue
+                UIManager::styleLabel(pill_lbl, 0x1565C0, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
+            } else if (db[i].action_type == 4) {
+                lv_label_set_text(pill_lbl, "OT out");
+                lv_obj_set_style_bg_color(pill, UIManager::rgb(0xFCF2E4), 0); // Light orange
+                UIManager::styleLabel(pill_lbl, 0xEF6C00, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
             }
             lv_obj_center(pill_lbl);
         }

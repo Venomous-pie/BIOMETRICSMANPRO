@@ -62,7 +62,10 @@ void attendanceUploadTask(void *pvParameters) {
             if (found) {
                 StaticJsonDocument<384> body;
                 body["employee_name"] = logToSync.name;
-                body["action"]        = logToSync.is_time_in ? "IN" : "OUT";
+                if (logToSync.action_type == 1) body["action"] = "IN";
+                else if (logToSync.action_type == 2) body["action"] = "OUT";
+                else if (logToSync.action_type == 3) body["action"] = "OVERTIME_IN";
+                else if (logToSync.action_type == 4) body["action"] = "OVERTIME_OUT";
                 body["timestamp"]     = logToSync.time_str;
                 body["confidence"]    = logToSync.confidence;
                 body["slot"]          = logToSync.slot;
@@ -110,40 +113,42 @@ int DataManager::getUnsyncedAttendanceCount() {
     return count;
 }
 
-bool DataManager::isActionAllowed(int slot, bool is_time_in) {
+bool DataManager::isActionAllowed(int slot, uint8_t action_type) {
     if (s_logMutex) xSemaphoreTake(s_logMutex, portMAX_DELAY);
     bool last_was_in = false;
     bool found = false;
-    
-    // Search backward to find the most recent log for this employee
+
+    // Search backwards for the last action by this user
     for (int i = liveLogCount - 1; i >= 0; i--) {
         if (liveLogs[i].slot == slot) {
-            last_was_in = liveLogs[i].is_time_in;
+            last_was_in = (liveLogs[i].action_type == 1 || liveLogs[i].action_type == 3);
             found = true;
             break;
         }
     }
     if (s_logMutex) xSemaphoreGive(s_logMutex);
-    
+
+    bool is_time_in = (action_type == 1 || action_type == 3);
+
     if (!found) {
-        // No prior logs in buffer, assume they are outside. Only Time In allowed.
+        // If they have no history, they MUST Time In first.
         return is_time_in;
     }
-    
-    // If last action was IN, they must OUT (is_time_in == false).
-    // If last action was OUT, they must IN (is_time_in == true).
+
+    // If last action was IN, they must OUT
+    // If last action was OUT, they must IN
     return (last_was_in != is_time_in);
 }
 
 void DataManager::addLog(const String& name, const String& time_str,
-                         bool is_time_in, int confidence, int slot) {
+                         uint8_t action_type, int confidence, int slot) {
     if (s_logMutex) xSemaphoreTake(s_logMutex, portMAX_DELAY);
     if (liveLogCount < MAX_LOGS) {
-        liveLogs[liveLogCount++] = AttendanceLog{name, time_str, is_time_in, false, confidence, slot};
+        liveLogs[liveLogCount++] = AttendanceLog{name, time_str, action_type, false, confidence, slot};
     } else {
         // Ring: shift everything left, drop oldest
         memmove(&liveLogs[0], &liveLogs[1], sizeof(AttendanceLog) * (MAX_LOGS - 1));
-        liveLogs[MAX_LOGS - 1] = AttendanceLog{name, time_str, is_time_in, false, confidence, slot};
+        liveLogs[MAX_LOGS - 1] = AttendanceLog{name, time_str, action_type, false, confidence, slot};
     }
     if (s_logMutex) xSemaphoreGive(s_logMutex);
     saveAttendanceLogs();
@@ -160,10 +165,16 @@ void DataManager::loadAttendanceLogs() {
         StaticJsonDocument<384> doc;  // 384 bytes: safely handles long names + all fields
         if (deserializeJson(doc, line) != DeserializationError::Ok) continue;
         const char* act = doc["action"] | "IN";
+        uint8_t action_type = 1;
+        if (strcmp(act, "IN") == 0) action_type = 1;
+        else if (strcmp(act, "OUT") == 0) action_type = 2;
+        else if (strcmp(act, "OVERTIME_IN") == 0) action_type = 3;
+        else if (strcmp(act, "OVERTIME_OUT") == 0) action_type = 4;
+        
         liveLogs[liveLogCount++] = AttendanceLog{
             doc["name"]   | "",
             doc["ts"]     | "",
-            (strcmp(act, "IN") == 0),
+            action_type,
             doc["synced"] | false,
             doc["conf"]   | 0,
             doc["slot"]   | 0
@@ -180,7 +191,10 @@ void DataManager::saveAttendanceLogs() {
         StaticJsonDocument<384> doc;
         doc["name"]   = liveLogs[i].name;
         doc["ts"]     = liveLogs[i].time_str;
-        doc["action"] = liveLogs[i].is_time_in ? "IN" : "OUT";
+        if (liveLogs[i].action_type == 1) doc["action"] = "IN";
+        else if (liveLogs[i].action_type == 2) doc["action"] = "OUT";
+        else if (liveLogs[i].action_type == 3) doc["action"] = "OVERTIME_IN";
+        else if (liveLogs[i].action_type == 4) doc["action"] = "OVERTIME_OUT";
         doc["synced"] = liveLogs[i].synced;
         doc["conf"]   = liveLogs[i].confidence;
         doc["slot"]   = liveLogs[i].slot;
@@ -217,14 +231,18 @@ static void asyncUploadTask(void* param) {
         if (liveLogs[i].synced) { if (s_logMutex) xSemaphoreGive(s_logMutex); continue; }
         String name      = liveLogs[i].name;
         String time_str  = liveLogs[i].time_str;
-        bool is_time_in  = liveLogs[i].is_time_in;
+        uint8_t action_type = liveLogs[i].action_type;
         int  confidence  = liveLogs[i].confidence;
         int  slot        = liveLogs[i].slot;
         if (s_logMutex) xSemaphoreGive(s_logMutex);
 
         StaticJsonDocument<384> body;
         body["employee_name"] = name;
-        body["action"]        = is_time_in ? "IN" : "OUT";
+        
+        if (action_type == 1) body["action"] = "IN";
+        else if (action_type == 2) body["action"] = "OUT";
+        else if (action_type == 3) body["action"] = "OVERTIME_IN";
+        else if (action_type == 4) body["action"] = "OVERTIME_OUT";
         body["timestamp"]     = time_str;
         body["confidence"]    = confidence;
         body["slot"]          = slot;
