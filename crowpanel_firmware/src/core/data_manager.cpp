@@ -854,6 +854,15 @@ void DataManager::factoryReset() {
     _activationCode   = "";
     saveConfig();
     clearWifiCredentials();
+
+    // Clear employee data
+    nukeDatabase();
+
+    // Clear attendance logs locally
+    if (s_logMutex) xSemaphoreTake(s_logMutex, portMAX_DELAY);
+    liveLogCount = 0;
+    LittleFS.remove("/attendance.jsonl");
+    if (s_logMutex) xSemaphoreGive(s_logMutex);
 }
 
 String DataManager::getActivationCode() {
