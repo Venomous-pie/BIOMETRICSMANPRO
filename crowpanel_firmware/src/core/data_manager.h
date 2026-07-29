@@ -15,8 +15,8 @@ struct Employee {
     String dept;
     String job_title;
     String branch;
-    bool fp_enrolled;
-    int enrolled_finger;
+    bool     fp_enrolled;       // true if ANY finger is enrolled
+    uint16_t enrolled_fingers;  // bitmask: bit i set = finger index i is enrolled
 };
 
 struct AttendanceLog {

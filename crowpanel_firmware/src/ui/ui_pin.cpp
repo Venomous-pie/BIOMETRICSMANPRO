@@ -1,7 +1,7 @@
 #include "ui_pin.h"
 #include "ui_manager.h"
 #include "../core/data_manager.h"
-
+#include "../core/comm_manager.h"
 LV_FONT_DECLARE(lv_font_montserrat_24);
 LV_FONT_DECLARE(lv_font_montserrat_28);
 LV_FONT_DECLARE(lv_font_montserrat_36);
@@ -11,6 +11,8 @@ static lv_obj_t *lbl_title = NULL;
 static lv_obj_t *pin_boxes[4];
 static lv_obj_t *lbl_pins[4];
 static lv_obj_t *btnm_numpad = NULL;
+static lv_obj_t *btn_set_admin_fp = NULL;
+static lv_obj_t *btn_del_admin_fp = NULL;
 
 static PINMode current_mode = PIN_MODE_AUTH;
 static String input_pin = "";
@@ -160,6 +162,49 @@ void buildPinScreen() {
         lv_obj_set_style_text_color(lbl_pins[i], UIManager::rgb(COLOR_TEXT_MAIN), 0);
         lv_obj_align(lbl_pins[i], LV_ALIGN_CENTER, 0, 0);
     }
+
+    // Admin Fingerprint buttons
+    btn_set_admin_fp = lv_btn_create(scr_pin);
+    lv_obj_set_size(btn_set_admin_fp, 200, 40);
+    lv_obj_align(btn_set_admin_fp, LV_ALIGN_TOP_RIGHT, -20, 100);
+    lv_obj_set_style_bg_color(btn_set_admin_fp, UIManager::rgb(COLOR_GREEN_MAIN), 0);
+    lv_obj_set_style_radius(btn_set_admin_fp, 8, 0);
+    auto btn_set_admin_cb = [](lv_event_t * e) {
+        extern void uiShowChooseFinger(String emp_id, const char *name, const char *dept, bool isFallback);
+        uiShowChooseFinger("1", "Admin", "Admin", false);
+    };
+    lv_obj_add_event_cb(btn_set_admin_fp, btn_set_admin_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *lbl_set_admin = lv_label_create(btn_set_admin_fp);
+    lv_label_set_text(lbl_set_admin, "Set Admin FP");
+    UIManager::styleLabel(lbl_set_admin, 0xffffff, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
+    lv_obj_center(lbl_set_admin);
+    lv_obj_add_flag(btn_set_admin_fp, LV_OBJ_FLAG_HIDDEN); // Hidden by default
+
+    btn_del_admin_fp = lv_btn_create(scr_pin);
+    lv_obj_set_size(btn_del_admin_fp, 200, 40);
+    lv_obj_align(btn_del_admin_fp, LV_ALIGN_TOP_RIGHT, -20, 150);
+    lv_obj_set_style_bg_color(btn_del_admin_fp, UIManager::rgb(0xffe3e8), 0);
+    lv_obj_set_style_border_color(btn_del_admin_fp, UIManager::rgb(COLOR_DANGER), 0);
+    lv_obj_set_style_border_width(btn_del_admin_fp, 1, 0);
+    lv_obj_set_style_radius(btn_del_admin_fp, 8, 0);
+    auto btn_del_admin_cb = [](lv_event_t * e) {
+        CommManager::sendCommand("DELETE_FP:1");
+        DataManager::deleteTemplate("1", 0);
+        DataManager::updateEmployeeFpEnrolled("1", false, 0);
+        UIManager::showToast("Admin fingerprint deleted.", true);
+        if (btn_del_admin_fp) {
+            lv_obj_add_state(btn_del_admin_fp, LV_STATE_DISABLED);
+            lv_obj_set_style_bg_color(btn_del_admin_fp, UIManager::rgb(0xeeeeee), LV_STATE_DISABLED);
+            lv_obj_set_style_border_width(btn_del_admin_fp, 0, LV_STATE_DISABLED);
+            lv_obj_set_style_text_color(lv_obj_get_child(btn_del_admin_fp, 0), UIManager::rgb(0x999999), LV_STATE_DISABLED);
+        }
+    };
+    lv_obj_add_event_cb(btn_del_admin_fp, btn_del_admin_cb, LV_EVENT_CLICKED, NULL);
+    lv_obj_t *lbl_del_admin = lv_label_create(btn_del_admin_fp);
+    lv_label_set_text(lbl_del_admin, "Delete Admin FP");
+    UIManager::styleLabel(lbl_del_admin, COLOR_DANGER, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
+    lv_obj_center(lbl_del_admin);
+    lv_obj_add_flag(btn_del_admin_fp, LV_OBJ_FLAG_HIDDEN); // Hidden by default
 }
 
 void uiShowPinScreen(PINMode mode) {
@@ -175,14 +220,30 @@ void uiShowPinScreen(PINMode mode) {
     // But we only want to delete the header, not the numpad or boxes.
     // Instead of deleting, we can just call buildHeader which creates a new header.
     // To prevent memory leaks, we should delete the first child if it's the header.
-    if (lv_obj_get_child_cnt(scr_pin) > 2) {
+    if (lv_obj_get_child_cnt(scr_pin) > 4) {
         lv_obj_del(lv_obj_get_child(scr_pin, 0)); // Remove old header
     }
 
     if (mode == PIN_MODE_AUTH) {
         UIManager::buildHeader(scr_pin, "Admin Authentication", "Enter PIN to Unlock", btn_back_cb, false);
+        lv_obj_add_flag(btn_set_admin_fp, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(btn_del_admin_fp, LV_OBJ_FLAG_HIDDEN);
     } else {
         UIManager::buildHeader(scr_pin, "Security Settings", "Set New Admin PIN", btn_back_cb, false);
+        lv_obj_clear_flag(btn_set_admin_fp, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(btn_del_admin_fp, LV_OBJ_FLAG_HIDDEN);
+        
+        if (!DataManager::templateExists("1", 0)) {
+            lv_obj_add_state(btn_del_admin_fp, LV_STATE_DISABLED);
+            lv_obj_set_style_bg_color(btn_del_admin_fp, UIManager::rgb(0xeeeeee), LV_STATE_DISABLED);
+            lv_obj_set_style_border_width(btn_del_admin_fp, 0, LV_STATE_DISABLED);
+            lv_obj_set_style_text_color(lv_obj_get_child(btn_del_admin_fp, 0), UIManager::rgb(0x999999), LV_STATE_DISABLED);
+        } else {
+            lv_obj_clear_state(btn_del_admin_fp, LV_STATE_DISABLED);
+            lv_obj_set_style_bg_color(btn_del_admin_fp, UIManager::rgb(0xffe3e8), 0);
+            lv_obj_set_style_border_width(btn_del_admin_fp, 1, 0);
+            lv_obj_set_style_text_color(lv_obj_get_child(btn_del_admin_fp, 0), UIManager::rgb(COLOR_DANGER), 0);
+        }
     }
     
     // Move header to the top of the children list so it doesn't overlap weirdly

@@ -232,27 +232,6 @@ void buildSettingsDangerScreen() {
     lv_obj_set_style_pad_all(body, 20, 0);
     // Removed clear scrollable flag so the user can scroll down to the danger zone
 
-    // Callbacks for the Security Card
-    auto btn_set_admin_cb = [](lv_event_t * e) {
-        // ID 1, Finger Index 0, Name Admin
-        CommManager::sendCommand("ENROLL:1:0:Admin");
-        extern void uiShowEnrollStart(const char* name);
-        uiShowEnrollStart("Admin");
-    };
-
-    auto btn_del_admin_cb = [](lv_event_t * e) {
-        CommManager::sendCommand("DELETE_FP:1");
-        DataManager::deleteTemplate("1", 0);
-        // Also remove from fp_state.json. This can be done by forcing a false update
-        DataManager::updateEmployeeFpEnrolled("1", false, 0);
-        UIManager::showToast("Admin fingerprint deleted.", true);
-        
-        // Refresh the screen to disable the button
-        destroy_screen();
-        extern void uiShowSettingsDanger();
-        uiShowSettingsDanger();
-    };
-
     // Device Information Card
     lv_obj_t *card_info = lv_obj_create(body);
     lv_obj_set_size(card_info, 760, 140);
@@ -284,58 +263,12 @@ void buildSettingsDangerScreen() {
     String devId = DataManager::getDeviceId();
     add_info_row(card_info, "Device ID", devId.c_str(), 0, 70);
 
-    // Security Options Card
-    lv_obj_t *card_security = lv_obj_create(body);
-    lv_obj_set_size(card_security, 760, 120);
-    lv_obj_align(card_security, LV_ALIGN_TOP_MID, 0, 160);
-    lv_obj_set_style_bg_color(card_security, UIManager::rgb(COLOR_WIFI_BG), 0);
-    lv_obj_set_style_border_color(card_security, UIManager::rgb(COLOR_STROKE), 0);
-    lv_obj_set_style_border_width(card_security, 1, 0);
-    lv_obj_set_style_radius(card_security, 8, 0);
-    lv_obj_set_style_pad_all(card_security, 20, 0);
 
-    lv_obj_t *lbl_security = lv_label_create(card_security);
-    lv_label_set_text(lbl_security, LV_SYMBOL_SETTINGS " Security Options");
-    UIManager::styleLabel(lbl_security, COLOR_TEXT_MAIN, &lv_font_montserrat_16, LV_TEXT_ALIGN_LEFT);
-    lv_obj_align(lbl_security, LV_ALIGN_TOP_LEFT, 0, 0);
-
-    lv_obj_t *btn_set_admin = lv_btn_create(card_security);
-    lv_obj_set_size(btn_set_admin, 180, 40);
-    lv_obj_align(btn_set_admin, LV_ALIGN_TOP_LEFT, 0, 30);
-    lv_obj_set_style_bg_color(btn_set_admin, UIManager::rgb(COLOR_CARD), 0);
-    lv_obj_set_style_radius(btn_set_admin, 8, 0);
-    lv_obj_add_event_cb(btn_set_admin, btn_set_admin_cb, LV_EVENT_CLICKED, NULL);
-    
-    lv_obj_t *lbl_set_admin = lv_label_create(btn_set_admin);
-    lv_label_set_text(lbl_set_admin, "Set Admin Fingerprint");
-    UIManager::styleLabel(lbl_set_admin, 0xffffff, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
-    lv_obj_center(lbl_set_admin);
-
-    lv_obj_t *btn_del_admin = lv_btn_create(card_security);
-    lv_obj_set_size(btn_del_admin, 180, 40);
-    lv_obj_align(btn_del_admin, LV_ALIGN_TOP_LEFT, 200, 30);
-    lv_obj_set_style_bg_color(btn_del_admin, UIManager::rgb(0xffe3e8), 0);
-    lv_obj_set_style_border_color(btn_del_admin, UIManager::rgb(COLOR_DANGER), 0);
-    lv_obj_set_style_border_width(btn_del_admin, 1, 0);
-    lv_obj_set_style_radius(btn_del_admin, 8, 0);
-    lv_obj_add_event_cb(btn_del_admin, btn_del_admin_cb, LV_EVENT_CLICKED, NULL);
-    
-    lv_obj_t *lbl_del_admin = lv_label_create(btn_del_admin);
-    lv_label_set_text(lbl_del_admin, "Delete Admin FP");
-    UIManager::styleLabel(lbl_del_admin, COLOR_DANGER, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
-    lv_obj_center(lbl_del_admin);
-
-    if (!DataManager::templateExists("1", 0)) {
-        lv_obj_add_state(btn_del_admin, LV_STATE_DISABLED);
-        lv_obj_set_style_bg_color(btn_del_admin, UIManager::rgb(0xeeeeee), LV_STATE_DISABLED);
-        lv_obj_set_style_border_width(btn_del_admin, 0, LV_STATE_DISABLED);
-        lv_obj_set_style_text_color(lbl_del_admin, UIManager::rgb(0x999999), LV_STATE_DISABLED);
-    }
 
     // Danger Zone Card
     lv_obj_t *card_danger = lv_obj_create(body);
     lv_obj_set_size(card_danger, 760, 160);
-    lv_obj_align(card_danger, LV_ALIGN_TOP_MID, 0, 300); // Shifted down by 140 (120 + 20 margin)
+    lv_obj_align(card_danger, LV_ALIGN_TOP_MID, 0, 160); // Moved up to fill empty space
     lv_obj_set_style_bg_color(card_danger, UIManager::rgb(0xfff0f3), 0); // Light red
     lv_obj_set_style_border_color(card_danger, UIManager::rgb(COLOR_DANGER), 0);
     lv_obj_set_style_border_width(card_danger, 1, 0);

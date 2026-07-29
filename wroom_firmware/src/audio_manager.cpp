@@ -16,7 +16,8 @@ void audioManagerInit() {
   Serial.println(F("[AUDIO] Initializing DFPlayer Mini..."));
   
   // Try to initialize, wait a bit for it to boot
-  if (!myDFPlayer.begin(dfpSerial)) {
+  // Pass false for isACK and doReset to prevent the library from hanging on noisy RX lines
+  if (!myDFPlayer.begin(dfpSerial, false, false)) {
     Serial.println(F("[AUDIO] Unable to begin:"));
     Serial.println(F("1.Please recheck the connection!"));
     Serial.println(F("2.Please insert the SD card!"));

@@ -233,25 +233,34 @@ void handleCmd(String cmd) {
   } else if (cmd.startsWith("DELETE:")) {
     int colonIdx = cmd.indexOf(':', 7);
     int slot     = 0;
+    bool ok      = false;
 
     if (colonIdx != -1) {
       int emp_id       = cmd.substring(7, colonIdx).toInt();
       int finger_index = cmd.substring(colonIdx + 1).toInt();
-      slot = ((emp_id - 1) * 10) + finger_index + 1;
+      // Look up the actual L1 slot for this (empId, fingerIdx) pair.
+      // The old formula ((emp_id-1)*10)+finger_index+1 was from the legacy
+      // fixed-slot scheme and is wrong now that assignL1Slot is dynamic.
+      slot = getL1SlotFor(emp_id, finger_index);
+      if (slot != -1) {
+        deleteL1Slot(slot); // deletes from AS608 + clears l1_slots entry
+        ok = true;
+        Serial.printf("[DEL] Released L1 slot %d for empId=%d finger=%d\n", slot, emp_id, finger_index);
+      } else {
+        Serial.printf("[DEL] No L1 slot found for empId=%d finger=%d\n", emp_id, finger_index);
+        ok = true; // Not a fatal error — template may already be gone
+      }
     } else {
       slot = cmd.substring(7).toInt();
+      if (slot >= 1 && slot <= MAX_SLOTS) {
+        deleteL1Slot(slot);
+        ok = true;
+      }
     }
-
-#ifdef MOCK_SENSOR
-    bool ok = true;
-    Serial.println("[DEL-MOCK] Pretending to erase slot " + String(slot));
-#else
-    bool ok = (finger.deleteModel(slot) == FINGERPRINT_OK);
-#endif
 
     StaticJsonDocument<64> doc;
     doc["type"] = ok ? "DELETE_OK" : "DELETE_FAIL";
-    doc["slot"] = slot;
+    doc["slot"] = slot > 0 ? slot : 0;
     sendDoc(doc);
     Serial.println(ok ? "[DEL] Slot " + String(slot) + " erased." : "[DEL] Failed.");
 

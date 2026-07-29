@@ -39,6 +39,15 @@ int assignL1Slot(int empId, int fingerIdx) {
         return empId;
     }
 
+    // First, check if this (empId, fingerIdx) pair already has a slot.
+    // Re-use it so we don't leak slots on overwrite enrollments.
+    int existing = getL1SlotFor(empId, fingerIdx);
+    if (existing != -1) {
+        l1_slots[existing].lastUsed = millis();
+        Serial.printf("[L1] Reusing slot %d for empId=%d finger=%d\n", existing, empId, fingerIdx);
+        return existing;
+    }
+
     int oldestSlot = 6; // Start eviction check from 6 onwards
     unsigned long oldestTime = 0xFFFFFFFF;
     
@@ -150,8 +159,8 @@ void doMatch() {
   // Wait, the MATCH payload currently sends name and dept from WROOM.
   // We need to change the protocol so WROOM sends empId, and CrowPanel resolves it.
   
-  bool isIn  = !lastIn[empId];
-  lastIn[empId] = isIn;
+  bool isIn  = !lastIn[id];
+  lastIn[id] = isIn;
 
   StaticJsonDocument<256> doc;
   doc["type"]   = "MATCH";
@@ -179,8 +188,8 @@ void doMockMatch(int slot) {
   int empId = l1_slots[slot].empId;
   int fingerIdx = l1_slots[slot].fingerIdx;
 
-  bool isIn  = !lastIn[empId];
-  lastIn[empId] = isIn;
+  bool isIn  = !lastIn[slot];
+  lastIn[slot] = isIn;
 
   StaticJsonDocument<256> doc;
   doc["type"]   = "MATCH";
@@ -228,6 +237,9 @@ bool doEnroll(int slot) {
   int p;
   unsigned long t, lastPing;
   enrollCancelled = false;
+
+  // Clear serial buffer to prevent leftover garbage from breaking image capture
+  while (fpSerial.available()) { fpSerial.read(); delay(1); }
 
   // ── Scan 1 ────────────────────────────────────────────────────────────────
   send("{\"type\":\"ENROLL_STEP\",\"step\":1,\"msg\":\"Place finger\"}");
@@ -378,6 +390,9 @@ int getTemplateBytes(int slot, uint8_t* buf, size_t bufSize) {
   }
 
 done:
+  // Flush any trailing garbage
+  while (fpSerial.available()) { fpSerial.read(); delay(1); }
+  
   Serial.printf("[FP] getTemplateBytes: read %d bytes from slot %d\n", totalRead, slot);
   return totalRead;
 #endif
@@ -443,6 +458,9 @@ bool installTemplateBytes(int slot, const uint8_t* data, size_t len) {
 
     // Give sensor a moment to process the buffer
     delay(50);
+    
+    // Flush the ACK packet that the AS608 sends after the final data packet
+    while (fpSerial.available()) { fpSerial.read(); delay(1); }
 
     // 3. Store the model in flash at 'slot'
     if (finger.storeModel(slot) != FINGERPRINT_OK) {

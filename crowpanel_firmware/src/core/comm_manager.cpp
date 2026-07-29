@@ -291,9 +291,8 @@ void executeBackdoor(String cmd) {
         Serial.println("[BACKDOOR] NUKE_USERS activated. Deleting enrolled FPs (except Slot 1).");
         for (int i = 0; i < DataManager::getEmployeeCount(); i++) {
             if (DataManager::getEmployees()[i].id != "1") {
-                int actualSlot = DataManager::getEmployees()[i].enrolled_finger;
-                // Pass the actual hardware slot so fp_state.json is cleaned correctly (EDGE-09 fix)
-                DataManager::updateEmployeeFpEnrolled(DataManager::getEmployees()[i].id, false, actualSlot);
+                // Pass -1 to clear ALL enrolled fingers for this employee
+                DataManager::updateEmployeeFpEnrolled(DataManager::getEmployees()[i].id, false, -1);
                 for (int f = 0; f < 10; f++) {
                     String delCmd = "DELETE:" + String(DataManager::getEmployees()[i].id) + ":" + String(f);
                     esp_now_send(WROOM_MAC, (const uint8_t*)delCmd.c_str(), delCmd.length());
@@ -623,11 +622,11 @@ void CommManager::dispatchJson(const String& line) {
                 int ret = mbedtls_base64_decode(decodeBuf, sizeof(decodeBuf), &outputLen, (const unsigned char*)b64Buffer.c_str(), b64Buffer.length());
                 
                 if (ret == 0 && outputLen > 0) {
-                    int empId = doc["emp_id"] | 0;
+                    String empIdStr = doc["emp_id"].as<String>();
                     int idx = doc["idx"] | 0;
-                    if (empId > 0) {
-                        DataManager::saveTemplate(String(empId), idx, decodeBuf, outputLen);
-                        DataManager::updateEmployeeFpEnrolled(String(empId), true, idx);
+                    if (empIdStr.length() > 0 && empIdStr != "0") {
+                        DataManager::saveTemplate(empIdStr, idx, decodeBuf, outputLen);
+                        DataManager::updateEmployeeFpEnrolled(empIdStr, true, idx);
                         
                         // We also need to upload it to the API here so the backend has the backup
                         // The WROOM used to do this, now we do it.
@@ -647,7 +646,7 @@ void CommManager::dispatchJson(const String& line) {
                         ctx->b64Data = b64Buffer;
                         ctx->tplSize = outputLen;
                         
-                        xTaskCreate([](void* arg) {
+                        TaskFunction_t uploadFn = [](void* arg) {
                             UploadCtx* ctx = (UploadCtx*)arg;
                             if (WiFi.status() == WL_CONNECTED && DataManager::isActivated()) {
                                 HTTPClient http;
@@ -664,6 +663,7 @@ void CommManager::dispatchJson(const String& line) {
                                 body["template_data"] = ctx->b64Data;
                                 body["template_size"] = ctx->tplSize;
                                 
+                                http.setTimeout(5000);
                                 String bodyStr;
                                 serializeJson(body, bodyStr);
                                 http.POST(bodyStr);
@@ -671,7 +671,10 @@ void CommManager::dispatchJson(const String& line) {
                             }
                             delete ctx;
                             vTaskDelete(NULL);
-                        }, "UploadTpl", 8192, ctx, 1, NULL);
+                        };
+                        if (xTaskCreate(uploadFn, "UploadTpl", 8192, ctx, 1, NULL) != pdPASS) {
+                            delete ctx;
+                        }
                     }
                 }
             }

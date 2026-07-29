@@ -102,6 +102,10 @@ static lv_obj_t *lbl_start_scan_text = NULL;
 static lv_obj_t *lbl_choose_info = NULL;
 static lv_obj_t *finger_objs[10];
 
+// Watchdog: if WROOM never echoes ENROLL_START (dropped packet), return to
+// choose-finger after this timeout and restore the Start Scan button.
+static lv_timer_t *enrollStartWatchdog = NULL;
+
 extern void uiShowIdle();
 extern lv_timer_t *returnTimer;
 extern const lv_img_dsc_t icon_people;
@@ -194,6 +198,7 @@ static void populate_emp_list(const char* name_filter, const char* dept_filter) 
     
     // Hide Admin from the UI list
     if (containsIgnoreCase(n, "admin") || containsIgnoreCase(d, "admin") || containsIgnoreCase(j, "admin")) continue;
+
     if (name_filter && strlen(name_filter) > 0 && !containsIgnoreCase(n, name_filter)) continue;
     // Apply enrollment status filter
     if (g_status_filter == 1 && !db[i].fp_enrolled) continue;
@@ -243,6 +248,7 @@ static void populate_emp_list(const char* name_filter, const char* dept_filter) 
 
     // Hide Admin from the UI list
     if (containsIgnoreCase(n, "admin") || containsIgnoreCase(d, "admin") || containsIgnoreCase(j, "admin")) continue;
+
     if (name_filter && strlen(name_filter) > 0 && !containsIgnoreCase(n, name_filter)) continue;
     if (g_status_filter == 1 && !db[i].fp_enrolled) continue;
     if (g_status_filter == 2 && db[i].fp_enrolled) continue;
@@ -641,6 +647,9 @@ void buildEnrollScreen() {
 }
 
 void uiShowEnrollStart(const char *name) {
+  // Cancel the watchdog — WROOM confirmed it received the ENROLL command.
+  if (enrollStartWatchdog) { lv_timer_del(enrollStartWatchdog); enrollStartWatchdog = NULL; }
+
   if (scr_enroll == NULL) buildEnrollScreen();
   if (returnTimer) { lv_timer_del(returnTimer); returnTimer = NULL; }
   
@@ -701,8 +710,7 @@ void uiShowEnrollResult(bool ok, const char *name) {
   lv_obj_clear_flag(lbl_scan_subtext, LV_OBJ_FLAG_HIDDEN);
 
   if (ok) {
-    int slot = ((selected_emp_id.toInt() - 1) * 10) + selected_finger_index + 1;
-    DataManager::updateEmployeeFpEnrolled(selected_emp_id, true, slot);
+    DataManager::updateEmployeeFpEnrolled(selected_emp_id, true, selected_finger_index);
 
     lv_obj_add_flag(btn_enroll_back, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(btn_enroll_done, LV_OBJ_FLAG_HIDDEN);
@@ -741,6 +749,8 @@ void uiShowEnrollResult(bool ok, const char *name) {
 }
 
 static void choose_back_cb(lv_event_t * e) {
+  // Cancel any pending watchdog before leaving the screen
+  if (enrollStartWatchdog) { lv_timer_del(enrollStartWatchdog); enrollStartWatchdog = NULL; }
   uiShowEmpList();
 }
 
@@ -748,27 +758,31 @@ static void finger_click_cb(lv_event_t * e) {
   int f_idx = (int)(intptr_t)lv_event_get_user_data(e);
   selected_finger_index = f_idx;
   
-  int current_enrolled = -1;
+  uint16_t enrolled_mask = 0;
   const Employee* db = DataManager::getEmployees();
-  for (int i=0; i<DataManager::getEmployeeCount(); i++) {
+  for (int i = 0; i < DataManager::getEmployeeCount(); i++) {
     if (db[i].id == selected_emp_id) {
-      current_enrolled = db[i].enrolled_finger;
+      enrolled_mask = db[i].enrolled_fingers;
       break;
     }
   }
 
-  for (int i=0; i<10; i++) {
+  for (int i = 0; i < 10; i++) {
     if (!finger_objs[i]) continue;
     lv_obj_t *lbl = lv_obj_get_child(finger_objs[i], 0);
     if (i == f_idx) {
-      lv_obj_set_style_bg_color(finger_objs[i], UIManager::rgb(0x2E7D32), 0); // Dark green (selected)
-      lv_obj_set_style_text_color(lbl, UIManager::rgb(0xFFFFFF), 0); // White text
-    } else if (i == current_enrolled) {
-      lv_obj_set_style_bg_color(finger_objs[i], UIManager::rgb(0x60A5FA), 0); // Blue (already enrolled)
-      lv_obj_set_style_text_color(lbl, UIManager::rgb(0xFFFFFF), 0); // White text
+      lv_obj_add_state(finger_objs[i], LV_STATE_CHECKED);
+      lv_obj_set_style_text_color(lbl, UIManager::rgb(0xFFFFFF), 0); // White text on selected
     } else {
-      lv_obj_set_style_bg_color(finger_objs[i], UIManager::rgb(0xE8F5E9), 0); // Light green (unselected)
-      lv_obj_set_style_text_color(lbl, UIManager::rgb(0x166534), 0); // Dark green text
+      lv_obj_clear_state(finger_objs[i], LV_STATE_CHECKED);
+      bool is_enrolled = (enrolled_mask >> i) & 1;
+      if (is_enrolled) {
+        lv_obj_set_style_bg_color(finger_objs[i], UIManager::rgb(0x60A5FA), 0); // Blue (enrolled)
+        lv_obj_set_style_text_color(lbl, UIManager::rgb(0xFFFFFF), 0); // White text
+      } else {
+        lv_obj_set_style_bg_color(finger_objs[i], UIManager::rgb(0xE4F3E7), 0); // Light green (unenrolled)
+        lv_obj_set_style_text_color(lbl, UIManager::rgb(0x166534), 0); // Dark green text
+      }
     }
   }
   
@@ -780,7 +794,8 @@ static void finger_click_cb(lv_event_t * e) {
         lv_label_set_text(lbl_start_scan_text, "Load Fingerprint " LV_SYMBOL_UPLOAD);
         if (btn_delete_scan) lv_obj_add_flag(btn_delete_scan, LV_OBJ_FLAG_HIDDEN);
     } else {
-        if (f_idx == current_enrolled) {
+        bool f_is_enrolled = (enrolled_mask >> f_idx) & 1;
+        if (f_is_enrolled) {
             lv_label_set_text(lbl_start_scan_text, "Overwrite " LV_SYMBOL_RIGHT);
             if (btn_delete_scan) lv_obj_clear_flag(btn_delete_scan, LV_OBJ_FLAG_HIDDEN);
         } else {
@@ -837,11 +852,32 @@ static void start_scan_cb(lv_event_t * e) {
     if (db[i].id == selected_emp_id) { n = db[i].name; break; }
   }
 
+  // Disable the button and show 'Sending...' while we wait for ENROLL_START
+  // echo from the WROOM. This prevents double-sends and shows clear feedback.
+  if (btn_start_scan) {
+    lv_obj_add_state(btn_start_scan, LV_STATE_DISABLED);
+    if (lbl_start_scan_text) lv_label_set_text(lbl_start_scan_text, "Sending... " LV_SYMBOL_UPLOAD);
+  }
+
   char buf[256];
   snprintf(buf, sizeof(buf), "ENROLL:%s:%d:%s", selected_emp_id.c_str(), selected_finger_index, n.c_str());
   CommManager::sendCommand(String(buf));
-  
-  uiShowEnrollStart(n.c_str());
+
+  // Do NOT call uiShowEnrollStart here. The WROOM echoes ENROLL_START back,
+  // which triggers uiShowEnrollStart via CommManager::dispatchJson.
+  // Set a 4-second watchdog: if the packet was dropped, restore the button
+  // so the user can try again instead of being stuck forever.
+  if (enrollStartWatchdog) { lv_timer_del(enrollStartWatchdog); enrollStartWatchdog = NULL; }
+  enrollStartWatchdog = lv_timer_create([](lv_timer_t *t) {
+    enrollStartWatchdog = NULL;
+    // Packet was dropped — restore the Start Scan button so user can retry.
+    if (btn_start_scan && lbl_start_scan_text) {
+      lv_obj_clear_state(btn_start_scan, LV_STATE_DISABLED);
+      lv_label_set_text(lbl_start_scan_text, "Start scan " LV_SYMBOL_RIGHT);
+    }
+    UIManager::showToast("No response from scanner. Tap again.", false);
+  }, 4000, NULL);
+  lv_timer_set_repeat_count(enrollStartWatchdog, 1);
 }
 
 static void msgbox_event_cb(lv_event_t * e) {
@@ -851,8 +887,8 @@ static void msgbox_event_cb(lv_event_t * e) {
             char buf[256];
             snprintf(buf, sizeof(buf), "DELETE:%s:%d", selected_emp_id.c_str(), selected_finger_index);
             CommManager::sendCommand(String(buf));
-            // Optimistically update UI
-            DataManager::updateEmployeeFpEnrolled(selected_emp_id, false, -1);
+            // Clear only this specific finger bit
+            DataManager::updateEmployeeFpEnrolled(selected_emp_id, false, selected_finger_index);
             uiShowChooseFinger(selected_emp_id, defer_name.c_str(), defer_dept.c_str());
         }
     }
@@ -950,9 +986,11 @@ void buildChooseFingerScreen() {
     lv_obj_set_size(finger_objs[i], 36, i < 5 ? lh[i] : rh[i-5]);
     lv_obj_align(finger_objs[i], LV_ALIGN_TOP_LEFT, i < 5 ? lx[i] : rx[i-5], i < 5 ? ly[i] : ry[i-5]);
     lv_obj_set_style_bg_color(finger_objs[i], UIManager::rgb(0xE4F3E7), 0);
+    lv_obj_set_style_bg_color(finger_objs[i], UIManager::rgb(0x2E7D32), LV_STATE_CHECKED);
     lv_obj_set_style_radius(finger_objs[i], 18, 0);
     lv_obj_set_style_border_width(finger_objs[i], 0, 0);
     lv_obj_clear_flag(finger_objs[i], LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_add_flag(finger_objs[i], LV_OBJ_FLAG_CLICKABLE | LV_OBJ_FLAG_CHECKABLE);
     lv_obj_add_event_cb(finger_objs[i], finger_click_cb, LV_EVENT_CLICKED, (void*)(intptr_t)i);
 
     lv_obj_t *l = lv_label_create(finger_objs[i]);
@@ -1010,20 +1048,22 @@ void uiShowChooseFinger(String emp_id, const char *name, const char *dept, bool 
       lv_obj_add_flag(btn_delete_scan, LV_OBJ_FLAG_HIDDEN);
     }
 
-    int current_enrolled = -1;
+    uint16_t enrolled_mask = 0;
     const Employee* db = DataManager::getEmployees();
-    for (int i=0; i<DataManager::getEmployeeCount(); i++) {
+    for (int i = 0; i < DataManager::getEmployeeCount(); i++) {
       if (db[i].id == selected_emp_id) {
-        current_enrolled = db[i].enrolled_finger;
+        enrolled_mask = db[i].enrolled_fingers;
         break;
       }
     }
 
     for (int i = 0; i < 10; i++) {
       if (finger_objs[i]) {
+        lv_obj_clear_state(finger_objs[i], LV_STATE_CHECKED);
         lv_obj_t *lbl = lv_obj_get_child(finger_objs[i], 0);
-        if (i == current_enrolled) {
-          lv_obj_set_style_bg_color(finger_objs[i], UIManager::rgb(0x60A5FA), 0); // Blue for already enrolled
+        bool is_enrolled = (enrolled_mask >> i) & 1;
+        if (is_enrolled) {
+          lv_obj_set_style_bg_color(finger_objs[i], UIManager::rgb(0x60A5FA), 0); // Blue for enrolled
           lv_obj_set_style_text_color(lbl, UIManager::rgb(0xFFFFFF), 0); // White text
         } else {
           lv_obj_set_style_bg_color(finger_objs[i], UIManager::rgb(0xE4F3E7), 0); // Light green for unenrolled
@@ -1066,6 +1106,8 @@ void uiShowEmpList(bool isFallback) {
       lv_obj_del(scr_choose_finger);
       scr_choose_finger = NULL;
       btn_start_scan = NULL;
+      btn_delete_scan = NULL;
+      lbl_start_scan_text = NULL;
       lbl_choose_info = NULL;
       for (int i = 0; i < 10; i++) finger_objs[i] = NULL;
     }

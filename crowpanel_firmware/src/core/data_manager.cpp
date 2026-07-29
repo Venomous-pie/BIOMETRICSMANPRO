@@ -432,7 +432,7 @@ void DataManager::loadEmployees() {
                 empDB[empCount].job_title = e.containsKey("role_name") ? e["role_name"].as<String>() : (e.containsKey("job_title") ? e["job_title"].as<String>() : "");
                 empDB[empCount].branch = e.containsKey("branch_name") ? e["branch_name"].as<String>() : (e.containsKey("branch") ? e["branch"].as<String>() : "");
                 empDB[empCount].fp_enrolled = e["fp_enrolled"] | false;
-                empDB[empCount].enrolled_finger = e["enrolled_finger"] | -1;
+                empDB[empCount].enrolled_fingers = (uint16_t)(e["enrolled_fingers"] | 0);
                 empCount++;
             }
         }
@@ -455,7 +455,7 @@ void DataManager::loadEmployees() {
             empDB[empCount].job_title = doc["job_title"] | "";
             empDB[empCount].branch = doc["branch"] | "";
             empDB[empCount].fp_enrolled = doc["fp_enrolled"] | false;
-            empDB[empCount].enrolled_finger = doc["enrolled_finger"] | -1;
+            empDB[empCount].enrolled_fingers = (uint16_t)(doc["enrolled_fingers"] | 0);
             empCount++;
         }
     }
@@ -476,7 +476,7 @@ void DataManager::loadEmployees() {
         empDB[empCount].job_title = "Technical Team Lead";
         empDB[empCount].branch = "NEMSU";
         empDB[empCount].fp_enrolled = false;
-        empDB[empCount].enrolled_finger = -1;
+        empDB[empCount].enrolled_fingers = 0;
         empCount++;
     }
 
@@ -486,7 +486,7 @@ void DataManager::loadEmployees() {
 const Employee* DataManager::getEmployees() { return empDB; }
 int DataManager::getEmployeeCount() { return empCount; }
 
-static void writeFpStateEntry(int slot, const String& name, bool enrolled);
+static void writeFpStateEntry(const String& emp_id, int finger_index, bool enrolled);
 
 void DataManager::saveEmployees() {
     File f = LittleFS.open("/employees.jsonl", "w");
@@ -499,7 +499,7 @@ void DataManager::saveEmployees() {
         doc["job_title"]   = empDB[i].job_title;
         doc["branch"]      = empDB[i].branch;
         doc["fp_enrolled"] = empDB[i].fp_enrolled;
-        doc["enrolled_finger"] = empDB[i].enrolled_finger;
+        doc["enrolled_fingers"] = empDB[i].enrolled_fingers;
         serializeJson(doc, f);
         f.println();
         if (i % 10 == 0) yield(); // Prevent watchdog timeout on large DB saves
@@ -511,18 +511,24 @@ void DataManager::updateEmployeeFpEnrolled(const String& emp_id, bool enrolled, 
     int idInt = emp_id.toInt();
     if (idInt >= 1 && idInt <= 5) {
         // Admin fingerprint. Not in empDB, but must be persisted in state.
-        writeFpStateEntry(finger_index, "Admin", enrolled);
+        writeFpStateEntry(emp_id, finger_index, enrolled);
         return;
     }
 
     for (int i = 0; i < empCount; i++) {
         if (empDB[i].id == emp_id) {
-            empDB[i].fp_enrolled = enrolled;
-            empDB[i].enrolled_finger = finger_index;
+            if (enrolled && finger_index >= 0 && finger_index < 10) {
+                empDB[i].enrolled_fingers |= (uint16_t)(1 << finger_index);  // set bit
+            } else if (!enrolled && finger_index >= 0 && finger_index < 10) {
+                empDB[i].enrolled_fingers &= (uint16_t)~(1 << finger_index); // clear bit
+            } else if (!enrolled) {
+                empDB[i].enrolled_fingers = 0; // finger_index == -1: clear all
+            }
+            empDB[i].fp_enrolled = (empDB[i].enrolled_fingers != 0);
             // Persist to both JSONL (for fast boot re-load) and fp_state.json
-            // (stable across payroll syncs, keyed by slot not by positional id).
+            // (stable across payroll syncs, keyed by emp_id).
             saveEmployees();
-            writeFpStateEntry(finger_index, empDB[i].name, enrolled);
+            writeFpStateEntry(emp_id, finger_index, enrolled);
             return;
         }
     }
@@ -632,7 +638,7 @@ void DataManager::applySyncBuffer(const uint8_t* buffer, size_t len) {
         empDB[i].job_title     = String(incoming[i].role);
         empDB[i].branch        = String(incoming[i].branch);
         empDB[i].fp_enrolled   = false;    // cleared; loadFpState() will re-populate
-        empDB[i].enrolled_finger = -1;
+        empDB[i].enrolled_fingers = 0;
     }
 
     _lastSyncTimestamp = millis();
@@ -653,84 +659,77 @@ void DataManager::applySyncBuffer(const uint8_t* buffer, size_t len) {
 // It is written only by updateEmployeeFpEnrolled() and never touched by payroll
 // sync, so it survives full employee-list replacements intact.
 //
-// Format: { "slots": [ {"slot":1,"name":"Maria Alaine..."}, ... ] }
-//   - slot   : AS608 physical slot number (stable — assigned at enroll time)
-//   - name   : snapshot of the employee name at enroll time (informational only)
+// Format: { "slots": [ {"emp_id":"1","finger_index":9,"enrolled":true}, ... ] }
 //
-// At load time loadFpState() scans empDB for a name match and sets fp_enrolled.
-// If a name was corrected between syncs and no match is found, the slot is simply
-// not flagged — the template still exists on the AS608 sensor and will still match
-// on scan.  The UI badge will clear until the next enroll flow updates the record.
+// At load time loadFpState() scans empDB for an emp_id match and sets fp_enrolled.
+// If an emp_id was removed between syncs, the entry is simply ignored.
 
 static const char* FP_STATE_FILE = "/fp_state.json";
 
-// Writes an entry into fp_state.json for a newly enrolled slot.
-// name is stored as a snapshot so the record is self-describing, but it is NOT
-// used as a matching key at load time — slot is the key.
-static void writeFpStateEntry(int slot, const String& name, bool enrolled) {
-    DynamicJsonDocument doc(4096);
+// Writes/updates an entry into fp_state.json for a given employee.
+// finger_index == -1 with enrolled == false clears all bits (wipe).
+static void writeFpStateEntry(const String& emp_id, int finger_index, bool enrolled) {
+    DynamicJsonDocument doc(8192); // 150 employees × ~2 fields each needs ~5-6 KB
 
     if (LittleFS.exists(FP_STATE_FILE)) {
         File f = LittleFS.open(FP_STATE_FILE, "r");
-        if (f) {
-            deserializeJson(doc, f);
-            f.close();
-        }
+        if (f) { deserializeJson(doc, f); f.close(); }
     }
 
-    if (!doc.containsKey("slots")) {
-        doc.createNestedArray("slots");
-    }
-
+    if (!doc.containsKey("slots")) doc.createNestedArray("slots");
     JsonArray arr = doc["slots"].as<JsonArray>();
 
-    // Update existing entry if slot already present
+    // Find existing entry and update bitmask in-place
     for (JsonObject entry : arr) {
-        if ((entry["slot"] | -1) == slot) {
-            entry["name"]     = name;
-            entry["enrolled"] = enrolled;
+        if (entry["emp_id"] == emp_id) {
+            uint16_t bits = (uint16_t)(entry["enrolled_fingers"] | 0);
+            if (enrolled && finger_index >= 0 && finger_index < 10) {
+                bits |= (uint16_t)(1 << finger_index);
+            } else if (!enrolled && finger_index >= 0 && finger_index < 10) {
+                bits &= (uint16_t)~(1 << finger_index);
+            } else if (!enrolled) {
+                bits = 0; // wipe all
+            }
+            entry["enrolled_fingers"] = bits;
             File f = LittleFS.open(FP_STATE_FILE, "w");
             if (f) { serializeJson(doc, f); f.close(); }
             return;
         }
     }
 
-    // New slot
+    // New entry — build initial bitmask
+    uint16_t bits = 0;
+    if (enrolled && finger_index >= 0 && finger_index < 10)
+        bits = (uint16_t)(1 << finger_index);
     JsonObject entry = arr.createNestedObject();
-    entry["slot"]     = slot;
-    entry["name"]     = name;
-    entry["enrolled"] = enrolled;
+    entry["emp_id"]           = emp_id;
+    entry["enrolled_fingers"] = bits;
 
     File f = LittleFS.open(FP_STATE_FILE, "w");
     if (f) { serializeJson(doc, f); f.close(); }
 }
 
-// Re-applies fp_enrolled to empDB from fp_state.json after a sync.
-// The match key is slot number: we set fp_enrolled on whichever empDB entry has
-// enrolled_finger == slot (set during enroll), or if enrolled_finger is not yet
-// known, we leave it for the next updateEmployeeFpEnrolled() call.
+// Re-applies enrolled_fingers bitmask to empDB from fp_state.json after a sync.
+// The match key is emp_id, which is stable across payroll syncs.
 void DataManager::loadFpState() {
     if (!LittleFS.exists(FP_STATE_FILE)) return;
     File f = LittleFS.open(FP_STATE_FILE, "r");
     if (!f) return;
 
-    DynamicJsonDocument doc(4096);
+    DynamicJsonDocument doc(8192); // 150 employees × ~2 fields each needs ~5-6 KB
     if (deserializeJson(doc, f) != DeserializationError::Ok) { f.close(); return; }
     f.close();
 
     JsonArray arr = doc["slots"].as<JsonArray>();
     for (JsonObject entry : arr) {
-        int  slot     = entry["slot"]     | -1;
-        bool enrolled = entry["enrolled"] | false;
-        if (slot < 0) continue;
+        String   emp_id   = entry["emp_id"] | "";
+        uint16_t bits     = (uint16_t)(entry["enrolled_fingers"] | 0);
+        if (emp_id.length() == 0) continue;
 
-        const char* name = entry["name"] | "";
-
-        // Find the employee whose name matches this slot
         for (int i = 0; i < empCount; i++) {
-            if (empDB[i].name == name) {
-                empDB[i].fp_enrolled = enrolled;
-                empDB[i].enrolled_finger = slot;
+            if (empDB[i].id == emp_id) {
+                empDB[i].enrolled_fingers = bits;
+                empDB[i].fp_enrolled      = (bits != 0);
                 break;
             }
         }
@@ -1010,12 +1009,12 @@ void DataManager::syncAddEmployee(const String& id, const String& name, const St
     empDB[empCount].branch = sanitizeUTF8(branch);
     
     empDB[empCount].fp_enrolled = false;
-    empDB[empCount].enrolled_finger = -1;
+    empDB[empCount].enrolled_fingers = 0;
     
     for (int j = 0; j < oldEmpCount; j++) {
         if (oldDB[j].id == id) {
             empDB[empCount].fp_enrolled = oldDB[j].fp_enrolled;
-            empDB[empCount].enrolled_finger = oldDB[j].enrolled_finger;
+            empDB[empCount].enrolled_fingers = oldDB[j].enrolled_fingers;
             break;
         }
     }
@@ -1047,7 +1046,7 @@ void DataManager::nukeDatabase() {
         empDB[i].job_title = "";
         empDB[i].branch = "";
         empDB[i].fp_enrolled = false;
-        empDB[i].enrolled_finger = -1;
+        empDB[i].enrolled_fingers = 0;
     }
     LittleFS.remove("/employees.jsonl");
     
