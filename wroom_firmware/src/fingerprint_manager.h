@@ -5,6 +5,11 @@
 extern HardwareSerial       fpSerial;
 extern Adafruit_Fingerprint finger;
 
+// Maximum number of admin fingerprints that can be enrolled simultaneously.
+// Admin fingerIdx 0..MAX_ADMIN_FINGERS-1 map to AS608 slots 1..MAX_ADMIN_FINGERS.
+// Employee templates are placed in slots MAX_ADMIN_FINGERS+1 onward.
+static const int MAX_ADMIN_FINGERS = 10;
+
 // Starts UART1 and verifies the AS608 sensor is connected.
 // Call once from setup().
 void fingerprintManagerInit();
@@ -43,3 +48,11 @@ bool installTemplateBytes(int slot, const uint8_t* data, size_t len);
 
 // Deletes the given slot from the AS608 and clears it from the L1 Cache.
 void deleteL1Slot(int slot);
+
+// Admin fingerprint persistence (NVS / Preferences).
+// Each admin fingerIdx is stored independently so multiple admin fingerprints
+// can be enrolled and all survive power cycles.
+// fingerIdx must be in [0, MAX_ADMIN_FINGERS).
+void saveAdminTemplate(int fingerIdx, const uint8_t* data, size_t len);
+bool loadAdminTemplate(int fingerIdx, uint8_t* outData, size_t maxLen, size_t* outLen);
+void clearAdminTemplate(int fingerIdx); // pass -1 to clear ALL admin templates

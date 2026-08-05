@@ -4,6 +4,7 @@
 #include "time_manager.h"
 #include "config.h"
 #include "audio_manager.h"
+#include <Preferences.h>   // dedicated NVS handle for admin template storage
 
 HardwareSerial       fpSerial(1);        // UART1 → AS608
 Adafruit_Fingerprint finger(&fpSerial);
@@ -30,17 +31,20 @@ int getL1SlotFor(int empId, int fingerIdx) {
 }
 
 int assignL1Slot(int empId, int fingerIdx) {
-    if (empId >= 1 && empId <= 5) {
-        // Reserve slots 1-5 strictly for Admins/System.
-        l1_slots[empId].active = true;
-        l1_slots[empId].empId = empId;
-        l1_slots[empId].fingerIdx = fingerIdx;
-        l1_slots[empId].lastUsed = millis();
-        return empId;
+    // empId == 0 is the reserved admin identity.
+    // Admin fingerIdx 0..MAX_ADMIN_FINGERS-1 map to AS608 slots 1..MAX_ADMIN_FINGERS.
+    // All admin slots are protected — never evicted by the LRU algorithm.
+    if (empId == 0) {
+        int adminSlot = fingerIdx + 1;
+        if (adminSlot < 1 || adminSlot > MAX_ADMIN_FINGERS) adminSlot = 1;
+        l1_slots[adminSlot].active    = true;
+        l1_slots[adminSlot].empId     = 0;
+        l1_slots[adminSlot].fingerIdx = fingerIdx;
+        l1_slots[adminSlot].lastUsed  = millis();
+        return adminSlot;
     }
 
-    // First, check if this (empId, fingerIdx) pair already has a slot.
-    // Re-use it so we don't leak slots on overwrite enrollments.
+    // Regular employees: slots MAX_ADMIN_FINGERS+1 through MAX_SLOTS.
     int existing = getL1SlotFor(empId, fingerIdx);
     if (existing != -1) {
         l1_slots[existing].lastUsed = millis();
@@ -48,16 +52,16 @@ int assignL1Slot(int empId, int fingerIdx) {
         return existing;
     }
 
-    int oldestSlot = 6; // Start eviction check from 6 onwards
+    int empStart  = MAX_ADMIN_FINGERS + 1;
+    int oldestSlot = empStart;
     unsigned long oldestTime = 0xFFFFFFFF;
-    
-    // First, try to find an empty slot (6 to MAX_SLOTS)
-    for (int i = 6; i <= MAX_SLOTS; i++) {
+
+    for (int i = empStart; i <= MAX_SLOTS; i++) {
         if (!l1_slots[i].active) {
-            l1_slots[i].active = true;
-            l1_slots[i].empId = empId;
+            l1_slots[i].active    = true;
+            l1_slots[i].empId     = empId;
             l1_slots[i].fingerIdx = fingerIdx;
-            l1_slots[i].lastUsed = millis();
+            l1_slots[i].lastUsed  = millis();
             return i;
         }
         if (l1_slots[i].lastUsed < oldestTime) {
@@ -65,11 +69,11 @@ int assignL1Slot(int empId, int fingerIdx) {
             oldestSlot = i;
         }
     }
-    
-    // Evict oldest slot
-    l1_slots[oldestSlot].empId = empId;
+
+    // Evict oldest employee slot (never evicts admin slots 1..MAX_ADMIN_FINGERS)
+    l1_slots[oldestSlot].empId     = empId;
     l1_slots[oldestSlot].fingerIdx = fingerIdx;
-    l1_slots[oldestSlot].lastUsed = millis();
+    l1_slots[oldestSlot].lastUsed  = millis();
     return oldestSlot;
 }
 
@@ -78,9 +82,85 @@ void deleteL1Slot(int slot) {
 #ifndef MOCK_SENSOR
         finger.deleteModel(slot);
 #endif
+        // Admin slots 1..MAX_ADMIN_FINGERS: clear the NVS entry for that finger only.
+        if (slot >= 1 && slot <= MAX_ADMIN_FINGERS) {
+            clearAdminTemplate(slot - 1); // fingerIdx = slot - 1
+        }
         l1_slots[slot].active = false;
         Serial.printf("[FP] Deleted physical slot %d from AS608\n", slot);
     }
+}
+
+// ── Admin template NVS persistence ────────────────────────────────────────────
+// Admin (empId=0) always occupies AS608 slot 1. Its template is stored in NVS
+// so it can be automatically restored after a power cycle without any CrowPanel
+// involvement.
+//
+// IMPORTANT: We use a dedicated Preferences object (not the shared `prefs`
+// from wifi_manager) so that admin NVS operations can never be silently
+// blocked by another part of the code that left the shared handle open.
+static Preferences adminPrefs;
+
+void saveAdminTemplate(int fingerIdx, const uint8_t* data, size_t len) {
+    if (fingerIdx < 0 || fingerIdx >= MAX_ADMIN_FINGERS) return;
+    if (!adminPrefs.begin("admin_fp", false)) {
+        Serial.println("[ADMIN] ERROR: Could not open NVS namespace for save.");
+        return;
+    }
+    char keyTpl[6], keyLen[6];
+    snprintf(keyTpl, sizeof(keyTpl), "tpl%d", fingerIdx);
+    snprintf(keyLen, sizeof(keyLen), "len%d", fingerIdx);
+    adminPrefs.putBytes(keyTpl, data, len);
+    adminPrefs.putUInt(keyLen, (uint32_t)len);
+    adminPrefs.end();
+    Serial.printf("[ADMIN] Saved finger %d template (%u bytes) to NVS.\n", fingerIdx, len);
+}
+
+bool loadAdminTemplate(int fingerIdx, uint8_t* outData, size_t maxLen, size_t* outLen) {
+    *outLen = 0;
+    if (fingerIdx < 0 || fingerIdx >= MAX_ADMIN_FINGERS) return false;
+    if (!adminPrefs.begin("admin_fp", true)) {
+        Serial.println("[ADMIN] ERROR: Could not open NVS namespace for load.");
+        return false;
+    }
+    char keyTpl[6], keyLen[6];
+    snprintf(keyTpl, sizeof(keyTpl), "tpl%d", fingerIdx);
+    snprintf(keyLen, sizeof(keyLen), "len%d", fingerIdx);
+    size_t stored = adminPrefs.getUInt(keyLen, 0);
+    if (stored == 0 || stored > maxLen) {
+        adminPrefs.end();
+        return false;
+    }
+    size_t got = adminPrefs.getBytes(keyTpl, outData, stored);
+    adminPrefs.end();
+    if (got != stored) {
+        Serial.printf("[ADMIN] NVS read mismatch for finger %d: expected %u, got %u.\n", fingerIdx, stored, got);
+        return false;
+    }
+    *outLen = got;
+    Serial.printf("[ADMIN] Loaded finger %d template (%u bytes) from NVS.\n", fingerIdx, got);
+    return true;
+}
+
+void clearAdminTemplate(int fingerIdx) {
+    if (!adminPrefs.begin("admin_fp", false)) {
+        Serial.println("[ADMIN] ERROR: Could not open NVS namespace for clear.");
+        return;
+    }
+    if (fingerIdx < 0) {
+        // Clear all admin templates
+        adminPrefs.clear();
+        adminPrefs.end();
+        Serial.println("[ADMIN] All admin templates cleared from NVS.");
+        return;
+    }
+    char keyTpl[6], keyLen[6];
+    snprintf(keyTpl, sizeof(keyTpl), "tpl%d", fingerIdx);
+    snprintf(keyLen, sizeof(keyLen), "len%d", fingerIdx);
+    adminPrefs.remove(keyTpl);
+    adminPrefs.remove(keyLen);
+    adminPrefs.end();
+    Serial.printf("[ADMIN] Cleared finger %d template from NVS.\n", fingerIdx);
 }
 
 // ── Enroll cancellation ───────────────────────────────────────────────────────
@@ -124,17 +204,58 @@ void fingerprintManagerInit() {
       liveCount = finger.templateCount;
     }
     Serial.printf("[AS608] Found! Templates stored: %d\n", liveCount);
-    
-    // Smart Cache Architecture: The CrowPanel SD card is Deep Storage.
-    // The AS608 is merely the L1 Cache. We empty it on boot to ensure 
-    // it perfectly matches our volatile l1_slots array.
-    finger.emptyDatabase();
-    Serial.println("[AS608] L1 Cache cleared on boot.");
-    
+
+    // Smart Cache Architecture — employee slots are ephemeral (rebuilt from
+    // CrowPanel SD on demand), so clear them on boot. Admin slots
+    // (1..MAX_ADMIN_FINGERS) are NEVER erased: AS608 flash is non-volatile.
+    for (int i = MAX_ADMIN_FINGERS + 1; i <= MAX_SLOTS; i++) {
+      finger.deleteModel(i);
+    }
+    Serial.printf("[AS608] Employee slots cleared; admin slots 1-%d preserved.\n", MAX_ADMIN_FINGERS);
+
+    // Restore all enrolled admin fingerprints.
+    // For each fingerIdx 0..MAX_ADMIN_FINGERS-1:
+    //   1. If the AS608 slot is still in flash → just activate l1_slots.
+    //   2. Else if NVS has the template → restore via installTemplateBytes.
+    static uint8_t adminTpl[768];
+    int adminCount = 0;
+    for (int fi = 0; fi < MAX_ADMIN_FINGERS; fi++) {
+      int    slot   = fi + 1;
+      size_t tplLen = 0;
+      bool   hasNvs = loadAdminTemplate(fi, adminTpl, sizeof(adminTpl), &tplLen);
+
+      // Check if this slot survived in AS608 flash.
+      bool inFlash = (finger.loadModel(slot) == FINGERPRINT_OK);
+
+      if (inFlash) {
+        l1_slots[slot].active    = true;
+        l1_slots[slot].empId     = 0;
+        l1_slots[slot].fingerIdx = fi;
+        l1_slots[slot].lastUsed  = millis();
+        Serial.printf("[ADMIN] Finger %d active (AS608 slot %d from flash).\n", fi, slot);
+        adminCount++;
+      } else if (hasNvs && tplLen > 0) {
+        Serial.printf("[ADMIN] Finger %d: slot %d empty, restoring from NVS...\n", fi, slot);
+        if (installTemplateBytes(slot, adminTpl, tplLen)) {
+          l1_slots[slot].active    = true;
+          l1_slots[slot].empId     = 0;
+          l1_slots[slot].fingerIdx = fi;
+          l1_slots[slot].lastUsed  = millis();
+          Serial.printf("[ADMIN] Finger %d restored to slot %d from NVS.\n", fi, slot);
+          adminCount++;
+        } else {
+          Serial.printf("[ADMIN] WARNING: NVS restore failed for finger %d.\n", fi);
+        }
+      }
+      // else: this fingerIdx was never enrolled — skip silently.
+    }
+    Serial.printf("[ADMIN] %d admin fingerprint(s) active.\n", adminCount);
+
   } else {
     Serial.println("[AS608] NOT FOUND — check wiring!");
   }
 }
+
 
 void doMatch() {
   beep(50); // instant beep upon finger detection
@@ -314,9 +435,8 @@ bool doEnroll(int slot) {
 
 // ── Template extraction ───────────────────────────────────────────────────────
 // After storeModel() the template is still live in the sensor's char buffer.
-// We call getModel() (UpChar command 0x08) which makes the AS608 stream the
-// buffer contents back over UART as structured packets, then we drain the UART
-// into our flat buffer.
+// We call loadModel() to reload from flash, then getModel() (UpChar 0x08) to
+// stream it back over UART. We drain the packets and return the raw bytes.
 //
 // Packet wire format (from AS608 datasheet):
 //   [EF01][FFFFFFFF][type 1B][length 2B][data 0-256B][checksum 2B]
@@ -347,10 +467,7 @@ int getTemplateBytes(int slot, uint8_t* buf, size_t bufSize) {
     return 0;
   }
 
-  // Drain the UART. Packet wire format (AS608 datasheet):
-  //   Header[EF 01](2) + Address(4) + PktType(1) + PktLen(2) + Data(n) + CRC(2)
-  // Data packets = type 0x02; End-data packet = type 0x08.
-  // We collect only the payload Data bytes from those two packet types.
+  // Drain the UART. Collect only the payload bytes from data/end-data packets.
   int totalRead = 0;
   unsigned long deadline = millis() + 3000; // 3-second hard timeout
   uint8_t b = 0;
@@ -392,83 +509,142 @@ int getTemplateBytes(int slot, uint8_t* buf, size_t bufSize) {
 done:
   // Flush any trailing garbage
   while (fpSerial.available()) { fpSerial.read(); delay(1); }
-  
+
   Serial.printf("[FP] getTemplateBytes: read %d bytes from slot %d\n", totalRead, slot);
   return totalRead;
 #endif
 }
 
+// ── Template installation (DownChar + Store) ──────────────────────────────────
+// Loads a 512-byte template blob into AS608 CharBuffer1 via DownChar, then
+// commits it to flash with storeModel.
+//
+// CRITICAL: The data packets during DownChar MUST use the packet size the sensor
+// is configured for (finger.packet_len, set by getParameters() on boot).
+// Sending 128-byte packets to a sensor configured for 256 bytes silently corrupts
+// the CharBuffer and makes storeModel write garbage — causing NOMATCH after reboot.
+
 bool installTemplateBytes(int slot, const uint8_t* data, size_t len) {
-    if (len != 512) return false;
+    if (len != 512) {
+        Serial.printf("[FP] installTemplateBytes: bad len=%u (need 512)\n", len);
+        return false;
+    }
 
-    // 1. Send DownChar command (0x09) for CharBuffer1 (0x01)
-    uint8_t cmdPacket[] = {
-        0xEF, 0x01, 
-        0xFF, 0xFF, 0xFF, 0xFF, 
-        0x01, 
-        0x00, 0x04, 
-        0x09, 
-        0x01, 
-        0x00, 0x0F
+    // Determine the packet data size the sensor expects for DownChar.
+    // finger.packet_len: 0=32B, 1=64B, 2=128B, 3=256B (set by getParameters())
+    static const int pktSizes[] = {32, 64, 128, 256};
+    int pktDataLen = 128; // safe default
+    if (finger.packet_len >= 0 && finger.packet_len < 4) {
+        pktDataLen = pktSizes[finger.packet_len];
+    }
+    int numPackets = (int)len / pktDataLen; // e.g. 512/256=2 or 512/128=4
+    Serial.printf("[FP] DownChar: %d-byte packets, %d total\n", pktDataLen, numPackets);
+
+    // Flush any stale UART bytes before starting
+    while (fpSerial.available()) { fpSerial.read(); delay(1); }
+
+    // ── Step 1: DownChar command ──────────────────────────────────────────────
+    // Checksum = PID+LenH+LenL+Cmd+BufID = 0x01+0x00+0x04+0x09+0x01 = 0x0F
+    const uint8_t cmdPkt[] = {
+        0xEF, 0x01,
+        0xFF, 0xFF, 0xFF, 0xFF,
+        0x01,       // PID: command packet
+        0x00, 0x04, // Length: 4 bytes
+        0x09,       // DownChar
+        0x01,       // CharBuffer1
+        0x00, 0x0F  // Checksum
     };
-    fpSerial.write(cmdPacket, sizeof(cmdPacket));
+    fpSerial.write(cmdPkt, sizeof(cmdPkt));
+    fpSerial.flush();
 
-    uint8_t b;
-    unsigned long deadline = millis() + 1000;
+    // Wait for DownChar ACK
+    uint8_t b2 = 0;
+    unsigned long dl = millis() + 2000;
     bool ackOk = false;
-    while(millis() < deadline) {
-        if(readByteTimeout(fpSerial, b, deadline) && b == 0xEF) {
-            readByteTimeout(fpSerial, b, deadline); // 0x01
-            for(int i=0; i<4; i++) readByteTimeout(fpSerial, b, deadline); // Addr
-            readByteTimeout(fpSerial, b, deadline); // PID (0x07 = ACK)
-            readByteTimeout(fpSerial, b, deadline); // LenH
-            readByteTimeout(fpSerial, b, deadline); // LenL
-            uint8_t confirmCode;
-            readByteTimeout(fpSerial, confirmCode, deadline); // Confirmation code
-            readByteTimeout(fpSerial, b, deadline); // SumH
-            readByteTimeout(fpSerial, b, deadline); // SumL
-            if(confirmCode == 0x00) ackOk = true;
+    while (millis() < dl) {
+        if (readByteTimeout(fpSerial, b2, dl) && b2 == 0xEF) {
+            readByteTimeout(fpSerial, b2, dl);
+            for (int k = 0; k < 4; k++) readByteTimeout(fpSerial, b2, dl);
+            readByteTimeout(fpSerial, b2, dl); // PID
+            readByteTimeout(fpSerial, b2, dl); // LenH
+            readByteTimeout(fpSerial, b2, dl); // LenL
+            uint8_t cc = 0;
+            readByteTimeout(fpSerial, cc, dl);
+            readByteTimeout(fpSerial, b2, dl);
+            readByteTimeout(fpSerial, b2, dl);
+            if (cc == 0x00) ackOk = true;
+            else Serial.printf("[FP] DownChar ACK error: 0x%02X\n", cc);
             break;
         }
     }
-    if(!ackOk) return false;
+    if (!ackOk) {
+        Serial.println("[FP] installTemplateBytes: DownChar ACK not received");
+        return false;
+    }
 
-    // 2. Send 512 bytes in four 128-byte data packets
-    for(int i=0; i<4; i++) {
-        uint8_t pid = (i == 3) ? 0x08 : 0x02; // End data packet vs Data packet
-        uint16_t pktLen = 128 + 2;
-        uint16_t sum = pid + (pktLen >> 8) + (pktLen & 0xFF);
-        
-        uint8_t header[] = {
-            0xEF, 0x01, 
-            0xFF, 0xFF, 0xFF, 0xFF, 
-            pid, 
+    // ── Step 2: Data packets using the sensor's native packet size ────────────
+    for (int i = 0; i < numPackets; i++) {
+        bool     last   = (i == numPackets - 1);
+        uint8_t  pid    = last ? 0x08 : 0x02;
+        uint16_t pktLen = (uint16_t)(pktDataLen + 2); // data bytes + 2 checksum bytes
+        uint16_t sum    = (uint16_t)pid + (pktLen >> 8) + (pktLen & 0xFF);
+
+        const uint8_t hdr[] = {
+            0xEF, 0x01, 0xFF, 0xFF, 0xFF, 0xFF,
+            pid,
             (uint8_t)(pktLen >> 8), (uint8_t)(pktLen & 0xFF)
         };
-        fpSerial.write(header, sizeof(header));
-        
-        for(int j=0; j<128; j++) {
-            uint8_t d = data[i*128 + j];
+        fpSerial.write(hdr, sizeof(hdr));
+
+        for (int j = 0; j < pktDataLen; j++) {
+            uint8_t d = data[i * pktDataLen + j];
             sum += d;
             fpSerial.write(d);
         }
-        uint8_t checksum[] = { (uint8_t)(sum >> 8), (uint8_t)(sum & 0xFF) };
-        fpSerial.write(checksum, sizeof(checksum));
+        const uint8_t csum[] = { (uint8_t)(sum >> 8), (uint8_t)(sum & 0xFF) };
+        fpSerial.write(csum, sizeof(csum));
+        fpSerial.flush(); // Fully transmit before sending next packet
     }
 
-    // Give sensor a moment to process the buffer
-    delay(50);
-    
-    // Flush the ACK packet that the AS608 sends after the final data packet
-    while (fpSerial.available()) { fpSerial.read(); delay(1); }
+    // ── Step 3: Post-data ACK ─────────────────────────────────────────────────
+    // Many AS608 variants ACK after the final data packet.
+    // Unread, it would corrupt storeModel()'s ACK. Some clones omit it.
+    bool dataAckOk = false;
+    dl = millis() + 1000;
+    while (millis() < dl) {
+        if (fpSerial.available()) {
+            b2 = fpSerial.read();
+            if (b2 == 0xEF) {
+                readByteTimeout(fpSerial, b2, dl);
+                for (int k = 0; k < 4; k++) readByteTimeout(fpSerial, b2, dl);
+                readByteTimeout(fpSerial, b2, dl); // PID
+                readByteTimeout(fpSerial, b2, dl); // LenH
+                readByteTimeout(fpSerial, b2, dl); // LenL
+                uint8_t cc = 0;
+                readByteTimeout(fpSerial, cc, dl);
+                readByteTimeout(fpSerial, b2, dl);
+                readByteTimeout(fpSerial, b2, dl);
+                if (cc == 0x00) dataAckOk = true;
+                else Serial.printf("[FP] Post-data ACK error: 0x%02X\n", cc);
+                break;
+            }
+        }
+        delay(1);
+    }
+    if (!dataAckOk) {
+        Serial.println("[FP] No post-data ACK (normal for some sensor variants).");
+    }
 
-    // 3. Store the model in flash at 'slot'
-    if (finger.storeModel(slot) != FINGERPRINT_OK) {
-        Serial.println("[FP] Failed to store installed model");
+    delay(100); // Let sensor finish writing CharBuffer1
+
+    // ── Step 4: storeModel — commit CharBuffer1 to flash ─────────────────────
+    uint8_t result = finger.storeModel(slot);
+    if (result != FINGERPRINT_OK) {
+        Serial.printf("[FP] storeModel(%d) FAILED: 0x%02X\n", slot, result);
         return false;
     }
-    
-    Serial.printf("[FP] Successfully installed template to slot %d\n", slot);
+
+    delay(50);
+    Serial.printf("[FP] installTemplateBytes: slot %d OK (pktSize=%d)\n", slot, pktDataLen);
     return true;
 }
-

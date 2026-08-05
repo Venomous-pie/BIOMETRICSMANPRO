@@ -318,7 +318,6 @@ void uiSyncStatusRefreshCards() {
     
     // Card 4: Employees
     empCount = DataManager::getEmployeeCount();
-    if (empCount > 0) empCount--; // Exclude the built-in Admin
     create_stat_card(cards_cont, "Employees", String(empCount).c_str(), false);
 }
 
@@ -389,15 +388,23 @@ void uiSyncStatusRefreshLogs() {
             lv_obj_align(msg, LV_ALIGN_LEFT_MID, 40, 0);
 
             lv_obj_t *time_lbl = lv_label_create(row);
-            unsigned long elapsed = millis() - logs[i].timestamp;
-            int mins = (elapsed / 60000) % 60;
-            int hrs = (elapsed / 3600000);
-            String timeStr = "";
-            if (hrs > 0) timeStr = String(hrs) + "h " + String(mins) + "m ago";
-            else if (mins > 0) timeStr = String(mins) + "m ago";
-            else timeStr = "Just now";
+            String dispTime;
+            if (logs[i].timestamp > 0) {
+                // In-session log: show relative elapsed time
+                unsigned long elapsed = millis() - logs[i].timestamp;
+                int mins = (elapsed / 60000) % 60;
+                int hrs  = (elapsed / 3600000);
+                if (hrs > 0)       dispTime = String(hrs) + "h " + String(mins) + "m ago";
+                else if (mins > 0) dispTime = String(mins) + "m ago";
+                else               dispTime = "Just now";
+            } else if (logs[i].timeStr.length() > 0) {
+                // Historical log loaded from disk: show stored wall-clock string
+                dispTime = logs[i].timeStr;
+            } else {
+                dispTime = "\u2013"; // no timestamp available
+            }
 
-            lv_label_set_text(time_lbl, timeStr.c_str());
+            lv_label_set_text(time_lbl, dispTime.c_str());
             UIManager::styleLabel(time_lbl, 0xAAAAAA, &lv_font_montserrat_14, LV_TEXT_ALIGN_RIGHT);
             lv_obj_align(time_lbl, LV_ALIGN_RIGHT_MID, -10, 0);
 

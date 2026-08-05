@@ -15,7 +15,10 @@ static lv_obj_t *btn_set_admin_fp = NULL;
 static lv_obj_t *btn_del_admin_fp = NULL;
 
 static PINMode current_mode = PIN_MODE_AUTH;
-static String input_pin = "";
+static String input_pin  = "";
+static String first_pin  = "";   // stores the first entry during PIN_MODE_SETUP confirmation
+static int    setup_step = 0;    // 0 = first entry, 1 = confirm entry
+static lv_obj_t *scr_pin_header = NULL; // current header — kept so we can swap the subtitle
 
 static void update_pin_display() {
     for (int i = 0; i < 4; i++) {
@@ -28,7 +31,9 @@ static void update_pin_display() {
 }
 
 static void btn_back_cb(lv_event_t * e) {
-    input_pin = "";
+    input_pin  = "";
+    first_pin  = "";
+    setup_step = 0;
     if (current_mode == PIN_MODE_AUTH) {
         UIManager::showIdle();
     } else {
@@ -60,10 +65,45 @@ static void process_pin_submission() {
             update_pin_display();
         }
     } else if (current_mode == PIN_MODE_SETUP) {
-        DataManager::setAdminPin(input_pin);
-        UIManager::showToast("PIN Updated Successfully!");
-        input_pin = "";
-        UIManager::showSettings();
+        if (setup_step == 0) {
+            // ── Step 1: user entered their desired new PIN ────────────────────
+            // Store it and ask for confirmation.
+            first_pin  = input_pin;
+            setup_step = 1;
+            input_pin  = "";
+            update_pin_display();
+
+            // Swap the header subtitle to "Confirm New PIN"
+            if (scr_pin_header) { lv_obj_del(scr_pin_header); scr_pin_header = NULL; }
+            scr_pin_header = UIManager::buildHeader(
+                scr_pin, "Security Settings", "Confirm New PIN", btn_back_cb, false);
+            lv_obj_move_to_index(scr_pin_header, 0);
+
+            UIManager::showToast("Re-enter your new PIN to confirm");
+        } else {
+            // ── Step 2: user confirmed — check match ──────────────────────────
+            if (input_pin == first_pin) {
+                DataManager::setAdminPin(input_pin);
+                UIManager::showToast("PIN Updated Successfully!");
+                first_pin  = "";
+                setup_step = 0;
+                input_pin  = "";
+                UIManager::showSettings();
+            } else {
+                UIManager::showToast("PINs don\'t match! Try again.", true);
+                // Reset — user must start over from step 0
+                first_pin  = "";
+                setup_step = 0;
+                input_pin  = "";
+                update_pin_display();
+
+                // Restore the original "Set New Admin PIN" subtitle
+                if (scr_pin_header) { lv_obj_del(scr_pin_header); scr_pin_header = NULL; }
+                scr_pin_header = UIManager::buildHeader(
+                    scr_pin, "Security Settings", "Set New Admin PIN", btn_back_cb, false);
+                lv_obj_move_to_index(scr_pin_header, 0);
+            }
+        }
     }
 }
 
@@ -171,7 +211,7 @@ void buildPinScreen() {
     lv_obj_set_style_radius(btn_set_admin_fp, 8, 0);
     auto btn_set_admin_cb = [](lv_event_t * e) {
         extern void uiShowChooseFinger(String emp_id, const char *name, const char *dept, bool isFallback);
-        uiShowChooseFinger("1", "Admin", "Admin", false);
+        uiShowChooseFinger("ADMIN", "Admin", "Admin", false);
     };
     lv_obj_add_event_cb(btn_set_admin_fp, btn_set_admin_cb, LV_EVENT_CLICKED, NULL);
     lv_obj_t *lbl_set_admin = lv_label_create(btn_set_admin_fp);
@@ -188,9 +228,10 @@ void buildPinScreen() {
     lv_obj_set_style_border_width(btn_del_admin_fp, 1, 0);
     lv_obj_set_style_radius(btn_del_admin_fp, 8, 0);
     auto btn_del_admin_cb = [](lv_event_t * e) {
-        CommManager::sendCommand("DELETE_FP:1");
-        DataManager::deleteTemplate("1", 0);
-        DataManager::updateEmployeeFpEnrolled("1", false, 0);
+        // Delete all possible admin finger templates (any of fingers 0-9 may have been enrolled)
+        CommManager::sendCommand("DELETE_FP:1"); // Always slot 1 on WROOM
+        for (int f = 0; f < 10; f++) DataManager::deleteTemplate("ADMIN", f);
+        DataManager::updateEmployeeFpEnrolled("ADMIN", false, -1); // clear all bits
         UIManager::showToast("Admin fingerprint deleted.", true);
         if (btn_del_admin_fp) {
             lv_obj_add_state(btn_del_admin_fp, LV_STATE_DISABLED);
@@ -213,27 +254,25 @@ void uiShowPinScreen(PINMode mode) {
     }
     
     current_mode = mode;
-    input_pin = "";
+    input_pin  = "";
+    first_pin  = "";
+    setup_step = 0;
     update_pin_display();
     
-    // Clear old children from screen to rebuild header cleanly
-    // But we only want to delete the header, not the numpad or boxes.
-    // Instead of deleting, we can just call buildHeader which creates a new header.
-    // To prevent memory leaks, we should delete the first child if it's the header.
-    if (lv_obj_get_child_cnt(scr_pin) > 4) {
-        lv_obj_del(lv_obj_get_child(scr_pin, 0)); // Remove old header
-    }
+
 
     if (mode == PIN_MODE_AUTH) {
-        UIManager::buildHeader(scr_pin, "Admin Authentication", "Enter PIN to Unlock", btn_back_cb, false);
+        if (scr_pin_header) { lv_obj_del(scr_pin_header); scr_pin_header = NULL; }
+        scr_pin_header = UIManager::buildHeader(scr_pin, "Admin Authentication", "Enter PIN to Unlock", btn_back_cb, false);
         lv_obj_add_flag(btn_set_admin_fp, LV_OBJ_FLAG_HIDDEN);
         lv_obj_add_flag(btn_del_admin_fp, LV_OBJ_FLAG_HIDDEN);
     } else {
-        UIManager::buildHeader(scr_pin, "Security Settings", "Set New Admin PIN", btn_back_cb, false);
+        if (scr_pin_header) { lv_obj_del(scr_pin_header); scr_pin_header = NULL; }
+        scr_pin_header = UIManager::buildHeader(scr_pin, "Security Settings", "Set New Admin PIN", btn_back_cb, false);
         lv_obj_clear_flag(btn_set_admin_fp, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_flag(btn_del_admin_fp, LV_OBJ_FLAG_HIDDEN);
         
-        if (!DataManager::templateExists("1", 0)) {
+        if (!DataManager::adminTemplateExists()) {
             lv_obj_add_state(btn_del_admin_fp, LV_STATE_DISABLED);
             lv_obj_set_style_bg_color(btn_del_admin_fp, UIManager::rgb(0xeeeeee), LV_STATE_DISABLED);
             lv_obj_set_style_border_width(btn_del_admin_fp, 0, LV_STATE_DISABLED);
@@ -246,8 +285,8 @@ void uiShowPinScreen(PINMode mode) {
         }
     }
     
-    // Move header to the top of the children list so it doesn't overlap weirdly
-    lv_obj_move_to_index(lv_obj_get_child(scr_pin, -1), 0);
+    // Move header to the top of the children list so it renders above other elements
+    lv_obj_move_to_index(scr_pin_header, 0);
 
     lv_scr_load(scr_pin);
 }

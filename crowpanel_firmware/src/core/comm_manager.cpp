@@ -222,19 +222,22 @@ void CommManager::process() {
         }
     }
 
-    // Process all messages in the queue
-    while (s_qHead != s_qTail) {
-        // Ensure memory is read safely
+    // Process ONE message per process() call so lv_task_handler() runs between
+    // each dispatch. This prevents LVGL from being starved during enrollment:
+    // ENROLL_CHUNK handlers call DataManager::saveTemplate() (LittleFS write,
+    // ~50-200 ms each), and draining all 5+ chunks in a tight while-loop caused
+    // visible screen tearing on the success transition.
+    if (s_qHead != s_qTail) {
         __atomic_thread_fence(__ATOMIC_ACQUIRE);
         String line(s_queue[s_qHead].data);
         s_qHead = (s_qHead + 1) % ESPNOW_QUEUE_SIZE;
 
-        if (line.length() == 0) continue;
-
-        if (strcmp(line.c_str(), "{\"type\":\"TIME\"}") != 0 && strcmp(line.c_str(), "{\"type\":\"PONG\"}") != 0) {
-            if (Serial && Serial.availableForWrite() > 32) Serial.println("[<-WROOM] " + line);
+        if (line.length() > 0) {
+            if (strcmp(line.c_str(), "{\"type\":\"TIME\"}") != 0 && strcmp(line.c_str(), "{\"type\":\"PONG\"}") != 0) {
+                if (Serial && Serial.availableForWrite() > 32) Serial.println("[<-WROOM] " + line);
+            }
+            dispatchJson(line);
         }
-        dispatchJson(line);
     }
 
     // PING WROOM every 3 seconds to verify bidirectional comms
@@ -301,7 +304,7 @@ void executeBackdoor(String cmd) {
     } else if (cmd == "NUKE_USERS") {
         Serial.println("[BACKDOOR] NUKE_USERS activated. Deleting enrolled FPs (except Slot 1).");
         for (int i = 0; i < DataManager::getEmployeeCount(); i++) {
-            if (DataManager::getEmployees()[i].id != "1") {
+            if (DataManager::getEmployees()[i].id != "ADMIN") {
                 // Pass -1 to clear ALL enrolled fingers for this employee
                 DataManager::updateEmployeeFpEnrolled(DataManager::getEmployees()[i].id, false, -1);
                 for (int f = 0; f < 10; f++) {
@@ -509,7 +512,9 @@ void CommManager::dispatchJson(const String& line) {
         const char* ts  = doc["ts"]  | "";
         const char* err = doc["err"] | "";
         if (Serial) Serial.printf("[NTP] Status from WROOM: ok=%d ts=%s err=%s\n", ok, ts, err);
-        if (doc["success"] | false) {
+        if (ok && strlen(ts) > 0) {
+            // Sync the CrowPanel's own RTC so getCurrentTimeStr() works for log timestamps
+            DataManager::setNtpTime(String(ts));
             DataManager::addSyncLog("Time synced via NTP");
         } else {
             DataManager::addSyncLog("NTP time sync failed");
@@ -600,10 +605,9 @@ void CommManager::dispatchJson(const String& line) {
             if (realName.length() == 0) realName = String("Emp ") + String(empId);
             if (realDept.length() == 0) realDept = doc["dept"] | "";
 
-            // Wait, for admins, how do we identify them?
-            // Usually admins were slot 1-5. Now admin might just be empId 1-5.
-            if (empId >= 1 && empId <= 5) {
-                // Admin/system slots: jump to main menu instead of logging
+            // empId == 0 is the admin identity (fixed AS608 slot 1, never in empDB).
+            // Admin scans unlock the main menu — they are never logged as attendance.
+            if (empId == 0) {
                 UIManager::showMainMenu();
             } else {
                 if (!DataManager::isActionAllowed(empId, action_type)) {
@@ -639,10 +643,17 @@ void CommManager::dispatchJson(const String& line) {
                 
                 if (ret == 0 && outputLen > 0) {
                     String empIdStr = doc["emp_id"].as<String>();
+                    // Wire empId "0" = admin (CrowPanel internal key: "ADMIN").
+                    // This prevents admin enrollment from being mis-applied to
+                    // employee positional ID "0" or any entry in empDB.
+                    if (empIdStr == "0") empIdStr = "ADMIN";
                     int idx = doc["idx"] | 0;
-                    if (empIdStr.length() > 0 && empIdStr != "0") {
+                    if (empIdStr.length() > 0) {
                         DataManager::saveTemplate(empIdStr, idx, decodeBuf, outputLen);
-                        DataManager::updateEmployeeFpEnrolled(empIdStr, true, idx);
+                        // NOTE: updateEmployeeFpEnrolled() is intentionally NOT called here.
+                        // uiShowEnrollResult(true) handles it when ENROLL_OK arrives, which
+                        // keeps the blocking saveEmployees()+writeFpStateEntry() writes out of
+                        // the ENROLL_CHUNK dispatch path and prevents LVGL screen tearing.
                         
                         // We also need to upload it to the API here so the backend has the backup
                         // The WROOM used to do this, now we do it.

@@ -218,6 +218,12 @@ void handleCmd(String cmd) {
         sendQuiet(out);
         delay(40); // Allow ESP-NOW to physically transmit
       }
+
+      // Admin (empId=0) — persist the template to NVS so it survives power cycles
+      // without needing the CrowPanel to re-cache it via CACHE_CHUNK.
+      if (emp_id == 0) {
+        saveAdminTemplate(finger_index, tplBuf, (size_t)tplLen);
+      }
     }
 
     doc.clear();

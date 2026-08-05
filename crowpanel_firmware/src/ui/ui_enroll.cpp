@@ -721,7 +721,17 @@ void uiShowEnrollResult(bool ok, const char *name) {
   lv_obj_clear_flag(lbl_scan_subtext, LV_OBJ_FLAG_HIDDEN);
 
   if (ok) {
-    DataManager::updateEmployeeFpEnrolled(selected_emp_id, true, selected_finger_index);
+    // ── Render success UI first ──────────────────────────────────────────────
+    // updateEmployeeFpEnrolled() calls saveEmployees() (full JSONL rewrite) and
+    // writeFpStateEntry() (8 KB JSON read+write) — both blocking LittleFS ops
+    // that stall lv_task_handler() for 100-400 ms. Deferring them to a 1ms
+    // timer lets LVGL flush the "Fingerprint Enrolled" frame before any I/O
+    // begins, eliminating the glitch/tear on the success transition.
+    lv_timer_t* persist_timer = lv_timer_create([](lv_timer_t *t) {
+      DataManager::updateEmployeeFpEnrolled(selected_emp_id, true, selected_finger_index);
+      lv_timer_del(t);
+    }, 1, NULL);
+    lv_timer_set_repeat_count(persist_timer, 1);
 
     lv_obj_add_flag(btn_enroll_back, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(btn_enroll_done, LV_OBJ_FLAG_HIDDEN);
@@ -769,14 +779,9 @@ static void finger_click_cb(lv_event_t * e) {
   int f_idx = (int)(intptr_t)lv_event_get_user_data(e);
   selected_finger_index = f_idx;
   
-  uint16_t enrolled_mask = 0;
-  const Employee* db = DataManager::getEmployees();
-  for (int i = 0; i < DataManager::getEmployeeCount(); i++) {
-    if (db[i].id == selected_emp_id) {
-      enrolled_mask = db[i].enrolled_fingers;
-      break;
-    }
-  }
+  // getEnrolledMask() handles both regular employees (empDB, fast) and "ADMIN"
+  // (fp_state.json fallback) so admin fingers are highlighted correctly.
+  uint16_t enrolled_mask = DataManager::getEnrolledMask(selected_emp_id);
 
   for (int i = 0; i < 10; i++) {
     if (!finger_objs[i]) continue;
@@ -837,7 +842,9 @@ static void start_scan_cb(lv_event_t * e) {
           for (int i=0; i<totalChunks; i++) {
               StaticJsonDocument<512> doc;
               doc["type"] = "CACHE_CHUNK";
-              doc["emp_id"] = selected_emp_id.toInt();
+              // Translate "ADMIN" to wire empId 0 (WROOM's admin identity).
+              // For regular employees, .toInt() gives the correct numeric ID.
+              doc["emp_id"] = (selected_emp_id == "ADMIN") ? 0 : selected_emp_id.toInt();
               doc["f_idx"] = selected_finger_index;
               doc["c"] = i;
               doc["t"] = totalChunks;
@@ -871,7 +878,11 @@ static void start_scan_cb(lv_event_t * e) {
   }
 
   char buf[256];
-  snprintf(buf, sizeof(buf), "ENROLL:%s:%d:%s", selected_emp_id.c_str(), selected_finger_index, n.c_str());
+  // "ADMIN" is the CrowPanel's internal ID for the admin. The WROOM knows it as
+  // empId=0, which is always assigned to the protected AS608 slot 1.
+  String wireId = (selected_emp_id == "ADMIN") ? "0" : selected_emp_id;
+  if (selected_emp_id == "ADMIN") n = "Admin";
+  snprintf(buf, sizeof(buf), "ENROLL:%s:%d:%s", wireId.c_str(), selected_finger_index, n.c_str());
   CommManager::sendCommand(String(buf));
 
   // Do NOT call uiShowEnrollStart here. The WROOM echoes ENROLL_START back,
@@ -1061,14 +1072,9 @@ void uiShowChooseFinger(String emp_id, const char *name, const char *dept, bool 
       lv_obj_add_flag(btn_delete_scan, LV_OBJ_FLAG_HIDDEN);
     }
 
-    uint16_t enrolled_mask = 0;
-    const Employee* db = DataManager::getEmployees();
-    for (int i = 0; i < DataManager::getEmployeeCount(); i++) {
-      if (db[i].id == selected_emp_id) {
-        enrolled_mask = db[i].enrolled_fingers;
-        break;
-      }
-    }
+    // getEnrolledMask() handles both regular employees (empDB, fast) and "ADMIN"
+    // (fp_state.json fallback) so admin fingers are highlighted correctly.
+    uint16_t enrolled_mask = DataManager::getEnrolledMask(selected_emp_id);
 
     for (int i = 0; i < 10; i++) {
       if (finger_objs[i]) {

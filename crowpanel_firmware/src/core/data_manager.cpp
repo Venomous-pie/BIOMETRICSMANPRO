@@ -9,6 +9,8 @@
 #include "certs.h"
 #include <freertos/semphr.h>
 #include <SPI.h>
+#include <sys/time.h>   // settimeofday()
+#include <time.h>       // time(), localtime(), strftime()
 
 Employee DataManager::empDB[150];
 int DataManager::empCount = 0;
@@ -339,6 +341,7 @@ void DataManager::begin() {
     loadEmployees();
     loadWifiCredentials();
     loadAttendanceLogs();
+    loadSyncLogs();
 
     xTaskCreatePinnedToCore(
         attendanceUploadTask,
@@ -483,12 +486,12 @@ void DataManager::saveEmployees() {
 }
 
 void DataManager::updateEmployeeFpEnrolled(const String& emp_id, bool enrolled, int finger_index) {
-    // NOTE: Do NOT add an early-return guard for IDs 1-5 here.
-    // Employees with positional IDs 1-5 ARE in empDB (indices 0-4) just like
-    // every other employee. The WROOM reserves L1 sensor slots 1-5 for admins,
-    // but that is entirely a WROOM concern. Skipping the empDB update would leave
-    // the in-memory state stale and cause the UI to show the finger as still
-    // enrolled after a delete (user sees no change, taps delete again).
+    // "ADMIN" is a synthetic identity — it has no empDB entry.
+    // Only write to fp_state.json. Never touch empDB for admin.
+    if (emp_id == "ADMIN") {
+        writeFpStateEntry(emp_id, finger_index, enrolled);
+        return;
+    }
 
     for (int i = 0; i < empCount; i++) {
         if (empDB[i].id == emp_id) {
@@ -523,27 +526,109 @@ void DataManager::setWifiConfigured(bool state) {
 extern void uiSyncStatusOnSyncResult(bool ok);
 void uiSyncStatusRefreshLogs();
 
+// ── RTC helpers ──────────────────────────────────────────────────────────────
+// Sets the ESP32's system clock from the WROOM NTP timestamp string.
+// Format expected: "YYYY-MM-DD HH:MM:SS AM" or "YYYY-MM-DD HH:MM:SS PM" (UTC+8).
+void DataManager::setNtpTime(const String& ntpStr) {
+    int yr, mo, dy, hr, mn, sc;
+    char ampm[3] = "AM";
+    // Try 12-hour format first, then fall back to 24-hour
+    int matched = sscanf(ntpStr.c_str(), "%d-%d-%d %d:%d:%d %2s",
+                         &yr, &mo, &dy, &hr, &mn, &sc, ampm);
+    if (matched < 6) return; // parse failed
+    if (ampm[0] == 'P' && hr != 12) hr += 12;
+    else if (ampm[0] == 'A' && hr == 12) hr = 0;
+
+    struct tm t = {};
+    t.tm_year  = yr - 1900;
+    t.tm_mon   = mo - 1;
+    t.tm_mday  = dy;
+    t.tm_hour  = hr;
+    t.tm_min   = mn;
+    t.tm_sec   = sc;
+    t.tm_isdst = -1;
+    time_t epoch = mktime(&t); // treat as local (UTC+8) — consistent with WROOM output
+    struct timeval tv = { epoch, 0 };
+    settimeofday(&tv, NULL);
+    if (Serial) Serial.printf("[RTC] CrowPanel clock set to %s\n", ntpStr.c_str());
+}
+
+// Returns "MM-DD HH:MM" if RTC is set (time > year 2020), else empty string.
+String DataManager::getCurrentTimeStr() {
+    time_t now = time(NULL);
+    if (now < 1577836800UL) return ""; // before 2020-01-01 → NTP not set yet
+    struct tm *t = localtime(&now);
+    char buf[12];
+    strftime(buf, sizeof(buf), "%m-%d %H:%M", t);
+    return String(buf);
+}
+
+// ── Sync activity log persistence ────────────────────────────────────────────
+static const char* SYNC_LOG_FILE = "/sync_log.jsonl";
+
+void DataManager::saveSyncLogs() {
+    File f = LittleFS.open(SYNC_LOG_FILE, "w");
+    if (!f) return;
+    for (int i = 0; i < _syncLogCount; i++) {
+        StaticJsonDocument<256> doc;
+        doc["msg"] = _syncLogs[i].message;
+        doc["ts"]  = _syncLogs[i].timeStr;
+        serializeJson(doc, f);
+        f.println();
+    }
+    f.close();
+}
+
+void DataManager::loadSyncLogs() {
+    File f = LittleFS.open(SYNC_LOG_FILE, "r");
+    if (!f) return;
+    _syncLogCount = 0;
+    while (f.available() && _syncLogCount < MAX_SYNC_LOGS) {
+        String line = f.readStringUntil('\n');
+        line.trim();
+        if (line.length() == 0) continue;
+        StaticJsonDocument<256> doc;
+        if (deserializeJson(doc, line) != DeserializationError::Ok) continue;
+        String msg = doc["msg"] | "";
+        if (msg.length() == 0) continue;
+        SyncLogEntry& e = _syncLogs[_syncLogCount++];
+        e.message   = msg;
+        e.timeStr   = doc["ts"] | "";
+        e.timestamp = 0; // 0 = historical — UI will show timeStr instead of relative time
+    }
+    f.close();
+    if (Serial) Serial.printf("[FS] Loaded %d sync log entries.\n", _syncLogCount);
+}
+
 void DataManager::addSyncLog(const String& message) {
-    // Check if message already exists in the recent logs
+    String ts = getCurrentTimeStr(); // "MM-DD HH:MM" or "" if RTC not set
+
+    // If the same message already exists, move it to the end with a refreshed timestamp.
     for (int i = 0; i < _syncLogCount; i++) {
         if (_syncLogs[i].message == message) {
-            // Move this log to the end (most recent)
-            unsigned long ts = millis();
-            for (int j = i; j < _syncLogCount - 1; j++) {
-                _syncLogs[j] = _syncLogs[j + 1];
-            }
-            _syncLogs[_syncLogCount - 1] = SyncLogEntry{message, ts};
+            for (int j = i; j < _syncLogCount - 1; j++) _syncLogs[j] = _syncLogs[j + 1];
+            SyncLogEntry& e = _syncLogs[_syncLogCount - 1];
+            e.message   = message;
+            e.timestamp = millis();
+            e.timeStr   = ts;
+            saveSyncLogs();
             uiSyncStatusRefreshLogs();
             return;
         }
     }
 
+    SyncLogEntry entry;
+    entry.message   = message;
+    entry.timestamp = millis();
+    entry.timeStr   = ts;
+
     if (_syncLogCount < MAX_SYNC_LOGS) {
-        _syncLogs[_syncLogCount++] = SyncLogEntry{message, millis()};
+        _syncLogs[_syncLogCount++] = entry;
     } else {
         memmove(&_syncLogs[0], &_syncLogs[1], sizeof(SyncLogEntry) * (MAX_SYNC_LOGS - 1));
-        _syncLogs[MAX_SYNC_LOGS - 1] = SyncLogEntry{message, millis()};
+        _syncLogs[MAX_SYNC_LOGS - 1] = entry;
     }
+    saveSyncLogs();
     uiSyncStatusRefreshLogs();
 }
 
@@ -1110,4 +1195,33 @@ bool DataManager::deleteTemplate(const String& empId, int fingerIndex) {
         return LittleFS.remove(path);
     }
     return false;
+}
+
+bool DataManager::adminTemplateExists() {
+    // Admin can enroll any finger index 0-9. Check all of them.
+    for (int f = 0; f < 10; f++) {
+        if (templateExists("ADMIN", f)) return true;
+    }
+    return false;
+}
+
+uint16_t DataManager::getEnrolledMask(const String& empId) {
+    // Fast path: regular employees are in RAM.
+    for (int i = 0; i < empCount; i++) {
+        if (empDB[i].id == empId) return empDB[i].enrolled_fingers;
+    }
+    // Slow path: "ADMIN" (and any future out-of-empDB identity) live in fp_state.json.
+    if (!LittleFS.exists(FP_STATE_FILE)) return 0;
+    File f = LittleFS.open(FP_STATE_FILE, "r");
+    if (!f) return 0;
+    DynamicJsonDocument doc(8192);
+    if (deserializeJson(doc, f) != DeserializationError::Ok) { f.close(); return 0; }
+    f.close();
+    JsonArray arr = doc["slots"].as<JsonArray>();
+    for (JsonObject entry : arr) {
+        if (String(entry["emp_id"] | "") == empId) {
+            return (uint16_t)(entry["enrolled_fingers"] | 0);
+        }
+    }
+    return 0;
 }

@@ -85,12 +85,16 @@ public:
     // Sync Log tracking
     struct SyncLogEntry {
         String message;
-        unsigned long timestamp; // millis() when it occurred
+        unsigned long timestamp; // millis() for in-session relative display; 0 = loaded from disk
+        String timeStr;          // "MM-DD HH:MM" wall-clock string, persisted across reboots
     };
     static const int MAX_SYNC_LOGS = 5;
     static void addSyncLog(const String& message);
     static const SyncLogEntry* getSyncLogs();
     static int getSyncLogCount();
+    // RTC helpers — called by CommManager when NTP_STATUS arrives from WROOM
+    static void setNtpTime(const String& ntpStr); // parse WROOM timestamp, set ESP32 RTC
+    static String getCurrentTimeStr();             // "MM-DD HH:MM" from system clock
     static unsigned long getWifiDropTime();
 
     // WiFi credential persistence
@@ -116,6 +120,11 @@ public:
     static bool loadTemplate(const String& empId, int fingerIndex, uint8_t* outData, size_t maxLen, size_t* outLen);
     static bool templateExists(const String& empId, int fingerIndex);
     static bool deleteTemplate(const String& empId, int fingerIndex);
+    static bool adminTemplateExists(); // true if any admin finger is stored
+    // Returns the enrolled_fingers bitmask for any emp_id.
+    // For regular employees: from empDB (fast, RAM). For "ADMIN" and other
+    // out-of-empDB identities: reads fp_state.json as fallback.
+    static uint16_t getEnrolledMask(const String& empId);
 
 private:
     static void createInitialFilesIfMissing();
@@ -149,6 +158,8 @@ private:
     static void loadWifiCredentials();
     static void saveWifiCredentialsToFs();
     static void loadAttendanceLogs();
+    static void saveSyncLogs();  // persist _syncLogs[] to /sync_log.jsonl
+    static void loadSyncLogs();  // load /sync_log.jsonl on boot
 };
 
 #endif // DATA_MANAGER_H
