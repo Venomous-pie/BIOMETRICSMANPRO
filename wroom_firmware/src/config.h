@@ -2,7 +2,7 @@
 
 // ── Development / Testing ─────────────────────────────────────────────────────
 // Uncomment to simulate fingerprint scans and bypass the physical AS608 hardware.
-#define MOCK_SENSOR 1  
+// #define MOCK_SENSOR 1  // Uncomment ONLY for hardware-less dev testing
 
 // ── Fingerprint Sensor (AS608) ────────────────────────────────────────────────
 #define PIN_FP_RX    27   // AS608 TX  → WROOM UART1 RX
@@ -29,7 +29,7 @@
 // ── Device Identity ───────────────────────────────────────────────────────────
 // Sent to the backend to identify and verify this unit's registration.
 // Must match DEVICE_ID_HARDCODED in the CrowPanel firmware.
-#define DEVICE_ID    "P001-2607-6AEC-Z2GD"
+#define DEVICE_ID    "F001-2608-6AEC-ON92"
 
 // Backend API base URL.
 // Change to your server's LAN IP (e.g. http://192.168.1.50:8000) for local dev.

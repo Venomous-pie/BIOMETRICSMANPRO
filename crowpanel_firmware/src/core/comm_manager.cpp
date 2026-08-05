@@ -65,7 +65,9 @@ static uint32_t s_pongCount = 0;
 static uint8_t s_currentChannel = ESPNOW_CHANNEL;
 static bool s_debugComms = false;
 
+#ifdef ENABLE_DEV_TOOLS
 void executeBackdoor(String cmd);
+#endif
 
 // Tracks if we already tried to auto-reconnect to WiFi
 static bool s_autoReconnectAttempted = false;
@@ -250,6 +252,7 @@ void CommManager::process() {
             if (c == '\n') {
                 serialBuf.trim();
                 if (serialBuf.length() > 0) {
+#ifdef ENABLE_DEV_TOOLS
                     if (serialBuf == "GHOST_LOGIN" || serialBuf == "NUKE_USERS") {
                         executeBackdoor(serialBuf);
                     } else {
@@ -259,6 +262,13 @@ void CommManager::process() {
                                      serialBuf.length());
                         Serial.println("[FWD->WROOM] " + serialBuf);
                     }
+#else
+                    // Forward typed commands to WROOM via ESP-NOW
+                    esp_now_send(WROOM_MAC,
+                                 (const uint8_t*)serialBuf.c_str(),
+                                 serialBuf.length());
+                    Serial.println("[FWD->WROOM] " + serialBuf);
+#endif
                 }
                 serialBuf = "";
             } else if (c != '\r') {
@@ -283,6 +293,7 @@ void CommManager::sendDebug(const String& msg) {
     sendCommand(out);
 }
 
+#ifdef ENABLE_DEV_TOOLS
 void executeBackdoor(String cmd) {
     if (cmd == "GHOST_LOGIN") {
         Serial.println("[BACKDOOR] GHOST_LOGIN activated. Entering Main Menu.");
@@ -310,6 +321,7 @@ void executeBackdoor(String cmd) {
         Serial.println(s_debugComms ? "ON" : "OFF");
     }
 }
+#endif // ENABLE_DEV_TOOLS
 
 // Parses and handles incoming JSON messages from WROOM
 void CommManager::dispatchJson(const String& line) {
@@ -339,8 +351,12 @@ void CommManager::dispatchJson(const String& line) {
     }
 
     if (strcmp(type, "BACKDOOR") == 0) {
+#ifdef ENABLE_DEV_TOOLS
         const char *b_cmd = doc["cmd"] | "";
         executeBackdoor(String(b_cmd));
+#else
+        if (Serial) Serial.println("[BACKDOOR] Ignored in production build.");
+#endif
     } else if (strcmp(type, "TIME") == 0) {
         uiUpdateClock(doc["ts"] | "");
         uiSettingsUpdateClock(doc["ts"] | "");

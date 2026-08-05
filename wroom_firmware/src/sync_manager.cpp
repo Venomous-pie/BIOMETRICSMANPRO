@@ -211,43 +211,96 @@ void SyncManager::fetchEmployeesFromApi() {
 
     int httpCode = http.GET();
     if (httpCode == 200 || httpCode == 201) {
-        WiFiClient* stream = http.getStreamPtr();
+        // Read full body into a String so we can (a) log it for diagnostics
+        // and (b) avoid stream-consumed-before-parse bugs.
+        // Guard against unexpectedly huge payloads before loading into RAM.
+        int contentLen = http.getSize();
+        if (contentLen > 60000) {
+            http.end();
+            failToFastRetry("Response too large");
+            return;
+        }
+        String body = http.getString();
+        http.end();
 
-        StaticJsonDocument<1024> filter;
-        filter["employees"][0]["first_name"] = true;
-        filter["employees"][0]["last_name"] = true;
-        filter["employees"][0]["name"] = true;
-        filter["employees"][0]["role_name"] = true;
-        filter["employees"][0]["job_title"] = true;
-        filter["employees"][0]["branch_name"] = true;
-        filter["employees"][0]["branch"] = true;
+        // --- Diagnostic: show first 400 chars so format mismatches are visible ---
+        Serial.printf("[SYNC] HTTP %d, body len=%d\n", httpCode, body.length());
+        Serial.printf("[SYNC] Response head: %.400s\n", body.c_str());
+
+        // Build filter. Use DynamicJsonDocument to avoid the tight static pool
+        // that can silently drop keys when near the 1024-byte edge.
+        DynamicJsonDocument filter(2048);
+
+        // Wrapper key: "employees"
+        filter["employees"][0]["id"]              = true;
+        filter["employees"][0]["emp_id"]          = true;
+        filter["employees"][0]["first_name"]      = true;
+        filter["employees"][0]["last_name"]       = true;
+        filter["employees"][0]["name"]            = true;
+        filter["employees"][0]["role_name"]       = true;
+        filter["employees"][0]["job_title"]       = true;
+        filter["employees"][0]["branch_name"]     = true;
+        filter["employees"][0]["branch"]          = true;
         filter["employees"][0]["department_name"] = true;
-        filter["employees"][0]["dept"] = true;
-        
-        filter["data"][0]["first_name"] = true;
-        filter["data"][0]["last_name"] = true;
-        filter["data"][0]["name"] = true;
-        filter["data"][0]["role_name"] = true;
-        filter["data"][0]["job_title"] = true;
-        filter["data"][0]["branch_name"] = true;
-        filter["data"][0]["branch"] = true;
+        filter["employees"][0]["dept"]            = true;
+
+        // Wrapper key: "data" (Laravel pagination style)
+        filter["data"][0]["id"]              = true;
+        filter["data"][0]["emp_id"]          = true;
+        filter["data"][0]["first_name"]      = true;
+        filter["data"][0]["last_name"]       = true;
+        filter["data"][0]["name"]            = true;
+        filter["data"][0]["role_name"]       = true;
+        filter["data"][0]["job_title"]       = true;
+        filter["data"][0]["branch_name"]     = true;
+        filter["data"][0]["branch"]          = true;
         filter["data"][0]["department_name"] = true;
-        filter["data"][0]["dept"] = true;
-        
-        filter[0]["first_name"] = true;
-        filter[0]["last_name"] = true;
-        filter[0]["name"] = true;
-        filter[0]["role_name"] = true;
-        filter[0]["job_title"] = true;
-        filter[0]["branch_name"] = true;
-        filter[0]["branch"] = true;
+        filter["data"][0]["dept"]            = true;
+
+        // Wrapper key: "result"
+        filter["result"][0]["id"]              = true;
+        filter["result"][0]["emp_id"]          = true;
+        filter["result"][0]["first_name"]      = true;
+        filter["result"][0]["last_name"]       = true;
+        filter["result"][0]["name"]            = true;
+        filter["result"][0]["role_name"]       = true;
+        filter["result"][0]["job_title"]       = true;
+        filter["result"][0]["branch_name"]     = true;
+        filter["result"][0]["branch"]          = true;
+        filter["result"][0]["department_name"] = true;
+        filter["result"][0]["dept"]            = true;
+
+        // Wrapper key: "payload"
+        filter["payload"][0]["id"]              = true;
+        filter["payload"][0]["emp_id"]          = true;
+        filter["payload"][0]["first_name"]      = true;
+        filter["payload"][0]["last_name"]       = true;
+        filter["payload"][0]["name"]            = true;
+        filter["payload"][0]["role_name"]       = true;
+        filter["payload"][0]["job_title"]       = true;
+        filter["payload"][0]["branch_name"]     = true;
+        filter["payload"][0]["branch"]          = true;
+        filter["payload"][0]["department_name"] = true;
+        filter["payload"][0]["dept"]            = true;
+
+        // Root-level array (bare array response)
+        filter[0]["id"]              = true;
+        filter[0]["emp_id"]          = true;
+        filter[0]["first_name"]      = true;
+        filter[0]["last_name"]       = true;
+        filter[0]["name"]            = true;
+        filter[0]["role_name"]       = true;
+        filter[0]["job_title"]       = true;
+        filter[0]["branch_name"]     = true;
+        filter[0]["branch"]          = true;
         filter[0]["department_name"] = true;
-        filter[0]["dept"] = true;
-        
+        filter[0]["dept"]            = true;
+
         filter["message"] = true;
+        filter["error"]   = true;
 
         DynamicJsonDocument dDoc(16384);
-        DeserializationError err = deserializeJson(dDoc, *stream, DeserializationOption::Filter(filter));
+        DeserializationError err = deserializeJson(dDoc, body, DeserializationOption::Filter(filter));
         if (err == DeserializationError::Ok) {
             JsonArray arr;
             if (dDoc.is<JsonArray>()) {
@@ -256,12 +309,27 @@ void SyncManager::fetchEmployeesFromApi() {
                 arr = dDoc["employees"].as<JsonArray>();
             } else if (dDoc.containsKey("data")) {
                 arr = dDoc["data"].as<JsonArray>();
+            } else if (dDoc.containsKey("result")) {
+                arr = dDoc["result"].as<JsonArray>();
+            } else if (dDoc.containsKey("payload")) {
+                arr = dDoc["payload"].as<JsonArray>();
             }
             if (arr.isNull()) {
-                if (dDoc.containsKey("message")) {
-                    String msg = dDoc["message"].as<String>();
-                    Serial.printf("[SYNC] API Error Message: %s\n", msg.c_str());
-                    failToFastRetry(msg.c_str());
+                // Log every top-level key present so the mismatch is obvious
+                Serial.print("[SYNC] Keys in parsed doc: ");
+                if (dDoc.is<JsonObject>()) {
+                    for (JsonPair kv : dDoc.as<JsonObject>()) {
+                        Serial.printf("'%s' ", kv.key().c_str());
+                    }
+                } else {
+                    Serial.print("(not an object)");
+                }
+                Serial.println();
+
+                const char* apiMsg = dDoc["message"] | (dDoc["error"] | "");
+                if (strlen(apiMsg) > 0) {
+                    Serial.printf("[SYNC] API message: %s\n", apiMsg);
+                    failToFastRetry(apiMsg);
                 } else {
                     failToFastRetry("No employees array in JSON");
                 }
@@ -302,7 +370,6 @@ void SyncManager::fetchEmployeesFromApi() {
             
             setState(SYNC_STATE_SET_ESPNOW_CHANNEL);
         } else {
-            http.end();
             failToFastRetry("JSON parse failed");
         }
     } else {

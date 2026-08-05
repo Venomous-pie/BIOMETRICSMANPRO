@@ -21,17 +21,18 @@ static unsigned long btnPressTime = 0;
 static bool          btnHeld      = false;
 
 void wipeExceptAdmin() {
-  Serial.println("[SYSTEM] Wiping database except slots 1-5 (Admin)...");
-#ifdef MOCK_SENSOR
-  Serial.println("[SYSTEM] MOCK_SENSOR active — skipping hardware wipe to prevent timeouts.");
+  Serial.println("[SYSTEM] Wiping fingerprint database...");
+#ifdef ENABLE_DEV_TOOLS
+  // MOCK_SENSOR path: no hardware to wipe
+  Serial.println("[SYSTEM] Dev build — skipping hardware wipe (reboot will clear L1 cache).");
 #else
-  for (int i = 6; i <= MAX_SLOTS; i++) {
-    finger.deleteModel(i);
-  }
+  // Single command clears all 127 slots instantly vs. 122 individual deleteModel() calls.
+  // Admin slots (1-5) are re-cached from LittleFS on the next boot anyway.
+  finger.emptyDatabase();
 #endif
   Serial.println("[SYSTEM] Wipe complete.");
 }
-
+  
 // ── Factory reset button ──────────────────────────────────────────────────────
 
 void handleFactoryResetButton() {
@@ -105,15 +106,18 @@ void handleCmd(String cmd) {
     playTrack(TRACK_TIME_IN);
     Serial.println("[TEST] If you heard 3 beeps and a voice, your wiring is perfect!");
 
+#ifdef ENABLE_DEV_TOOLS
   } else if (cmd == "GHOST_LOGIN" || cmd == "NUKE_USERS" || cmd == "NUKE_DB" || cmd == "DEBUG_COMMS") {
     // Development backdoor commands — forwarded to the CrowPanel for execution.
     Serial.println("[FWD->CP] Forwarding backdoor command: " + cmd);
     send("{\"type\":\"BACKDOOR\",\"cmd\":\"" + cmd + "\"}");
+#endif // ENABLE_DEV_TOOLS
 
   } else if (cmd == "CANCEL_ENROLL") {
     cancelEnroll();
     Serial.println("[ENROLL] Enrollment cancelled by CrowPanel.");
 
+#ifdef ENABLE_DEV_TOOLS
   } else if (cmd.startsWith("MOCK_SCAN:")) {
     int slot = cmd.substring(10).toInt();
     if (slot >= 1 && slot <= MAX_SLOTS) {
@@ -122,6 +126,7 @@ void handleCmd(String cmd) {
     } else {
         Serial.println("[SYSTEM] MOCK_SCAN failed: Invalid slot.");
     }
+#endif // ENABLE_DEV_TOOLS
 
   } else if (cmd.startsWith("DELETE_FP:")) {
     int slot = cmd.substring(10).toInt();

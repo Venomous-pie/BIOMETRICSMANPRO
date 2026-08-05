@@ -7,7 +7,7 @@
 // ── Hardcoded Device ID ───────────────────────────────────────────
 // This must match the DEVICE_ID defined in wroom_firmware.ino.
 // It is sent to the backend API to verify if this unit is activated.
-#define DEVICE_ID_HARDCODED "P001-2607-6AEC-Z2GD"
+#define DEVICE_ID_HARDCODED "F001-2608-6AEC-ON92"
 
 struct Employee {
     String id;

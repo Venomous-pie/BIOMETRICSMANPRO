@@ -102,6 +102,11 @@ static lv_obj_t *lbl_start_scan_text = NULL;
 static lv_obj_t *lbl_choose_info = NULL;
 static lv_obj_t *finger_objs[10];
 
+// Navigation guard: prevents stacked deferred timers when user taps quickly.
+// Set to true when a deferred screen transition starts; cleared when it fully
+// completes (after populate). Any tap during that window is ignored.
+static bool s_nav_busy = false;
+
 // Watchdog: if WROOM never echoes ENROLL_START (dropped packet), return to
 // choose-finger after this timeout and restore the Start Scan button.
 static lv_timer_t *enrollStartWatchdog = NULL;
@@ -403,14 +408,20 @@ void buildEmpListScreen() {
       } else {
           lv_dropdown_set_text(dd, NULL);
       }
-      
+
       if (dd == dd_status_filter) g_status_filter = lv_dropdown_get_selected(dd);
       else if (dd == dd_dept_filter) g_dept_filter_str = buf;
       else if (dd == dd_branch_filter) g_branch_filter_str = buf;
-      
+
       current_page = 0;
-      const char *n = ta_search ? lv_textarea_get_text(ta_search) : "";
-      populate_emp_list(n, "");
+      // Reuse the search debounce timer so rapid filter changes don't
+      // trigger a synchronous lv_obj_clean + full widget rebuild each time.
+      if (search_debounce_timer) {
+          lv_timer_reset(search_debounce_timer);
+      } else {
+          search_debounce_timer = lv_timer_create(search_debounce_cb, 150, NULL);
+          lv_timer_set_repeat_count(search_debounce_timer, 1);
+      }
   };
 
   dd_dept_filter = lv_dropdown_create(scr_emp_list);
@@ -1003,6 +1014,8 @@ void buildChooseFingerScreen() {
 // (Moved deferred state for Choose Finger screen to top)
 
 void uiShowChooseFinger(String emp_id, const char *name, const char *dept, bool isFallback) {
+  if (s_nav_busy) return; // Ignore taps while a screen transition is in flight
+  s_nav_busy = true;
   g_is_fallback = isFallback;
   defer_emp_id = emp_id;
   defer_name = name;
@@ -1075,14 +1088,17 @@ void uiShowChooseFinger(String emp_id, const char *name, const char *dept, bool 
     // 4. Load the new screen and auto-delete the temporary screen.
     lv_scr_load(scr_choose_finger);
     lv_obj_del_async(temp_scr);
+    s_nav_busy = false; // Navigation complete — allow next tap
   }, 10, NULL);
-  
+
   lv_timer_set_repeat_count(defer_timer, 1);
 }
 
 // Show the employee list screen with a clean, up-to-date state.
 // Called on first entry from Main Menu, and when navigating back from Choose Finger.
 void uiShowEmpList(bool isFallback) {
+  if (s_nav_busy) return; // Ignore taps while a screen transition is in flight
+  s_nav_busy = true;
   g_is_fallback = isFallback;
   if (search_debounce_timer) {
     lv_timer_del(search_debounce_timer);
@@ -1198,10 +1214,11 @@ void uiShowEmpList(bool isFallback) {
     //    lv_obj_clean + widget creation inside the same callback as lv_scr_load).
     lv_timer_t *pop_timer = lv_timer_create([](lv_timer_t *t) {
       populate_emp_list("", "");
+      s_nav_busy = false; // Navigation fully complete — list is now visible
     }, 20, NULL);
     lv_timer_set_repeat_count(pop_timer, 1);
   }, 10, NULL);
-  
+
   lv_timer_set_repeat_count(defer, 1);
 }
 

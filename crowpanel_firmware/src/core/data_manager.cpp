@@ -336,12 +336,6 @@ void DataManager::begin() {
     
     createInitialFilesIfMissing();
     loadConfig();
-    
-    // --- TEMPORARY BYPASS FOR TESTING ---
-    _isActivated = true;
-    _isWifiConfigured = true;
-    // ------------------------------------
-    
     loadEmployees();
     loadWifiCredentials();
     loadAttendanceLogs();
@@ -460,25 +454,6 @@ void DataManager::loadEmployees() {
         }
     }
     f.close();
-    
-    // Inject mock employee for testing
-    bool mockExists = false;
-    for (int i=0; i<empCount; i++) {
-        if (empDB[i].id == "999") {
-            mockExists = true;
-            break;
-        }
-    }
-    if (!mockExists && empCount < 150) {
-        empDB[empCount].id = "999";
-        empDB[empCount].name = "Claire Jem Dedicatoria";
-        empDB[empCount].dept = "IOT";
-        empDB[empCount].job_title = "Technical Team Lead";
-        empDB[empCount].branch = "NEMSU";
-        empDB[empCount].fp_enrolled = false;
-        empDB[empCount].enrolled_fingers = 0;
-        empCount++;
-    }
 
     loadFpState(); // re-apply slot-keyed fp_enrolled after reading employees from disk
 }
@@ -508,12 +483,12 @@ void DataManager::saveEmployees() {
 }
 
 void DataManager::updateEmployeeFpEnrolled(const String& emp_id, bool enrolled, int finger_index) {
-    int idInt = emp_id.toInt();
-    if (idInt >= 1 && idInt <= 5) {
-        // Admin fingerprint. Not in empDB, but must be persisted in state.
-        writeFpStateEntry(emp_id, finger_index, enrolled);
-        return;
-    }
+    // NOTE: Do NOT add an early-return guard for IDs 1-5 here.
+    // Employees with positional IDs 1-5 ARE in empDB (indices 0-4) just like
+    // every other employee. The WROOM reserves L1 sensor slots 1-5 for admins,
+    // but that is entirely a WROOM concern. Skipping the empDB update would leave
+    // the in-memory state stale and cause the UI to show the finger as still
+    // enrolled after a delete (user sees no change, taps delete again).
 
     for (int i = 0; i < empCount; i++) {
         if (empDB[i].id == emp_id) {
@@ -532,6 +507,11 @@ void DataManager::updateEmployeeFpEnrolled(const String& emp_id, bool enrolled, 
             return;
         }
     }
+
+    // emp_id not found in empDB — could be a standalone admin slot that was
+    // never part of the synced employee list. Still persist to fp_state.json
+    // so the enrollment state survives a reboot.
+    writeFpStateEntry(emp_id, finger_index, enrolled);
 }
 
 bool DataManager::isWifiConfigured() { return _isWifiConfigured; }
