@@ -23,9 +23,6 @@ LV_FONT_DECLARE(lv_font_montserrat_16);
 LV_FONT_DECLARE(lv_font_montserrat_20);
 extern const lv_img_dsc_t icon_charging;
 
-// The most-recently created shared header pill label.
-// Every screen that calls buildHeader(show_wifi_pill=true) overwrites this pointer,
-// so it always points to the currently visible header's pill.
 static lv_obj_t *g_header_wifi_lbl = NULL;
 static lv_obj_t *g_header_wifi_img = NULL;
 extern const lv_img_dsc_t icon_wifi;
@@ -120,8 +117,6 @@ extern void uiShowMainMenu();
 
 void UIManager::begin() {
     initGlobalPill();
-    // buildAllScreens() is no longer called to save massive amounts of RAM.
-    // Screens are now built strictly on-demand.
 }
 
 void UIManager::loadInitialScreen() {
@@ -158,14 +153,12 @@ void UIManager::styleTextArea(lv_obj_t *obj) {
     lv_obj_set_style_border_color(obj, rgb(COLOR_GREEN_MAIN), LV_STATE_FOCUSED);
     lv_obj_set_style_border_width(obj, 2, LV_STATE_FOCUSED);
 
-    // Explicitly style the cursor (caret) so it's visible when focused
     lv_obj_set_style_border_color(obj, rgb(COLOR_GREEN_MAIN), LV_PART_CURSOR | LV_STATE_FOCUSED);
     lv_obj_set_style_border_width(obj, 2, LV_PART_CURSOR | LV_STATE_FOCUSED);
     lv_obj_set_style_border_side(obj, LV_BORDER_SIDE_LEFT, LV_PART_CURSOR | LV_STATE_FOCUSED);
     lv_obj_set_style_bg_opa(obj, LV_OPA_TRANSP, LV_PART_CURSOR | LV_STATE_FOCUSED);
 }
 
-// Forward declarations for toast (defined later) so openKeyboardFor can dismiss it
 static lv_obj_t *g_toast = NULL;
 static lv_timer_t *g_toast_timer = NULL;
 
@@ -229,8 +222,8 @@ static void kb_done_btn_cb(lv_event_t * e) {
 
 void UIManager::openKeyboardFor(lv_obj_t* target_ta) {
     if (!g_kb_modal) {
-        g_kb_modal = lv_obj_create(NULL); // Independent screen instead of layer_top to fix typing lag
-        lv_obj_set_style_bg_color(g_kb_modal, rgb(0xFFFFFF), 0); // Clean white background
+        g_kb_modal = lv_obj_create(NULL); 
+        lv_obj_set_style_bg_color(g_kb_modal, rgb(0xFFFFFF), 0); 
         lv_obj_set_style_bg_opa(g_kb_modal, LV_OPA_COVER, 0);
         lv_obj_set_style_border_width(g_kb_modal, 0, 0);
         lv_obj_set_style_radius(g_kb_modal, 0, 0);

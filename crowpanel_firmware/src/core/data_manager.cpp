@@ -849,6 +849,14 @@ void DataManager::saveWifiCredentialsToFs() {
 
 void DataManager::saveWifiCredentials(const String& ssid, const String& pass) {
     if (ssid.length() == 0) return;
+
+    // VERY IMPORTANT FIX:
+    // If the network is already at the top of the list and the password matches, do nothing.
+    // This prevents LittleFS from triggering a Flash Write on every Wi-Fi status update,
+    // which disables the CPU cache, blocks the PSRAM bus, and violently starves the RGB DMA!
+    if (_wifiCount > 0 && _wifiSsid[0] == ssid && _wifiPass[0] == pass) {
+        return; 
+    }
     int existing_idx = -1;
     for (int i = 0; i < _wifiCount; i++) {
         if (_wifiSsid[i] == ssid) { existing_idx = i; break; }

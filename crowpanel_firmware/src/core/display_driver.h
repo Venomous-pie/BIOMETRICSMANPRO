@@ -72,7 +72,7 @@ public:
     }
     {
       auto cfg = _panel_instance.config_detail();
-      cfg.use_psram = 1; // 1 = allocate frame buffer in PSRAM, but use internal SRAM bounce buffer to prevent tearing during WiFi activity
+      cfg.use_psram = 2; // 2 = allocate frame buffer in PSRAM
       _panel_instance.config_detail(cfg);
     }
     {
@@ -80,7 +80,7 @@ public:
       cfg.x_min = 0;
       cfg.x_max = 799;
       cfg.y_min = 0;
-      cfg.y_max = 479;
+      cfg.y_max = 479;  
       cfg.pin_int  = TOUCH_GT911_INT;
       cfg.pin_rst  = TOUCH_GT911_RST;
       cfg.bus_shared = true;
