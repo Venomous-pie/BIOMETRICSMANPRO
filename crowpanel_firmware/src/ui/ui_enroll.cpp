@@ -5,6 +5,7 @@
 #include "../core/comm_manager.h"
 #include <mbedtls/base64.h>
 
+
 LV_FONT_DECLARE(lv_font_montserrat_20);
 LV_FONT_DECLARE(lv_font_montserrat_24);
 LV_FONT_DECLARE(lv_font_montserrat_28);
@@ -26,7 +27,6 @@ static lv_obj_t *dot_1 = NULL;
 static lv_obj_t *dot_2 = NULL;
 static lv_obj_t *dot_3 = NULL;
 
-// Deferred state for Choose Finger screen (moved up so enroll can use it)
 static String defer_emp_id = "";
 static String defer_name = "";
 static String defer_dept = "";
@@ -51,24 +51,39 @@ const char* getFingerName(int index) {
 }
 
 static void enroll_back_cb(lv_event_t * e) {
-  // Tell the WROOM to abort the active enrollment scan
   CommManager::sendCommand("CANCEL_ENROLL");
   uiShowChooseFinger(defer_emp_id, defer_name.c_str(), defer_dept.c_str());
 }
 
+// Persist data set by uiShowEnrollResult, consumed by enroll_done_cb.
+static String g_enroll_persist_emp_id       = "";
+static int    g_enroll_persist_finger_index  = -1;
+
+// Holds pending persist data until the Employee List screen finishes loading
+static String g_pending_persist_emp_id       = "";
+static int    g_pending_persist_finger       = -1;
+
+extern unsigned long last_flush_time;
+
 static void enroll_done_cb(lv_event_t * e) {
+  if (g_enroll_persist_finger_index >= 0 && g_enroll_persist_emp_id.length() > 0) {
+    g_pending_persist_emp_id = g_enroll_persist_emp_id;
+    g_pending_persist_finger = g_enroll_persist_finger_index;
+    g_enroll_persist_finger_index = -1;
+    g_enroll_persist_emp_id = "";
+  }
   uiShowEmpList();
 }
 
 lv_obj_t *scr_emp_list = NULL;
 lv_obj_t *emp_list_obj = NULL;
 static lv_obj_t *ta_search = NULL;
-static lv_obj_t *dd_status_filter = NULL;  // Enrollment status dropdown
+static lv_obj_t *dd_status_filter = NULL; 
 static lv_obj_t *dd_dept_filter = NULL;
 static lv_obj_t *dd_branch_filter = NULL;
-lv_timer_t *search_debounce_timer = NULL;  // fires 400 ms after last keystroke
+lv_timer_t *search_debounce_timer = NULL;  
 
-static int g_status_filter = 0;  // 0=All, 1=Enrolled, 2=Unenrolled
+static int g_status_filter = 0; 
 static String g_dept_filter_str = "All";
 static String g_branch_filter_str = "All";
 
@@ -102,13 +117,8 @@ static lv_obj_t *lbl_start_scan_text = NULL;
 static lv_obj_t *lbl_choose_info = NULL;
 static lv_obj_t *finger_objs[10];
 
-// Navigation guard: prevents stacked deferred timers when user taps quickly.
-// Set to true when a deferred screen transition starts; cleared when it fully
-// completes (after populate). Any tap during that window is ignored.
 static bool s_nav_busy = false;
 
-// Watchdog: if WROOM never echoes ENROLL_START (dropped packet), return to
-// choose-finger after this timeout and restore the Start Scan button.
 static lv_timer_t *enrollStartWatchdog = NULL;
 
 extern void uiShowIdle();
@@ -127,7 +137,7 @@ static void btn_back_cb(lv_event_t *e) {
 static unsigned long last_emp_sync_click = 0;
 
 static void btn_emp_sync_cb(lv_event_t *e) {
-  if (millis() - last_emp_sync_click < 2000) return; // 2-second debounce
+  if (millis() - last_emp_sync_click < 2000) return; 
   last_emp_sync_click = millis();
 
   if (Serial) Serial.println("UI EmpList: Sync button clicked");
@@ -183,7 +193,7 @@ static bool equalsIgnoreCase(const char* a, const char* b) {
 }
 
 static void populate_emp_list(const char* name_filter, const char* dept_filter) {
-  if (!emp_list_obj) return; // Prevent crash if screen creation failed due to OOM
+  if (!emp_list_obj) return; 
   lv_obj_clean(emp_list_obj);
 
   const Employee* db = DataManager::getEmployees();
@@ -201,14 +211,12 @@ static void populate_emp_list(const char* name_filter, const char* dept_filter) 
     const char* j = db[i].job_title.c_str();
     const char* b = db[i].branch.c_str();
     
-    // Hide Admin from the UI list
     if (containsIgnoreCase(n, "admin") || containsIgnoreCase(d, "admin") || containsIgnoreCase(j, "admin")) continue;
 
     if (name_filter && strlen(name_filter) > 0 && !containsIgnoreCase(n, name_filter)) continue;
-    // Apply enrollment status filter
     if (g_status_filter == 1 && !db[i].fp_enrolled) continue;
     if (g_status_filter == 2 && db[i].fp_enrolled) continue;
-    // Apply dept & branch filters
+    
     if (g_dept_filter_str != "All" && !equalsIgnoreCase(d, g_dept_filter_str.c_str())) continue;
     if (g_branch_filter_str != "All" && !equalsIgnoreCase(b, g_branch_filter_str.c_str())) continue;
     filtered_count++;
@@ -251,7 +259,6 @@ static void populate_emp_list(const char* name_filter, const char* dept_filter) 
     const char* j = db[i].job_title.c_str();
     const char* b = db[i].branch.c_str();
 
-    // Hide Admin from the UI list
     if (containsIgnoreCase(n, "admin") || containsIgnoreCase(d, "admin") || containsIgnoreCase(j, "admin")) continue;
 
     if (name_filter && strlen(name_filter) > 0 && !containsIgnoreCase(n, name_filter)) continue;
@@ -263,9 +270,8 @@ static void populate_emp_list(const char* name_filter, const char* dept_filter) 
     if (current_idx >= start_idx && current_idx < end_idx) {
       bool enrolled = db[i].fp_enrolled;
 
-      // Row container
     lv_obj_t *row = lv_obj_create(emp_list_obj);
-    if (!row) break; // If OOM, stop creating rows instead of crashing
+    if (!row) break; 
     lv_obj_set_size(row, lv_pct(100), 52);
     lv_obj_set_style_bg_color(row, UIManager::rgb(0xFFFFFF), 0);
     lv_obj_set_style_border_width(row, 0, LV_PART_MAIN);
@@ -327,7 +333,6 @@ static void populate_emp_list(const char* name_filter, const char* dept_filter) 
   }
 }
 
-// Debounce timer callback — runs 400 ms after the last keystroke
 static void search_debounce_cb(lv_timer_t *t) {
     search_debounce_timer = NULL;
     current_page = 0;
@@ -338,9 +343,6 @@ static void search_debounce_cb(lv_timer_t *t) {
 static void search_ta_event_cb(lv_event_t * e) {
     lv_event_code_t code = lv_event_get_code(e);
     if (code == LV_EVENT_VALUE_CHANGED) {
-        // Debounce: reset 400 ms timer on every keystroke instead of
-        // calling populate_emp_list() (which does lv_obj_clean + full
-        // widget recreate) on every single character typed.
         if (search_debounce_timer) {
             lv_timer_reset(search_debounce_timer);
         } else {
@@ -356,7 +358,7 @@ static void search_ta_event_cb(lv_event_t * e) {
 void buildEmpListScreen() {
   if (scr_emp_list != NULL) return;
   scr_emp_list = lv_obj_create(NULL);
-  if (!scr_emp_list) return; // Prevent LoadProhibited crash on OOM
+  if (!scr_emp_list) return;
 
   lv_obj_set_style_bg_color(scr_emp_list, UIManager::rgb(0xFFFFFF), 0);
   lv_obj_set_style_bg_opa(scr_emp_list, LV_OPA_COVER, 0);
@@ -388,7 +390,6 @@ void buildEmpListScreen() {
   lv_obj_set_style_bg_color(sep, UIManager::rgb(0xE0E0E0), 0);
   lv_obj_set_style_border_width(sep, 0, 0);
 
-  // â”€â”€ Search Row â”€â”€
   ta_search = lv_textarea_create(scr_emp_list);
   lv_textarea_set_one_line(ta_search, true);
   lv_textarea_set_placeholder_text(ta_search, "Search by name");
@@ -414,8 +415,6 @@ void buildEmpListScreen() {
       else if (dd == dd_branch_filter) g_branch_filter_str = buf;
 
       current_page = 0;
-      // Reuse the search debounce timer so rapid filter changes don't
-      // trigger a synchronous lv_obj_clean + full widget rebuild each time.
       if (search_debounce_timer) {
           lv_timer_reset(search_debounce_timer);
       } else {
@@ -658,7 +657,6 @@ void buildEnrollScreen() {
 }
 
 void uiShowEnrollStart(const char *name) {
-  // Cancel the watchdog — WROOM confirmed it received the ENROLL command.
   if (enrollStartWatchdog) { lv_timer_del(enrollStartWatchdog); enrollStartWatchdog = NULL; }
 
   if (scr_enroll == NULL) buildEnrollScreen();
@@ -721,17 +719,11 @@ void uiShowEnrollResult(bool ok, const char *name) {
   lv_obj_clear_flag(lbl_scan_subtext, LV_OBJ_FLAG_HIDDEN);
 
   if (ok) {
-    // ── Render success UI first ──────────────────────────────────────────────
-    // updateEmployeeFpEnrolled() calls saveEmployees() (full JSONL rewrite) and
-    // writeFpStateEntry() (8 KB JSON read+write) — both blocking LittleFS ops
-    // that stall lv_task_handler() for 100-400 ms. Deferring them to a 1ms
-    // timer lets LVGL flush the "Fingerprint Enrolled" frame before any I/O
-    // begins, eliminating the glitch/tear on the success transition.
-    lv_timer_t* persist_timer = lv_timer_create([](lv_timer_t *t) {
-      DataManager::updateEmployeeFpEnrolled(selected_emp_id, true, selected_finger_index);
-      lv_timer_del(t);
-    }, 1, NULL);
-    lv_timer_set_repeat_count(persist_timer, 1);
+    // Record persist data — the actual LittleFS write is deferred to
+    // enroll_done_cb() so it happens during the user's "Done" tap, where
+    // any brief flash-cache stall is masked by the screen transition.
+    g_enroll_persist_emp_id      = selected_emp_id;
+    g_enroll_persist_finger_index = selected_finger_index;
 
     lv_obj_add_flag(btn_enroll_back, LV_OBJ_FLAG_HIDDEN);
     lv_obj_clear_flag(btn_enroll_done, LV_OBJ_FLAG_HIDDEN);
@@ -750,9 +742,6 @@ void uiShowEnrollResult(bool ok, const char *name) {
     lv_label_set_text(lbl_scan_subtext, sub.c_str());
 
   } else {
-    // If you have a failure icon, use it here. For now, keep fallback symbol or just hide it.
-    // Assuming we fallback to the wifi icon or hide it since we don't have icon_close image?
-    // Actually, we can use the same check icon or hide it. Let's just use icon_biometrics for fail.
     lv_img_set_src(img_scan_icon, &icon_biometrics);
     
     lv_label_set_text(lbl_scan_text, "Enrollment Failed");
@@ -770,7 +759,6 @@ void uiShowEnrollResult(bool ok, const char *name) {
 }
 
 static void choose_back_cb(lv_event_t * e) {
-  // Cancel any pending watchdog before leaving the screen
   if (enrollStartWatchdog) { lv_timer_del(enrollStartWatchdog); enrollStartWatchdog = NULL; }
   uiShowEmpList();
 }
@@ -779,8 +767,6 @@ static void finger_click_cb(lv_event_t * e) {
   int f_idx = (int)(intptr_t)lv_event_get_user_data(e);
   selected_finger_index = f_idx;
   
-  // getEnrolledMask() handles both regular employees (empDB, fast) and "ADMIN"
-  // (fp_state.json fallback) so admin fingers are highlighted correctly.
   uint16_t enrolled_mask = DataManager::getEnrolledMask(selected_emp_id);
 
   for (int i = 0; i < 10; i++) {
@@ -842,8 +828,6 @@ static void start_scan_cb(lv_event_t * e) {
           for (int i=0; i<totalChunks; i++) {
               StaticJsonDocument<512> doc;
               doc["type"] = "CACHE_CHUNK";
-              // Translate "ADMIN" to wire empId 0 (WROOM's admin identity).
-              // For regular employees, .toInt() gives the correct numeric ID.
               doc["emp_id"] = (selected_emp_id == "ADMIN") ? 0 : selected_emp_id.toInt();
               doc["f_idx"] = selected_finger_index;
               doc["c"] = i;
@@ -870,29 +854,20 @@ static void start_scan_cb(lv_event_t * e) {
     if (db[i].id == selected_emp_id) { n = db[i].name; break; }
   }
 
-  // Disable the button and show 'Sending...' while we wait for ENROLL_START
-  // echo from the WROOM. This prevents double-sends and shows clear feedback.
   if (btn_start_scan) {
     lv_obj_add_state(btn_start_scan, LV_STATE_DISABLED);
     if (lbl_start_scan_text) lv_label_set_text(lbl_start_scan_text, "Sending... " LV_SYMBOL_UPLOAD);
   }
 
   char buf[256];
-  // "ADMIN" is the CrowPanel's internal ID for the admin. The WROOM knows it as
-  // empId=0, which is always assigned to the protected AS608 slot 1.
   String wireId = (selected_emp_id == "ADMIN") ? "0" : selected_emp_id;
   if (selected_emp_id == "ADMIN") n = "Admin";
   snprintf(buf, sizeof(buf), "ENROLL:%s:%d:%s", wireId.c_str(), selected_finger_index, n.c_str());
   CommManager::sendCommand(String(buf));
 
-  // Do NOT call uiShowEnrollStart here. The WROOM echoes ENROLL_START back,
-  // which triggers uiShowEnrollStart via CommManager::dispatchJson.
-  // Set a 4-second watchdog: if the packet was dropped, restore the button
-  // so the user can try again instead of being stuck forever.
   if (enrollStartWatchdog) { lv_timer_del(enrollStartWatchdog); enrollStartWatchdog = NULL; }
   enrollStartWatchdog = lv_timer_create([](lv_timer_t *t) {
     enrollStartWatchdog = NULL;
-    // Packet was dropped — restore the Start Scan button so user can retry.
     if (btn_start_scan && lbl_start_scan_text) {
       lv_obj_clear_state(btn_start_scan, LV_STATE_DISABLED);
       lv_label_set_text(lbl_start_scan_text, "Start scan " LV_SYMBOL_RIGHT);
@@ -909,7 +884,6 @@ static void msgbox_event_cb(lv_event_t * e) {
             char buf[256];
             snprintf(buf, sizeof(buf), "DELETE:%s:%d", selected_emp_id.c_str(), selected_finger_index);
             CommManager::sendCommand(String(buf));
-            // Clear only this specific finger bit
             DataManager::updateEmployeeFpEnrolled(selected_emp_id, false, selected_finger_index);
             uiShowChooseFinger(selected_emp_id, defer_name.c_str(), defer_dept.c_str());
         }
@@ -1072,8 +1046,6 @@ void uiShowChooseFinger(String emp_id, const char *name, const char *dept, bool 
       lv_obj_add_flag(btn_delete_scan, LV_OBJ_FLAG_HIDDEN);
     }
 
-    // getEnrolledMask() handles both regular employees (empDB, fast) and "ADMIN"
-    // (fp_state.json fallback) so admin fingers are highlighted correctly.
     uint16_t enrolled_mask = DataManager::getEnrolledMask(selected_emp_id);
 
     for (int i = 0; i < 10; i++) {
@@ -1112,19 +1084,24 @@ void uiShowEmpList(bool isFallback) {
   }
 
   lv_timer_t *defer = lv_timer_create([](lv_timer_t *t) {
-    lv_obj_t *temp_scr = NULL;
+    // 1. Build the Employee List screen first while the old screen is still visible.
+    // This completely eliminates the jarring "black screen flash" during transitions.
+    if (scr_emp_list == NULL) {
+      buildEmpListScreen();
+    }
+    
+    if (scr_emp_list == NULL || emp_list_obj == NULL) {
+      UIManager::showToast("Memory Full!", true);
+      extern void uiShowMainMenu();
+      uiShowMainMenu();
+      return;
+    }
 
-    // 1. Delete Choose Finger if transitioning from it
+    // 2. Load the new screen BEFORE deleting the old ones.
+    lv_scr_load(scr_emp_list);
+
+    // 3. Now safely delete any old screens that we transitioned away from to free RAM.
     if (scr_choose_finger != NULL) {
-      temp_scr = lv_obj_create(NULL);
-      if (temp_scr) {
-        lv_obj_set_style_bg_color(temp_scr, UIManager::rgb(0x1A1A1A), 0);
-        lv_scr_load(temp_scr);
-      } else {
-        extern void uiShowIdle();
-        uiShowIdle();
-      }
-
       lv_obj_del(scr_choose_finger);
       scr_choose_finger = NULL;
       btn_start_scan = NULL;
@@ -1134,34 +1111,13 @@ void uiShowEmpList(bool isFallback) {
       for (int i = 0; i < 10; i++) finger_objs[i] = NULL;
     }
 
-    // 2. Delete Main Menu if transitioning from it to save RAM
-    if (!temp_scr) {
-      temp_scr = lv_obj_create(NULL);
-      if (temp_scr) {
-        lv_obj_set_style_bg_color(temp_scr, UIManager::rgb(0x1A1A1A), 0);
-        lv_scr_load(temp_scr);
-      } else {
-        extern void uiShowIdle();
-        uiShowIdle();
-      }
+    extern lv_obj_t *scr_enroll;
+    if (scr_enroll != NULL) {
+      lv_obj_del(scr_enroll);
+      scr_enroll = NULL;
     }
-    uiDestroyMainMenu();
 
-    // 3. Now that we have RAM, build the Employee List screen.
-    if (scr_emp_list == NULL) {
-      buildEmpListScreen();
-    }
-    
-    // If it STILL failed to build due to OOM, abort gracefully
-    if (scr_emp_list == NULL || emp_list_obj == NULL) {
-      UIManager::showToast("Memory Full!", true);
-      if (temp_scr) lv_obj_del_async(temp_scr);
-      
-      // Since we deleted main menu, force fallback to Idle or rebuild Main Menu
-      extern void uiShowMainMenu();
-      uiShowMainMenu();
-      return;
-    }
+    uiDestroyMainMenu();
 
     // Pre-calculate unique departments and branches dynamically
     const int MAX_UNIQUE = 30;
@@ -1209,11 +1165,8 @@ void uiShowEmpList(bool isFallback) {
       lv_obj_align(emp_list_obj, LV_ALIGN_TOP_MID, 0, 185);
     }
 
-    // 4. Load the Employee List screen and auto-delete the temporary screen.
+    // 4. Load the Employee List screen.
     lv_scr_load(scr_emp_list);
-    if (temp_scr) {
-      lv_obj_del_async(temp_scr);
-    }
 
     // 5. Populate the list in a SECOND deferred timer so it runs AFTER LVGL
     //    has fully committed the screen load (prevents freeze from running
@@ -1221,6 +1174,24 @@ void uiShowEmpList(bool isFallback) {
     lv_timer_t *pop_timer = lv_timer_create([](lv_timer_t *t) {
       populate_emp_list("", "");
       s_nav_busy = false; // Navigation fully complete — list is now visible
+      
+      if (g_pending_persist_finger >= 0) {
+        struct PersistCtx { String empId; int fingerIndex; };
+        PersistCtx* pctx = new PersistCtx{ g_pending_persist_emp_id, g_pending_persist_finger };
+        g_pending_persist_finger = -1;
+        g_pending_persist_emp_id = "";
+        
+        // Now spawn the Core 0 task — the screen is genuinely idle
+        xTaskCreatePinnedToCore([](void* arg) {
+          PersistCtx* ctx = (PersistCtx*)arg;
+          // Add a short delay just to ensure the LVGL task handler has fully exited
+          // and the DMA has cleanly picked up the new static frame
+          vTaskDelay(pdMS_TO_TICKS(100));
+          DataManager::updateEmployeeFpEnrolled(ctx->empId, true, ctx->fingerIndex);
+          delete ctx;
+          vTaskDelete(NULL);
+        }, "EnrollPersist", 4096, pctx, 1, NULL, 0);
+      }
     }, 20, NULL);
     lv_timer_set_repeat_count(pop_timer, 1);
   }, 10, NULL);

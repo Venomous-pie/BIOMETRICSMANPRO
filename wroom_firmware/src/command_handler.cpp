@@ -314,6 +314,12 @@ void handleCmd(String cmd) {
     } else if (strcmp(action, "DEBUG") == 0) {
       Serial.println(jcmd["msg"].as<String>());
 
+    } else if (strcmp(action, "PLAY_AUDIO") == 0) {
+      int track = jcmd["track"] | 0;
+      if (track > 0) {
+          playTrack(track);
+      }
+
     } else if (strcmp(action, "WIFI_SCAN") == 0) {
       handleWifiScan();
 

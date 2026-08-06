@@ -24,6 +24,8 @@
 
 // Display configuration
 LGFX lcd;
+unsigned long last_flush_time = 0; // Tracks the last time LVGL pushed a frame
+
 
 // Screen blanking state
 bool screen_is_awake = true;
@@ -42,7 +44,8 @@ void manpro_wake_display() {
   #define LV_CONF_INCLUDE_SIMPLE
 #endif
 
-static const uint16_t LV_BUF_LINES = 100; // ~160KB/buf in SRAM
+// Partial render buffer — 240 lines per buf in PSRAM. Blocking ops are off the main thread.
+static const uint16_t LV_BUF_LINES = 240;
 
 #if LVGL_VERSION_MAJOR >= 9
 static void *buf1;
@@ -56,6 +59,7 @@ void my_disp_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
   lcd.startWrite();
   lcd.pushImage(area->x1, area->y1, w, h, (lgfx::rgb565_t *)px_map);
   lcd.endWrite();
+  last_flush_time = millis(); // Record exact time render finished
   lv_display_flush_ready(disp);
 }
 
@@ -161,10 +165,14 @@ void setup() {
   // LVGL
   lv_init();
   
+  // Partial render double buffer: 800x240 lines, allocated in PSRAM.
 #if LVGL_VERSION_MAJOR >= 9
-  uint32_t buf_sz = LCD_WIDTH * LV_BUF_LINES * 2;
+  uint32_t buf_sz = LCD_WIDTH * LV_BUF_LINES * 2; // 2 bytes per pixel (RGB565)
   buf1 = heap_caps_malloc(buf_sz, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   buf2 = heap_caps_malloc(buf_sz, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!buf1 || !buf2) {
+    Serial.println("[LVGL] FATAL: Could not allocate PSRAM buffers!");
+  }
 
   disp = lv_display_create(LCD_WIDTH, LCD_HEIGHT);
   lv_display_set_flush_cb(disp, my_disp_flush);
@@ -174,21 +182,17 @@ void setup() {
   lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
   lv_indev_set_read_cb(indev, my_touch_read);
 #else
-  uint32_t buf_malloc_flags = (psram_free >= 800000)
-    ? (MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)
-    : (MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
-
-  buf1 = (lv_color_t *)heap_caps_malloc(LCD_WIDTH * LV_BUF_LINES * sizeof(lv_color_t), buf_malloc_flags);
-  buf2 = (lv_color_t *)heap_caps_malloc(LCD_WIDTH * LV_BUF_LINES * sizeof(lv_color_t), buf_malloc_flags);
+  // Partial render double buffer: 800*240 pixels at sizeof(lv_color_t) each, in PSRAM.
+  buf1 = (lv_color_t *)heap_caps_malloc(LCD_WIDTH * LV_BUF_LINES * sizeof(lv_color_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  buf2 = (lv_color_t *)heap_caps_malloc(LCD_WIDTH * LV_BUF_LINES * sizeof(lv_color_t), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
   if (!buf1 || !buf2) {
-    Serial.println("[LVGL] FATAL: Could not allocate display buffers!");
-    // Fallback to small internal buffer
+    Serial.println("[LVGL] FATAL: Could not allocate PSRAM buffers!");
     free(buf1); free(buf2);
-    buf1 = (lv_color_t *)heap_caps_malloc(LCD_WIDTH * 10 * sizeof(lv_color_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+    buf1 = (lv_color_t *)heap_caps_malloc(LCD_WIDTH * 40 * sizeof(lv_color_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
     buf2 = NULL;
   }
 
-  lv_disp_draw_buf_init(&draw_buf, buf1, buf2, LCD_WIDTH * LV_BUF_LINES);
+  lv_disp_draw_buf_init(&draw_buf, buf1, buf2, buf1 && buf2 ? LCD_WIDTH * LV_BUF_LINES : LCD_WIDTH * 40);
 
   lv_disp_drv_init(&disp_drv);
   disp_drv.hor_res  = LCD_WIDTH;

@@ -11,8 +11,8 @@
 #define MAX_SLOTS    127  // Maximum AS608 template slots (sensor-rated capacity)
 
 // ── Audio (DFPlayer Mini & Buzzer) ────────────────────────────────────────────
-#define PIN_DFP_RX   16   // DFPlayer TX → WROOM UART2 RX
-#define PIN_DFP_TX   17   // DFPlayer RX ← WROOM UART2 TX
+#define PIN_DFP_RX   17   // DFPlayer TX → WROOM UART2 RX
+#define PIN_DFP_TX   16   // DFPlayer RX ← WROOM UART2 TX
 #define PIN_BUZZER   13   // Active Buzzer GPIO
 
 // MP3 Folder Track Numbers

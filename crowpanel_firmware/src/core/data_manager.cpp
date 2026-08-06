@@ -30,6 +30,10 @@ static SemaphoreHandle_t s_logMutex = nullptr;
 // appears earlier in the file than syncStart where it would otherwise be defined.
 static bool s_empSyncActive = false;
 
+// Protects primitive field modifications (fp_enrolled, enrolled_fingers) in empDB
+// across cores.
+static portMUX_TYPE s_empMutex = portMUX_INITIALIZER_UNLOCKED;
+
 // ── Live attendance log ───────────────────────────────────────────────────────
 // Stored in RAM (up to MAX_LOGS entries) and persisted to LittleFS.
 // Oldest entries are overwritten when the buffer is full.
@@ -495,6 +499,7 @@ void DataManager::updateEmployeeFpEnrolled(const String& emp_id, bool enrolled, 
 
     for (int i = 0; i < empCount; i++) {
         if (empDB[i].id == emp_id) {
+            portENTER_CRITICAL(&s_empMutex);
             if (enrolled && finger_index >= 0 && finger_index < 10) {
                 empDB[i].enrolled_fingers |= (uint16_t)(1 << finger_index);  // set bit
             } else if (!enrolled && finger_index >= 0 && finger_index < 10) {
@@ -503,9 +508,11 @@ void DataManager::updateEmployeeFpEnrolled(const String& emp_id, bool enrolled, 
                 empDB[i].enrolled_fingers = 0; // finger_index == -1: clear all
             }
             empDB[i].fp_enrolled = (empDB[i].enrolled_fingers != 0);
-            // Persist to both JSONL (for fast boot re-load) and fp_state.json
-            // (stable across payroll syncs, keyed by emp_id).
-            saveEmployees();
+            portEXIT_CRITICAL(&s_empMutex);
+            // Persist ONLY to fp_state.json. It's stable across payroll syncs and
+            // loadEmployees() merges it on boot. Skipping saveEmployees() here avoids
+            // rewriting the whole JSONL database (100-400ms), which starves the LCD 
+            // DMA of PSRAM and causes massive screen tearing.
             writeFpStateEntry(emp_id, finger_index, enrolled);
             return;
         }

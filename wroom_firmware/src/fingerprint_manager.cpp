@@ -292,11 +292,7 @@ void doMatch() {
   doc["ts"]     = getTimestamp();
   sendDoc(doc);
   
-  if (isIn) {
-    playTrack(TRACK_TIME_IN);
-  } else {
-    playTrack(TRACK_TIME_OUT);
-  }
+  // Audio playback is now commanded by the CrowPanel after validating attendance.
 }
 
 void doMockMatch(int slot) {
@@ -322,11 +318,7 @@ void doMockMatch(int slot) {
   sendDoc(doc);
   Serial.printf("[FP-MOCK] Generated fake %s match for slot %d (empId: %d)\n", doc["action"].as<const char*>(), slot, empId);
   
-  if (isIn) {
-    playTrack(TRACK_TIME_IN);
-  } else {
-    playTrack(TRACK_TIME_OUT);
-  }
+  // Audio playback is now commanded by the CrowPanel after validating attendance.
 }
 
 volatile bool enrollCancelled = false;

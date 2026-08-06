@@ -110,8 +110,8 @@ The system uses a **Smart Cache** architecture. The WROOM's AS608 fingerprint se
 | **GPIO34** | Input-only | AS608 T-OUT (touch detect) | Pulled HIGH by sensor when finger present |
 | **GPIO21** | SDA | DS3231 I2C Data | 4.7k pull-up to 3.3 V (often built into module) |
 | **GPIO22** | SCL | DS3231 I2C Clock | 4.7k pull-up to 3.3 V (often built into module) |
-| **UART2 RX** | **GPIO16** | DFPlayer TX <- | Audio RX (Use Logic Level Shifter!) |
-| **UART2 TX** | **GPIO17** | DFPlayer RX -> | Audio TX (Use Logic Level Shifter!) |
+| **UART2 RX** | **GPIO17** | DFPlayer TX <- | Audio RX (Use Logic Level Shifter!) |
+| **UART2 TX** | **GPIO16** | DFPlayer RX -> | Audio TX (Use Logic Level Shifter!) |
 | **GPIO13** | Output | Active Buzzer | Buzzer signal |
 | **GPIO14** | Factory Reset | Active HIGH button | Uses internal pull-down; hold 5 s to wipe |
 
@@ -155,8 +155,8 @@ The system uses a **Smart Cache** architecture. The WROOM's AS608 fingerprint se
 |---|---|---|
 | DFPlayer VCC | 5V Power Rail | Provide 5V for loud/clean audio |
 | DFPlayer GND | Common GND | |
-| DFPlayer RX | Logic Level Converter (HV) -> (LV) -> WROOM GPIO17 (TX) | Converts 3.3V TX to 5V |
-| DFPlayer TX | Logic Level Converter (HV) -> (LV) -> WROOM GPIO16 (RX) | Converts 5V TX to 3.3V |
+| DFPlayer RX | Logic Level Converter (HV) -> (LV) -> WROOM GPIO16 (TX) | Converts 3.3V TX to 5V |
+| DFPlayer TX | Logic Level Converter (HV) -> (LV) -> WROOM GPIO17 (RX) | Converts 5V TX to 3.3V |
 | DFPlayer SPK+ | Speaker Positive (+) | |
 | DFPlayer SPK- | Speaker Negative (-) | |
 | Buzzer VCC | 5V Power Rail | Positive terminal of the buzzer |

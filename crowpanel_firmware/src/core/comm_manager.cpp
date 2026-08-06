@@ -615,6 +615,10 @@ void CommManager::dispatchJson(const String& line) {
                     return; // Prevent log creation
                 }
                 
+                // Send PLAY_AUDIO command to WROOM immediately so there's no delay
+                int track = (action_type == 2 || action_type == 4) ? 2 : 1;
+                CommManager::sendCommand("{\"cmd\":\"PLAY_AUDIO\",\"track\":" + String(track) + "}");
+                
                 // Record the attendance log and attempt to upload
                 DataManager::addLog(realName, String(ts), action_type, conf, empId);
                 DataManager::uploadPendingLogs();
@@ -649,30 +653,23 @@ void CommManager::dispatchJson(const String& line) {
                     if (empIdStr == "0") empIdStr = "ADMIN";
                     int idx = doc["idx"] | 0;
                     if (empIdStr.length() > 0) {
-                        DataManager::saveTemplate(empIdStr, idx, decodeBuf, outputLen);
-                        // NOTE: updateEmployeeFpEnrolled() is intentionally NOT called here.
-                        // uiShowEnrollResult(true) handles it when ENROLL_OK arrives, which
-                        // keeps the blocking saveEmployees()+writeFpStateEntry() writes out of
-                        // the ENROLL_CHUNK dispatch path and prevents LVGL screen tearing.
-                        
-                        // We also need to upload it to the API here so the backend has the backup
-                        // The WROOM used to do this, now we do it.
-                        // We can run this in a fire-and-forget task or queue it.
-                        // Let's just create a quick xTask to POST it.
+                        // Upload template to backend in a background task so it doesn't
+                        // block lv_task_handler() before ENROLL_OK triggers the UI update.
+                        // (No SD card — template is persisted on the WROOM/backend only.)
                         struct UploadCtx {
                             String empName;
                             int fingerIndex;
                             int slot;
                             String b64Data;
-                            size_t tplSize;
+                            size_t tplLen;
                         };
                         UploadCtx* ctx = new UploadCtx;
-                        ctx->empName = doc["name"].as<String>();
+                        ctx->empName     = doc["name"].as<String>();
                         ctx->fingerIndex = idx;
-                        ctx->slot = doc["slot"] | 0;
-                        ctx->b64Data = b64Buffer;
-                        ctx->tplSize = outputLen;
-                        
+                        ctx->slot        = doc["slot"] | 0;
+                        ctx->b64Data     = b64Buffer;
+                        ctx->tplLen      = outputLen;
+
                         TaskFunction_t uploadFn = [](void* arg) {
                             UploadCtx* ctx = (UploadCtx*)arg;
                             if (WiFi.status() == WL_CONNECTED && DataManager::isActivated()) {
@@ -681,15 +678,15 @@ void CommManager::dispatchJson(const String& line) {
                                 http.begin(url);
                                 http.addHeader("Content-Type", "application/json");
                                 http.addHeader("Authorization", "Bearer " + DataManager::getActivationCode());
-                                
+
                                 StaticJsonDocument<1024> body;
                                 body["employee_name"] = ctx->empName;
-                                body["finger_index"] = ctx->fingerIndex;
-                                body["slot"] = ctx->slot;
-                                body["device_id"] = DataManager::getDeviceId();
+                                body["finger_index"]  = ctx->fingerIndex;
+                                body["slot"]          = ctx->slot;
+                                body["device_id"]     = DataManager::getDeviceId();
                                 body["template_data"] = ctx->b64Data;
-                                body["template_size"] = ctx->tplSize;
-                                
+                                body["template_size"] = ctx->tplLen;
+
                                 http.setTimeout(5000);
                                 String bodyStr;
                                 serializeJson(body, bodyStr);
@@ -700,6 +697,7 @@ void CommManager::dispatchJson(const String& line) {
                             vTaskDelete(NULL);
                         };
                         if (xTaskCreate(uploadFn, "UploadTpl", 8192, ctx, 1, NULL) != pdPASS) {
+                            Serial.println("[ENROLL] xTaskCreate failed — upload skipped");
                             delete ctx;
                         }
                     }

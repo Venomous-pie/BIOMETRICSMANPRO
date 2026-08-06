@@ -14,8 +14,8 @@
  *   - DFRobotDFPlayerMini                  (DFRobot)
  *
  * Hardware Wiring (Audio):
- *   - DFPlayer TX   -> WROOM GPIO16 (RX2)
- *   - DFPlayer RX   -> WROOM GPIO17 (TX2)
+ *   - DFPlayer TX   -> WROOM GPIO17 (RX2)
+ *   - DFPlayer RX   -> WROOM GPIO16 (TX2)
  *   - DFPlayer VCC  -> 5V or 3.3V (depends on module/power)
  *   - DFPlayer GND  -> GND
  *   - DFPlayer SPK+ -> Speaker +

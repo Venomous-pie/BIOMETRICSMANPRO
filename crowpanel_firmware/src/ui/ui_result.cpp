@@ -228,7 +228,7 @@ void buildNoMatchScreen() {
   lv_obj_set_style_bg_opa(scr_nomatch, LV_OPA_COVER, 0);
   
   lv_obj_t *lbl_nomatch = lv_label_create(scr_nomatch);
-  lv_label_set_text(lbl_nomatch, "NO MATCH");
+  lv_label_set_text(lbl_nomatch, "NOT RECOGNIZED");
   UIManager::styleLabel(lbl_nomatch, COLOR_DANGER, &lv_font_montserrat_36, LV_TEXT_ALIGN_CENTER);
   lv_obj_align(lbl_nomatch, LV_ALIGN_CENTER, 0, -20);
   lv_obj_t *lbl_nomatch_msg = lv_label_create(scr_nomatch);
