@@ -320,6 +320,10 @@ void handleCmd(String cmd) {
           playTrack(track);
       }
 
+    } else if (strcmp(action, "SET_VOLUME") == 0) {
+      int vol = jcmd["vol"] | 20;
+      setVolume(vol);
+
     } else if (strcmp(action, "WIFI_SCAN") == 0) {
       handleWifiScan();
 

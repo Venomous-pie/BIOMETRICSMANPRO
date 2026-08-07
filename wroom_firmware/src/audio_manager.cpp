@@ -32,13 +32,19 @@ void audioManagerInit() {
 
 void playTrack(int trackNum) {
   Serial.printf("[AUDIO] Playing MP3 track %d\n", trackNum);
-  beep(100); // 100ms beep before audio
-  delay(50); // Short pause
-  myDFPlayer.playMp3Folder(trackNum); // Plays files in the /mp3/ folder named 0001.mp3, 0002.mp3...
+  // Uses physical FAT index to play files from the root directory instantly
+  myDFPlayer.play(trackNum);
 }
 
 void beep(int durationMs) {
   digitalWrite(PIN_BUZZER, HIGH);
   delay(durationMs);
   digitalWrite(PIN_BUZZER, LOW);
+}
+
+void setVolume(int vol) {
+  if (vol < 0) vol = 0;
+  if (vol > 30) vol = 30;
+  Serial.printf("[AUDIO] Setting volume to %d\n", vol);
+  myDFPlayer.volume(vol);
 }

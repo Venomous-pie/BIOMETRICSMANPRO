@@ -114,7 +114,7 @@ void buildSettingsScreen() {
 
     create_card(cards_cont, &icon_clock_network, "Clock & Network", "Wi-Fi", btn_card_clock_cb, false);
     create_card(cards_cont, &icon_server_device, "Server & Device", "API, Device", btn_card_server_cb, false);
-    create_card(cards_cont, &icon_display_settings, "Display Settings", "Brightness, Timeout", btn_card_display_cb, false);
+    create_card(cards_cont, &icon_display_settings, "Other", "Display, Volume", btn_card_display_cb, false);
     
     auto btn_card_sync_cb = [](lv_event_t * e) {
         extern void uiShowSyncStatus();

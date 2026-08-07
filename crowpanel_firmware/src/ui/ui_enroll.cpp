@@ -1,6 +1,8 @@
 #include "ui_enroll.h"
 #include "ui_manager.h"
 #include "ui_main_menu.h"
+#include "ui_activation.h"
+#include "ui_pin.h"
 #include "../core/data_manager.h"
 #include "../core/comm_manager.h"
 #include <mbedtls/base64.h>
@@ -102,6 +104,8 @@ static void prev_page_cb(lv_event_t * e) {
     }
 }
 
+
+
 static void next_page_cb(lv_event_t * e) {
     current_page++;
     const char *n = ta_search ? lv_textarea_get_text(ta_search) : "";
@@ -125,6 +129,18 @@ extern void uiShowIdle();
 extern lv_timer_t *returnTimer;
 extern const lv_img_dsc_t icon_people;
 extern const lv_img_dsc_t icon_people_small;
+
+static void choose_back_cb(lv_event_t * e) {
+    if (enrollStartWatchdog) { lv_timer_del(enrollStartWatchdog); enrollStartWatchdog = NULL; }
+    
+    if (g_is_fallback) {
+        uiShowActivation();
+    } else if (selected_emp_id == "ADMIN") {
+        uiShowPinScreen(PIN_MODE_AUTH);
+    } else {
+        uiShowEmpList(false);
+    }
+}
 
 static void btn_back_cb(lv_event_t *e) {
   if (g_is_fallback) {
@@ -758,10 +774,7 @@ void uiShowEnrollResult(bool ok, const char *name) {
   }
 }
 
-static void choose_back_cb(lv_event_t * e) {
-  if (enrollStartWatchdog) { lv_timer_del(enrollStartWatchdog); enrollStartWatchdog = NULL; }
-  uiShowEmpList();
-}
+
 
 static void finger_click_cb(lv_event_t * e) {
   int f_idx = (int)(intptr_t)lv_event_get_user_data(e);
@@ -1040,7 +1053,9 @@ void uiShowChooseFinger(String emp_id, const char *name, const char *dept, bool 
     if (btn_start_scan) {
       lv_obj_add_state(btn_start_scan, LV_STATE_DISABLED);
       lv_obj_set_style_bg_color(btn_start_scan, UIManager::rgb(0x2A800F), 0);
-      lv_label_set_text(lbl_start_scan_text, "Start scan " LV_SYMBOL_RIGHT);
+      if (lbl_start_scan_text) {
+          lv_label_set_text(lbl_start_scan_text, "Start scan " LV_SYMBOL_RIGHT);
+      }
     }
     if (btn_delete_scan) {
       lv_obj_add_flag(btn_delete_scan, LV_OBJ_FLAG_HIDDEN);
@@ -1052,13 +1067,15 @@ void uiShowChooseFinger(String emp_id, const char *name, const char *dept, bool 
       if (finger_objs[i]) {
         lv_obj_clear_state(finger_objs[i], LV_STATE_CHECKED);
         lv_obj_t *lbl = lv_obj_get_child(finger_objs[i], 0);
-        bool is_enrolled = (enrolled_mask >> i) & 1;
-        if (is_enrolled) {
-          lv_obj_set_style_bg_color(finger_objs[i], UIManager::rgb(0x60A5FA), 0); // Blue for enrolled
-          lv_obj_set_style_text_color(lbl, UIManager::rgb(0xFFFFFF), 0); // White text
-        } else {
-          lv_obj_set_style_bg_color(finger_objs[i], UIManager::rgb(0xE4F3E7), 0); // Light green for unenrolled
-          lv_obj_set_style_text_color(lbl, UIManager::rgb(0x166534), 0); // Dark green text
+        if (lbl) {
+            bool is_enrolled = (enrolled_mask >> i) & 1;
+            if (is_enrolled) {
+              lv_obj_set_style_bg_color(finger_objs[i], UIManager::rgb(0x60A5FA), 0); // Blue for enrolled
+              lv_obj_set_style_text_color(lbl, UIManager::rgb(0xFFFFFF), 0); // White text
+            } else {
+              lv_obj_set_style_bg_color(finger_objs[i], UIManager::rgb(0xE4F3E7), 0); // Light green for unenrolled
+              lv_obj_set_style_text_color(lbl, UIManager::rgb(0x166534), 0); // Dark green text
+            }
         }
       }
     }
@@ -1165,8 +1182,8 @@ void uiShowEmpList(bool isFallback) {
       lv_obj_align(emp_list_obj, LV_ALIGN_TOP_MID, 0, 185);
     }
 
-    // 4. Load the Employee List screen.
-    lv_scr_load(scr_emp_list);
+    // 4. Load the Employee List screen (redundant call removed).
+    // lv_scr_load is already called at step 2, calling it again might cause redraw glitches.
 
     // 5. Populate the list in a SECOND deferred timer so it runs AFTER LVGL
     //    has fully committed the screen load (prevents freeze from running

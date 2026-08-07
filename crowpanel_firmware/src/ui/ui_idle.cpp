@@ -32,8 +32,26 @@ extern lv_timer_t *returnTimer;
 extern void uiShowEmpList();
 
 static void prompt_click_cb(lv_event_t * e) {
-  pending_action++;
-  if (pending_action > 4) pending_action = 1;
+  lv_indev_t * indev = lv_indev_get_act();
+  if (indev) {
+      lv_point_t p;
+      lv_indev_get_point(indev, &p);
+      lv_obj_t * cont = lv_event_get_current_target(e);
+      lv_area_t coords;
+      lv_obj_get_coords(cont, &coords);
+      int mid = coords.x1 + (coords.x2 - coords.x1) / 2;
+      
+      if (p.x < mid) {
+          pending_action--;
+          if (pending_action < 1) pending_action = 4;
+      } else {
+          pending_action++;
+          if (pending_action > 4) pending_action = 1;
+      }
+  } else {
+      pending_action++;
+      if (pending_action > 4) pending_action = 1;
+  }
 
   if (pending_action == 1) {
     lv_label_set_text(lbl_prompt, " Time - In ");

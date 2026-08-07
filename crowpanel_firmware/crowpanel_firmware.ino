@@ -59,6 +59,7 @@ void my_disp_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px_map) {
   lcd.startWrite();
   lcd.pushImage(area->x1, area->y1, w, h, (lgfx::rgb565_t *)px_map);
   lcd.endWrite();
+  lcd.waitDisplay();
   last_flush_time = millis(); // Record exact time render finished
   lv_display_flush_ready(disp);
 }
@@ -99,6 +100,7 @@ void my_disp_flush(lv_disp_drv_t *disp, const lv_area_t *area, lv_color_t *color
   lcd.startWrite();
   lcd.pushImage(area->x1, area->y1, w, h, (lgfx::rgb565_t *)&color_p->full);
   lcd.endWrite();
+  lcd.waitDisplay();
   lv_disp_flush_ready(disp);
 }
 
@@ -126,6 +128,8 @@ void my_touch_read(lv_indev_drv_t *indev_drv, lv_indev_data_t *data) {
   }
 }
 #endif
+
+SemaphoreHandle_t g_lvglMutex = NULL;
 
 // Initialization
 void setup() {
@@ -225,6 +229,10 @@ void setup() {
 
   // Build UI screens in background
   UIManager::begin();
+  
+  if (g_lvglMutex == NULL) {
+      g_lvglMutex = xSemaphoreCreateRecursiveMutex();
+  }
 }
 
 // Main Loop
@@ -236,7 +244,10 @@ void loop() {
     lv_tick_inc(now - lastLvglTick);
     lastLvglTick = now;
   }
+  
+  if (g_lvglMutex) xSemaphoreTakeRecursive(g_lvglMutex, portMAX_DELAY);
   lv_task_handler();
+  if (g_lvglMutex) xSemaphoreGiveRecursive(g_lvglMutex);
 
   CommManager::process();
 

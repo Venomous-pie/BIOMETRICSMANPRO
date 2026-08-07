@@ -303,13 +303,8 @@ void UIManager::openKeyboardFor(lv_obj_t* target_ta) {
 }
 
 void UIManager::buildAllScreens() {
-    // Only pre-build the 4 core navigation screens that are always needed.
-    // Result, Enroll, and EmpList are lazy-built on first use to conserve
-    // heap at boot time and leave room for the Settings screen.
-    buildWifiSetupScreen();
-    buildActivationScreen();
-    buildIdleScreen();
-    buildMainMenuScreen();
+    // We now lazy-load all screens to conserve LVGL heap memory.
+    // Screens will be built on-demand the first time their uiShow*() function is called.
 }
 
 #include "../core/display_driver.h"
@@ -403,6 +398,13 @@ void UIManager::showIdle() {
     showGlobalPill(true);
     CommManager::sendCommand("{\"cmd\":\"SET_IDLE\",\"idle\":true}");
     uiShowIdle();
+
+    // Clean up activation screen if it was open
+    extern lv_obj_t *scr_activation;
+    if (scr_activation) {
+        lv_obj_del_async(scr_activation);
+        scr_activation = NULL;
+    }
 }
 
 void UIManager::showActivation() {

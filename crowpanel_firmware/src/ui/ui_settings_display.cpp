@@ -3,13 +3,16 @@
 #include "ui_manager.h"
 #include "../core/data_manager.h"
 #include "../core/display_driver.h"
+#include "../core/comm_manager.h"
 
 extern LGFX lcd;
 
 static lv_obj_t *scr_settings_display = NULL;
 static lv_obj_t *slider_brightness;
+static lv_obj_t *slider_volume;
 static lv_obj_t *dd_timeout;
 static int original_brightness = 200;
+static int original_volume = 20;
 
 static void close_screen() {
     extern void uiShowSettings();
@@ -23,6 +26,8 @@ static void close_screen() {
 
 static void btn_cancel_cb(lv_event_t * e) {
     lcd.setBrightness(original_brightness); // Restore original
+    String cmd = "{\"cmd\":\"SET_VOLUME\",\"vol\":" + String(original_volume) + "}";
+    CommManager::sendCommand(cmd);
     close_screen();
 }
 
@@ -33,6 +38,9 @@ static void btn_save_cb(lv_event_t * e) {
     uint16_t opt = lv_dropdown_get_selected(dd_timeout);
     int timeouts[] = {15, 30, 60, 120, 300, 0};
     DataManager::setScreenTimeout(timeouts[opt]);
+    
+    int vol = lv_slider_get_value(slider_volume);
+    DataManager::setVolume(vol);
     
     UIManager::showToast("Display Settings Saved", false);
     close_screen();
@@ -49,23 +57,31 @@ static void slider_event_cb(lv_event_t * e) {
     lcd.setBrightness(value);
 }
 
+static void slider_vol_event_cb(lv_event_t * e) {
+    lv_obj_t * slider = lv_event_get_current_target(e);
+    int value = lv_slider_get_value(slider);
+    String cmd = "{\"cmd\":\"SET_VOLUME\",\"vol\":" + String(value) + "}";
+    CommManager::sendCommand(cmd);
+}
+
 void uiShowSettingsDisplay() {
     if (scr_settings_display != NULL) return;
     
     original_brightness = DataManager::getBrightness();
+    original_volume = DataManager::getVolume();
 
     scr_settings_display = lv_obj_create(NULL);
     lv_obj_set_style_bg_color(scr_settings_display, UIManager::rgb(COLOR_WIFI_BG), 0);
     lv_obj_set_scrollbar_mode(scr_settings_display, LV_SCROLLBAR_MODE_OFF);
 
-    UIManager::buildHeader(scr_settings_display, "Display Settings", "Brightness & Timeout", btn_back_cb, true);
+    UIManager::buildHeader(scr_settings_display, "Other Settings", "Display & Audio", btn_back_cb, true);
 
     LV_FONT_DECLARE(lv_font_montserrat_16);
     LV_FONT_DECLARE(lv_font_montserrat_20);
     
     // Main container to center content
     lv_obj_t *cont = lv_obj_create(scr_settings_display);
-    lv_obj_set_size(cont, 700, 240);
+    lv_obj_set_size(cont, 700, 340);
     lv_obj_align(cont, LV_ALIGN_TOP_MID, 0, 100);
     lv_obj_set_style_bg_opa(cont, LV_OPA_TRANSP, 0);
     lv_obj_set_style_border_width(cont, 0, 0);
@@ -106,6 +122,23 @@ void uiShowSettingsDisplay() {
     else if (currentTimeout == 300) sel = 4;
     else if (currentTimeout == 0) sel = 5;
     lv_dropdown_set_selected(dd_timeout, sel);
+
+    lv_obj_t * lbl_vol = lv_label_create(cont);
+    lv_label_set_text(lbl_vol, "Audio Volume");
+    UIManager::styleLabel(lbl_vol, COLOR_TEXT_MAIN, &lv_font_montserrat_20, LV_TEXT_ALIGN_LEFT);
+    lv_obj_align(lbl_vol, LV_ALIGN_TOP_LEFT, 20, 220);
+
+    slider_volume = lv_slider_create(cont);
+    lv_obj_set_size(slider_volume, 400, 24);
+    lv_obj_align(slider_volume, LV_ALIGN_TOP_LEFT, 20, 260);
+    lv_slider_set_range(slider_volume, 0, 30); 
+    lv_slider_set_value(slider_volume, original_volume, LV_ANIM_OFF);
+    lv_obj_add_event_cb(slider_volume, slider_vol_event_cb, LV_EVENT_VALUE_CHANGED, NULL);
+    
+    lv_obj_set_style_bg_color(slider_volume, UIManager::rgb(0xCCCCCC), LV_PART_MAIN);
+    lv_obj_set_style_bg_color(slider_volume, UIManager::rgb(COLOR_GREEN_MAIN), LV_PART_INDICATOR);
+    lv_obj_set_style_bg_color(slider_volume, lv_color_white(), LV_PART_KNOB);
+    lv_obj_set_style_pad_all(slider_volume, 4, LV_PART_KNOB);
 
     // Bottom Action Bar
     lv_obj_t *bottom = lv_obj_create(scr_settings_display);

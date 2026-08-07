@@ -2,7 +2,10 @@
 #include "ui_manager.h"
 #include "../core/data_manager.h"
 #include "../core/comm_manager.h"
+#include "../core/display_driver.h"
 #include <ArduinoJson.h>
+
+extern LGFX lcd;
 
 // ── static object handles ──────────────────────────────────────────────────
 static lv_obj_t *scr_wifi       = NULL;
@@ -188,11 +191,41 @@ static void btn_connect_cb(lv_event_t *e) {
     CommManager::sendCommand(out);
 }
 
+// ── Deferred Save Timer ────────────────────────────────────────────────────
+static char deferred_ssid[64] = {0};
+static char deferred_pass[64] = {0};
+
+static void deferred_save_cb(lv_timer_t *timer) {
+    if (strlen(deferred_ssid) > 0) {
+        DataManager::saveWifiCredentials(String(deferred_ssid), String(deferred_pass));
+    }
+    DataManager::setWifiConfigured(true);
+    lv_timer_del(timer);
+}
+
 // ── Continue button ────────────────────────────────────────────────────────
 static void btn_continue_cb(lv_event_t *e) {
     if (wifi_is_connected) {
-        DataManager::setWifiConfigured(true);
+        // Capture inputs before transitioning
+        if (ta_ssid && ta_pass) {
+            const char *ssid = lv_textarea_get_text(ta_ssid);
+            const char *pass = lv_textarea_get_text(ta_pass);
+            if (ssid) {
+                strncpy(deferred_ssid, ssid, sizeof(deferred_ssid) - 1);
+                deferred_ssid[sizeof(deferred_ssid) - 1] = '\0';
+            }
+            if (pass) {
+                strncpy(deferred_pass, pass, sizeof(deferred_pass) - 1);
+                deferred_pass[sizeof(deferred_pass) - 1] = '\0';
+            }
+        }
+
+        // 1. Load next screen cleanly first so UI doesn't hang
         uiShowActivation();
+
+        // 2. Defer heavy flash writes by 300ms so they happen AFTER the 
+        //    screen transition completes, avoiding SPI starvation and tearing.
+        lv_timer_create(deferred_save_cb, 300, NULL);
     } else {
         setErr("Connect to a WiFi network first.", false);
     }
@@ -208,24 +241,17 @@ void uiWifiUpdateStatus(bool connected) {
     if (!lbl_status || !pill) return;
 
     if (connected) {
+        bool activated = DataManager::isActivated();
+
+        // Update LVGL UI objects
         lv_label_set_text(lbl_status, "Online");
         lv_obj_set_style_bg_color(pill, UIManager::rgb(COLOR_GREEN_LIGHT), 0);
         lv_obj_set_style_text_color(lbl_status, UIManager::rgb(COLOR_GREEN_MAIN), 0);
         if (wifi_img_pill) lv_obj_set_style_img_recolor(wifi_img_pill, UIManager::rgb(COLOR_GREEN_MAIN), 0);
         
-        if (ta_ssid && ta_pass) {
-            const char *ssid = lv_textarea_get_text(ta_ssid);
-            const char *pass = lv_textarea_get_text(ta_pass);
-            if (ssid && strlen(ssid) > 0) {
-                DataManager::saveWifiCredentials(String(ssid), String(pass));
-            }
-        }
-        
-        if (!DataManager::isActivated()) {
-            setErr("Connected! Proceeding to Registration...", true);
-            if (btn_continue) lv_obj_add_flag(btn_continue, LV_OBJ_FLAG_HIDDEN);
-            DataManager::setWifiConfigured(true);
-            uiShowActivation(); // Auto-proceed when connected during setup
+        if (!activated) {
+            setErr("Connected!", true);
+            if (btn_continue) lv_obj_clear_flag(btn_continue, LV_OBJ_FLAG_HIDDEN);
         } else {
             setErr("Connected!", true);
         }
@@ -235,6 +261,7 @@ void uiWifiUpdateStatus(bool connected) {
         lv_obj_set_style_text_color(lbl_status, UIManager::rgb(COLOR_DANGER), 0);
         if (wifi_img_pill) lv_obj_set_style_img_recolor(wifi_img_pill, UIManager::rgb(COLOR_DANGER), 0);
         setErr("Connection failed. Check SSID / password.", false);
+        if (btn_continue) lv_obj_add_flag(btn_continue, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
@@ -379,8 +406,8 @@ void buildWifiSetupScreen() {
     lv_obj_center(lbl_cont);
     lv_obj_add_event_cb(btn_continue, btn_continue_cb, LV_EVENT_CLICKED, NULL);
 
-    if (DataManager::isActivated()) {
-        lv_obj_add_flag(btn_continue, LV_OBJ_FLAG_HIDDEN); // Remove continue button if activated
+    if (DataManager::isActivated() || !wifi_is_connected) {
+        lv_obj_add_flag(btn_continue, LV_OBJ_FLAG_HIDDEN); // Hidden if activated or if not connected yet
     }
 
 
@@ -643,7 +670,7 @@ void uiShowWifiSetup() {
         }
     }
     if (lbl_cont) {
-        if (DataManager::isActivated()) {
+        if (DataManager::isActivated() || !wifi_is_connected) {
             lv_obj_add_flag(btn_continue, LV_OBJ_FLAG_HIDDEN);
         } else {
             lv_obj_clear_flag(btn_continue, LV_OBJ_FLAG_HIDDEN);

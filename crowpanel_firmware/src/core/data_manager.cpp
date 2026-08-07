@@ -1,5 +1,6 @@
 #include "data_manager.h"
 #include "comm_manager.h"
+#include "display_driver.h"
 #include <LittleFS.h>
 #include <ArduinoJson.h>
 #include <WiFi.h>
@@ -11,6 +12,9 @@
 #include <SPI.h>
 #include <sys/time.h>   // settimeofday()
 #include <time.h>       // time(), localtime(), strftime()
+#include <atomic>
+
+extern SemaphoreHandle_t g_lvglMutex;
 
 Employee DataManager::empDB[150];
 int DataManager::empCount = 0;
@@ -21,35 +25,105 @@ DataManager::SyncLogEntry DataManager::_syncLogs[MAX_SYNC_LOGS];
 int DataManager::_syncLogCount = 0;
 unsigned long DataManager::_wifiDropTime = 0;
 
-// Mutex protecting liveLogs[] and liveLogCount against races between
-// the main loop (addLog) and the async upload FreeRTOS task.
 static SemaphoreHandle_t s_logMutex = nullptr;
 
-// Interlock: prevents binary sync (applySyncBuffer) and JSON sync (syncStart/syncDone)
-// from overwriting empDB simultaneously. Forward-declared here because applySyncBuffer
-// appears earlier in the file than syncStart where it would otherwise be defined.
 static bool s_empSyncActive = false;
 
-// Protects primitive field modifications (fp_enrolled, enrolled_fingers) in empDB
-// across cores.
-static portMUX_TYPE s_empMutex = portMUX_INITIALIZER_UNLOCKED;
-
-// ── Live attendance log ───────────────────────────────────────────────────────
-// Stored in RAM (up to MAX_LOGS entries) and persisted to LittleFS.
-// Oldest entries are overwritten when the buffer is full.
+static SemaphoreHandle_t s_empDataMutex = nullptr;
+static SemaphoreHandle_t s_syncLogMutex = nullptr;
 
 static constexpr int MAX_LOGS = 200;
+static const char* SYNC_LOG_FILE = "/sync_log.jsonl";
 static AttendanceLog liveLogs[MAX_LOGS];
 static int           liveLogCount = 0;
-static portMUX_TYPE  logMutex = portMUX_INITIALIZER_UNLOCKED;
+
+static std::atomic<bool> s_uploadInProgress(false);
+
+static bool s_syncLogsDirty = false;
+static unsigned long s_syncLogsDirtyTime = 0;
+
+static bool s_employeesDirty = false;
+static unsigned long s_employeesDirtyTime = 0;
 
 void attendanceUploadTask(void *pvParameters) {
     while (true) {
+        if (!s_empSyncActive) {
+            if (s_syncLogsDirty && (millis() - s_syncLogsDirtyTime > 5000)) {
+                s_syncLogsDirty = false;
+                
+                extern LGFX lcd;
+                int currentBright = DataManager::getBrightness();
+                lcd.setBrightness(0);
+                delay(20);
+                
+                File f = LittleFS.open(SYNC_LOG_FILE, "w");
+                if (f) {
+                    int count = DataManager::getSyncLogCount();
+                    const DataManager::SyncLogEntry* logs = DataManager::getSyncLogs();
+                    for (int i = 0; i < count; i++) {
+                        StaticJsonDocument<256> doc;
+                        doc["msg"] = logs[i].message;
+                        doc["ts"]  = logs[i].timeStr;
+                        serializeJson(doc, f);
+                        f.println();
+                    }
+                    f.close();
+                }
+                lcd.setBrightness(currentBright);
+            }
+
+            if (s_employeesDirty && (millis() - s_employeesDirtyTime > 5000)) {
+                s_employeesDirty = false;
+                
+                if (g_lvglMutex) xSemaphoreTakeRecursive(g_lvglMutex, portMAX_DELAY);
+                if (s_empDataMutex) xSemaphoreTake(s_empDataMutex, portMAX_DELAY);
+                
+                extern LGFX lcd;
+                int currentBright = DataManager::getBrightness();
+                lcd.setBrightness(0);
+                delay(20);
+                
+                File f = LittleFS.open("/employees.jsonl", "w");
+                if (f) {
+                    const Employee* emps = DataManager::getEmployees();
+                    int count = DataManager::getEmployeeCount();
+                    for (int i = 0; i < count; i++) {
+                        StaticJsonDocument<512> doc;
+                        doc["id"]          = emps[i].id;
+                        doc["name"]        = emps[i].name;
+                        doc["dept"]        = emps[i].dept;
+                        doc["job_title"]   = emps[i].job_title;
+                        doc["branch"]      = emps[i].branch;
+                        doc["fp_enrolled"] = emps[i].fp_enrolled;
+                        doc["enrolled_fingers"] = emps[i].enrolled_fingers;
+                        doc["last_action_type"] = emps[i].last_action_type;
+                        serializeJson(doc, f);
+                        f.println();
+                    }
+                    f.close();
+                }
+                
+                lcd.setBrightness(currentBright);
+                
+                if (s_empDataMutex) xSemaphoreGive(s_empDataMutex);
+                if (g_lvglMutex) xSemaphoreGiveRecursive(g_lvglMutex);
+            }
+        } else {
+            // Push back the dirty times so they wait until sync is fully done
+            if (s_syncLogsDirty) s_syncLogsDirtyTime = millis();
+            if (s_employeesDirty) s_employeesDirtyTime = millis();
+        }
+
         if (WiFi.status() == WL_CONNECTED && DataManager::isActivated()) {
             AttendanceLog logToSync;
             bool found = false;
             
-            portENTER_CRITICAL(&logMutex);
+            if (s_uploadInProgress) {
+                vTaskDelay(2000 / portTICK_PERIOD_MS);
+                continue;
+            }
+
+            if (s_logMutex) xSemaphoreTake(s_logMutex, portMAX_DELAY);
             for (int i = 0; i < liveLogCount; i++) {
                 if (!liveLogs[i].synced) {
                     logToSync = liveLogs[i];
@@ -57,7 +131,7 @@ void attendanceUploadTask(void *pvParameters) {
                     break;
                 }
             }
-            portEXIT_CRITICAL(&logMutex);
+            if (s_logMutex) xSemaphoreGive(s_logMutex);
             
             if (found) {
                 StaticJsonDocument<384> body;
@@ -74,9 +148,11 @@ void attendanceUploadTask(void *pvParameters) {
                 String bodyStr;
                 serializeJson(body, bodyStr);
 
+                WiFiClientSecure client;
+                client.setCACert(GTS_ROOT_R4);
                 HTTPClient http;
                 String url = String(API_BASE_URL) + "/api/attendance/log";
-                http.begin(url);
+                http.begin(client, url);
                 http.setTimeout(8000);
                 http.addHeader("Content-Type", "application/json");
                 http.addHeader("Authorization", "Bearer " + DataManager::getActivationCode());
@@ -84,7 +160,7 @@ void attendanceUploadTask(void *pvParameters) {
                 http.end();
 
                 if (code >= 200 && code < 300) {
-                    portENTER_CRITICAL(&logMutex);
+                    if (s_logMutex) xSemaphoreTake(s_logMutex, portMAX_DELAY);
                     for (int i = 0; i < liveLogCount; i++) {
                         if (!liveLogs[i].synced && 
                             liveLogs[i].time_str == logToSync.time_str && 
@@ -93,8 +169,9 @@ void attendanceUploadTask(void *pvParameters) {
                             break;
                         }
                     }
-                    portEXIT_CRITICAL(&logMutex);
+                    if (s_logMutex) xSemaphoreGive(s_logMutex);
                     DataManager::saveAttendanceLogs();
+                    DataManager::addSyncLog("Uploaded 1 attendance record");
                 }
             }
         }
@@ -113,45 +190,82 @@ int DataManager::getUnsyncedAttendanceCount() {
     return count;
 }
 
-bool DataManager::isActionAllowed(int slot, uint8_t action_type) {
-    if (s_logMutex) xSemaphoreTake(s_logMutex, portMAX_DELAY);
-    bool last_was_in = false;
+bool DataManager::isActionAllowed(int empId_int, uint8_t action_type) {
+    if (s_empDataMutex) xSemaphoreTake(s_empDataMutex, portMAX_DELAY);
+    uint8_t last_action = 0;
     bool found = false;
-
-    // Search backwards for the last action by this user
-    for (int i = liveLogCount - 1; i >= 0; i--) {
-        if (liveLogs[i].slot == slot) {
-            last_was_in = (liveLogs[i].action_type == 1 || liveLogs[i].action_type == 3);
+    for (int i = 0; i < empCount; i++) {
+        if (empDB[i].id.toInt() == empId_int) {
+            last_action = empDB[i].last_action_type;
             found = true;
             break;
         }
     }
-    if (s_logMutex) xSemaphoreGive(s_logMutex);
+    if (s_empDataMutex) xSemaphoreGive(s_empDataMutex);
 
     bool is_time_in = (action_type == 1 || action_type == 3);
 
-    if (!found) {
-        // If they have no history, they MUST Time In first.
+    if (!found || last_action == 0) {
         return is_time_in;
     }
 
-    // If last action was IN, they must OUT
-    // If last action was OUT, they must IN
+    bool last_was_in = (last_action == 1 || last_action == 3);
     return (last_was_in != is_time_in);
+}
+
+static void appendAttendanceLog(const AttendanceLog& log) {
+    if (g_lvglMutex) xSemaphoreTakeRecursive(g_lvglMutex, portMAX_DELAY);
+    File f = LittleFS.open("/attendance.jsonl", "a");
+    if (f) {
+        StaticJsonDocument<384> doc;
+        doc["name"]   = log.name;
+        doc["ts"]     = log.time_str;
+        if (log.action_type == 1) doc["action"] = "IN";
+        else if (log.action_type == 2) doc["action"] = "OUT";
+        else if (log.action_type == 3) doc["action"] = "OVERTIME_IN";
+        else if (log.action_type == 4) doc["action"] = "OVERTIME_OUT";
+        doc["synced"] = log.synced;
+        doc["conf"]   = log.confidence;
+        doc["slot"]   = log.slot;
+        serializeJson(doc, f);
+        f.println();
+        f.close();
+    }
+    if (g_lvglMutex) xSemaphoreGiveRecursive(g_lvglMutex);
 }
 
 void DataManager::addLog(const String& name, const String& time_str,
                          uint8_t action_type, int confidence, int slot) {
+    bool needsFullRewrite = false;
+    AttendanceLog newLog = {name, time_str, action_type, false, confidence, slot};
+    
     if (s_logMutex) xSemaphoreTake(s_logMutex, portMAX_DELAY);
     if (liveLogCount < MAX_LOGS) {
-        liveLogs[liveLogCount++] = AttendanceLog{name, time_str, action_type, false, confidence, slot};
+        liveLogs[liveLogCount++] = newLog;
     } else {
-        // Ring: shift everything left, drop oldest
         memmove(&liveLogs[0], &liveLogs[1], sizeof(AttendanceLog) * (MAX_LOGS - 1));
-        liveLogs[MAX_LOGS - 1] = AttendanceLog{name, time_str, action_type, false, confidence, slot};
+        liveLogs[MAX_LOGS - 1] = newLog;
+        needsFullRewrite = true;
     }
     if (s_logMutex) xSemaphoreGive(s_logMutex);
-    saveAttendanceLogs();
+    
+    // Append instead of full rewrite if possible
+    if (needsFullRewrite) {
+        saveAttendanceLogs();
+    } else {
+        if (s_logMutex) xSemaphoreTake(s_logMutex, portMAX_DELAY);
+        appendAttendanceLog(newLog);
+        if (s_logMutex) xSemaphoreGive(s_logMutex);
+    }
+    
+    if (s_empDataMutex) xSemaphoreTake(s_empDataMutex, portMAX_DELAY);
+    for (int i = 0; i < empCount; i++) {
+        if (empDB[i].id.toInt() == slot) {
+            empDB[i].last_action_type = action_type;
+            break;
+        }
+    }
+    if (s_empDataMutex) xSemaphoreGive(s_empDataMutex);
 }
 
 void DataManager::loadAttendanceLogs() {
@@ -162,7 +276,7 @@ void DataManager::loadAttendanceLogs() {
         String line = f.readStringUntil('\n');
         line.trim();
         if (line.length() == 0) continue;
-        StaticJsonDocument<384> doc;  // 384 bytes: safely handles long names + all fields
+        StaticJsonDocument<384> doc;
         if (deserializeJson(doc, line) != DeserializationError::Ok) continue;
         const char* act = doc["action"] | "IN";
         uint8_t action_type = 1;
@@ -184,9 +298,14 @@ void DataManager::loadAttendanceLogs() {
 }
 
 void DataManager::saveAttendanceLogs() {
+    if (g_lvglMutex) xSemaphoreTakeRecursive(g_lvglMutex, portMAX_DELAY);
     if (s_logMutex) xSemaphoreTake(s_logMutex, portMAX_DELAY);
     File f = LittleFS.open("/attendance.jsonl", "w");
-    if (!f) { if (s_logMutex) xSemaphoreGive(s_logMutex); return; }
+    if (!f) { 
+        if (s_logMutex) xSemaphoreGive(s_logMutex);
+        if (g_lvglMutex) xSemaphoreGiveRecursive(g_lvglMutex);
+        return; 
+    }
     for (int i = 0; i < liveLogCount; i++) {
         StaticJsonDocument<384> doc;
         doc["name"]   = liveLogs[i].name;
@@ -200,14 +319,30 @@ void DataManager::saveAttendanceLogs() {
         doc["slot"]   = liveLogs[i].slot;
         serializeJson(doc, f);
         f.println();
+        
+        // Yield every 5 lines so the GDMA has time to fetch the next display frame
+        // This prevents the screen from tearing during a full file rewrite.
+        if (i > 0 && (i % 5 == 0)) {
+            if (s_logMutex) xSemaphoreGive(s_logMutex);
+            if (g_lvglMutex) xSemaphoreGiveRecursive(g_lvglMutex);
+            vTaskDelay(pdMS_TO_TICKS(10));
+            if (g_lvglMutex) xSemaphoreTakeRecursive(g_lvglMutex, portMAX_DELAY);
+            if (s_logMutex) xSemaphoreTake(s_logMutex, portMAX_DELAY);
+        }
     }
     f.close();
+    if (g_lvglMutex) xSemaphoreGiveRecursive(g_lvglMutex);
     if (s_logMutex) xSemaphoreGive(s_logMutex);
 }
 
 static TaskHandle_t uploadTaskHandle = NULL;
 
 static void asyncUploadTask(void* param) {
+    // Delay upload by 6 seconds to let the LVGL UI animation finish entirely.
+    // The success screen stays up for 4 seconds. Deferring to 6s ensures the screen
+    // is completely static, so TLS handshakes won't cause visible display tearing.
+    vTaskDelay(pdMS_TO_TICKS(6000));
+
     if (WiFi.status() != WL_CONNECTED || DataManager::getActivationCode().length() == 0) {
         uploadTaskHandle = NULL;
         vTaskDelete(NULL);
@@ -218,15 +353,13 @@ static void asyncUploadTask(void* param) {
     bool anyUploaded = false;
     int uploadedCount = 0;
 
-    // Snapshot the count while holding the mutex, then release.
-    // We iterate up to this count; new logs added after this point
-    // will be picked up on the next uploadPendingLogs() call.
+    s_uploadInProgress = true;
+
     if (s_logMutex) xSemaphoreTake(s_logMutex, portMAX_DELAY);
     int count = liveLogCount;
     if (s_logMutex) xSemaphoreGive(s_logMutex);
 
     for (int i = 0; i < count; i++) {
-        // Read entry under lock (brief hold: just a struct copy)
         if (s_logMutex) xSemaphoreTake(s_logMutex, portMAX_DELAY);
         if (liveLogs[i].synced) { if (s_logMutex) xSemaphoreGive(s_logMutex); continue; }
         String name      = liveLogs[i].name;
@@ -251,7 +384,6 @@ static void asyncUploadTask(void* param) {
         String bodyStr;
         serializeJson(body, bodyStr);
 
-        // HTTP POST without holding the mutex (long-running I/O)
         WiFiClientSecure client;
         client.setCACert(GTS_ROOT_R4);
         HTTPClient http;
@@ -264,7 +396,6 @@ static void asyncUploadTask(void* param) {
         http.end();
 
         if (code >= 200 && code < 300) {
-            // Re-find the entry by name+time_str (index may have shifted due to memmove)
             if (s_logMutex) xSemaphoreTake(s_logMutex, portMAX_DELAY);
             for (int j = 0; j < liveLogCount; j++) {
                 if (!liveLogs[j].synced &&
@@ -285,6 +416,7 @@ static void asyncUploadTask(void* param) {
         DataManager::addSyncLog("Uploaded " + String(uploadedCount) + " attendance records");
     }
 
+    s_uploadInProgress = false;
     uploadTaskHandle = NULL;
     vTaskDelete(NULL);
 }
@@ -317,6 +449,7 @@ String DataManager::_activationCode = "";
 String DataManager::_deviceName = "ManPro Biometric";
 int    DataManager::_brightness = 200;
 int    DataManager::_screenTimeout = 30;
+int    DataManager::_volume = 20;
 bool   DataManager::_wifiConnected = false;
 
 void DataManager::begin() {
@@ -324,21 +457,16 @@ void DataManager::begin() {
         return;
     }
     
+    if (!s_logMutex) s_logMutex = xSemaphoreCreateMutex();
+    if (!s_empDataMutex) s_empDataMutex = xSemaphoreCreateMutex();
+    if (!s_syncLogMutex) s_syncLogMutex = xSemaphoreCreateMutex();
     if (Serial) Serial.println("[FS] Loaded device configuration.");
 
-    // Ensure templates directory exists on LittleFS
     if (!LittleFS.exists("/templates")) {
-        // LittleFS will automatically create directories if the file is written with a path,
-        // but we can create a dummy file to ensure it's mapped if needed. Not strictly required.
     }
     
-    // Create the attendance mutex before loading logs (task-safe from here on)
-    if (!s_logMutex) s_logMutex = xSemaphoreCreateMutex();
     
-    uint32_t mac32 = (uint32_t)ESP.getEfuseMac();
-    char hw[10];
-    snprintf(hw, sizeof(hw), "%04X-%04X", (mac32 >> 16) & 0xFFFF, mac32 & 0xFFFF);
-    _hwCode = String(hw);
+    _hwCode = String(DEVICE_ID_HARDCODED);
     
     createInitialFilesIfMissing();
     loadConfig();
@@ -362,7 +490,6 @@ void DataManager::createInitialFilesIfMissing() {
     if (!LittleFS.exists("/employees.jsonl")) {
         File f = LittleFS.open("/employees.jsonl", "w");
         if (f) {
-            f.println("{\"id\":1,\"name\":\"Admin\",\"dept\":\"Admin\",\"job_title\":\"System Admin\",\"branch\":\"Main\",\"fp_enrolled\":false,\"enrolled_finger\":-1}");
             f.close();
         }
     }
@@ -388,6 +515,7 @@ void DataManager::loadConfig() {
         _deviceName = doc["deviceName"] | "ManPro Biometric";
         _brightness = doc["brightness"] | 200;
         _screenTimeout = doc["screenTimeout"] | 30;
+        _volume = doc["volume"] | 20;
         _adminPin = doc["admin_pin"] | "0000";
         
         if (_brightness < 50) _brightness = 50;
@@ -396,8 +524,12 @@ void DataManager::loadConfig() {
 }
 
 void DataManager::saveConfig() {
+    if (g_lvglMutex) xSemaphoreTakeRecursive(g_lvglMutex, portMAX_DELAY);
     File f = LittleFS.open("/config.json", "w");
-    if (!f) return;
+    if (!f) {
+        if (g_lvglMutex) xSemaphoreGiveRecursive(g_lvglMutex);
+        return;
+    }
     
     StaticJsonDocument<256> doc;
     doc["wifiConfigured"] = _isWifiConfigured;
@@ -406,9 +538,11 @@ void DataManager::saveConfig() {
     doc["deviceName"] = _deviceName;
     doc["brightness"] = _brightness;
     doc["screenTimeout"] = _screenTimeout;
+    doc["volume"] = _volume;
     doc["admin_pin"] = _adminPin;
     serializeJson(doc, f);
     f.close();
+    if (g_lvglMutex) xSemaphoreGiveRecursive(g_lvglMutex);
 }
 
 void DataManager::loadEmployees() {
@@ -434,11 +568,14 @@ void DataManager::loadEmployees() {
                 empDB[empCount].branch = e.containsKey("branch_name") ? e["branch_name"].as<String>() : (e.containsKey("branch") ? e["branch"].as<String>() : "");
                 empDB[empCount].fp_enrolled = e["fp_enrolled"] | false;
                 empDB[empCount].enrolled_fingers = (uint16_t)(e["enrolled_fingers"] | 0);
+                empDB[empCount].last_action_type = (uint8_t)(e["last_action_type"] | 0);
                 empCount++;
             }
         }
         f.close();
         saveEmployees();
+        loadFpState();
+        LittleFS.remove("/employees.json");
         return;
     }
 
@@ -457,75 +594,69 @@ void DataManager::loadEmployees() {
             empDB[empCount].branch = doc["branch"] | "";
             empDB[empCount].fp_enrolled = doc["fp_enrolled"] | false;
             empDB[empCount].enrolled_fingers = (uint16_t)(doc["enrolled_fingers"] | 0);
+            empDB[empCount].last_action_type = (uint8_t)(doc["last_action_type"] | 0);
             empCount++;
         }
     }
     f.close();
 
-    loadFpState(); // re-apply slot-keyed fp_enrolled after reading employees from disk
+    loadFpState(); 
 }
 
 const Employee* DataManager::getEmployees() { return empDB; }
 int DataManager::getEmployeeCount() { return empCount; }
 
-static void writeFpStateEntry(const String& emp_id, int finger_index, bool enrolled);
+static void writeFpStateEntry(const String& emp_id, int finger_index, bool enrolled, uint16_t updated_bits);
 
 void DataManager::saveEmployees() {
-    File f = LittleFS.open("/employees.jsonl", "w");
-    if (!f) return;
-    for (int i = 0; i < empCount; i++) {
-        StaticJsonDocument<512> doc;
-        doc["id"]          = empDB[i].id;
-        doc["name"]        = empDB[i].name;
-        doc["dept"]        = empDB[i].dept;
-        doc["job_title"]   = empDB[i].job_title;
-        doc["branch"]      = empDB[i].branch;
-        doc["fp_enrolled"] = empDB[i].fp_enrolled;
-        doc["enrolled_fingers"] = empDB[i].enrolled_fingers;
-        serializeJson(doc, f);
-        f.println();
-        if (i % 10 == 0) yield(); // Prevent watchdog timeout on large DB saves
-    }
-    f.close();
+    s_employeesDirty = true;
+    s_employeesDirtyTime = millis();
 }
 
 void DataManager::updateEmployeeFpEnrolled(const String& emp_id, bool enrolled, int finger_index) {
-    // "ADMIN" is a synthetic identity — it has no empDB entry.
-    // Only write to fp_state.json. Never touch empDB for admin.
+    uint16_t updated_bits = 0;
     if (emp_id == "ADMIN") {
-        writeFpStateEntry(emp_id, finger_index, enrolled);
+        if (enrolled && finger_index >= 0 && finger_index < 10) {
+            updated_bits = (uint16_t)(1 << finger_index);
+        }
+        writeFpStateEntry(emp_id, finger_index, enrolled, updated_bits);
         return;
     }
 
+    if (s_empDataMutex) xSemaphoreTake(s_empDataMutex, portMAX_DELAY);
+    bool found = false;
     for (int i = 0; i < empCount; i++) {
         if (empDB[i].id == emp_id) {
-            portENTER_CRITICAL(&s_empMutex);
             if (enrolled && finger_index >= 0 && finger_index < 10) {
-                empDB[i].enrolled_fingers |= (uint16_t)(1 << finger_index);  // set bit
+                empDB[i].enrolled_fingers |= (uint16_t)(1 << finger_index);
             } else if (!enrolled && finger_index >= 0 && finger_index < 10) {
-                empDB[i].enrolled_fingers &= (uint16_t)~(1 << finger_index); // clear bit
+                empDB[i].enrolled_fingers &= (uint16_t)~(1 << finger_index);
             } else if (!enrolled) {
-                empDB[i].enrolled_fingers = 0; // finger_index == -1: clear all
+                empDB[i].enrolled_fingers = 0;
             }
             empDB[i].fp_enrolled = (empDB[i].enrolled_fingers != 0);
-            portEXIT_CRITICAL(&s_empMutex);
-            // Persist ONLY to fp_state.json. It's stable across payroll syncs and
-            // loadEmployees() merges it on boot. Skipping saveEmployees() here avoids
-            // rewriting the whole JSONL database (100-400ms), which starves the LCD 
-            // DMA of PSRAM and causes massive screen tearing.
-            writeFpStateEntry(emp_id, finger_index, enrolled);
-            return;
+            updated_bits = empDB[i].enrolled_fingers;
+            found = true;
+            break;
         }
     }
+    if (s_empDataMutex) xSemaphoreGive(s_empDataMutex);
 
-    // emp_id not found in empDB — could be a standalone admin slot that was
-    // never part of the synced employee list. Still persist to fp_state.json
-    // so the enrollment state survives a reboot.
-    writeFpStateEntry(emp_id, finger_index, enrolled);
+    if (found) {
+        writeFpStateEntry(emp_id, finger_index, enrolled, updated_bits);
+        return;
+    }
+
+    // Fallback if not in empDB
+    if (enrolled && finger_index >= 0 && finger_index < 10) {
+        updated_bits = (uint16_t)(1 << finger_index);
+    }
+    writeFpStateEntry(emp_id, finger_index, enrolled, updated_bits);
 }
 
 bool DataManager::isWifiConfigured() { return _isWifiConfigured; }
 void DataManager::setWifiConfigured(bool state) { 
+    if (_isWifiConfigured == state) return;
     _isWifiConfigured = state; 
     saveConfig(); 
 }
@@ -533,20 +664,17 @@ void DataManager::setWifiConfigured(bool state) {
 extern void uiSyncStatusOnSyncResult(bool ok);
 void uiSyncStatusRefreshLogs();
 
-// ── RTC helpers ──────────────────────────────────────────────────────────────
-// Sets the ESP32's system clock from the WROOM NTP timestamp string.
-// Format expected: "YYYY-MM-DD HH:MM:SS AM" or "YYYY-MM-DD HH:MM:SS PM" (UTC+8).
 void DataManager::setNtpTime(const String& ntpStr) {
     int yr, mo, dy, hr, mn, sc;
-    char ampm[3] = "AM";
-    // Try 12-hour format first, then fall back to 24-hour
+    char ampm[3] = "";
     int matched = sscanf(ntpStr.c_str(), "%d-%d-%d %d:%d:%d %2s",
                          &yr, &mo, &dy, &hr, &mn, &sc, ampm);
-    if (matched < 6) return; // parse failed
-    if (ampm[0] == 'P' && hr != 12) hr += 12;
-    else if (ampm[0] == 'A' && hr == 12) hr = 0;
-
-    struct tm t = {};
+    if (matched < 6) return;
+    
+    if (matched == 7) {
+        if (ampm[0] == 'P' && hr != 12) hr += 12;
+        else if (ampm[0] == 'A' && hr == 12) hr = 0;
+    }  struct tm t = {};
     t.tm_year  = yr - 1900;
     t.tm_mon   = mo - 1;
     t.tm_mday  = dy;
@@ -554,36 +682,24 @@ void DataManager::setNtpTime(const String& ntpStr) {
     t.tm_min   = mn;
     t.tm_sec   = sc;
     t.tm_isdst = -1;
-    time_t epoch = mktime(&t); // treat as local (UTC+8) — consistent with WROOM output
+    time_t epoch = mktime(&t);
     struct timeval tv = { epoch, 0 };
     settimeofday(&tv, NULL);
     if (Serial) Serial.printf("[RTC] CrowPanel clock set to %s\n", ntpStr.c_str());
 }
 
-// Returns "MM-DD HH:MM" if RTC is set (time > year 2020), else empty string.
 String DataManager::getCurrentTimeStr() {
     time_t now = time(NULL);
-    if (now < 1577836800UL) return ""; // before 2020-01-01 → NTP not set yet
+    if (now < 1577836800UL) return "";
     struct tm *t = localtime(&now);
     char buf[12];
     strftime(buf, sizeof(buf), "%m-%d %H:%M", t);
     return String(buf);
 }
 
-// ── Sync activity log persistence ────────────────────────────────────────────
-static const char* SYNC_LOG_FILE = "/sync_log.jsonl";
-
 void DataManager::saveSyncLogs() {
-    File f = LittleFS.open(SYNC_LOG_FILE, "w");
-    if (!f) return;
-    for (int i = 0; i < _syncLogCount; i++) {
-        StaticJsonDocument<256> doc;
-        doc["msg"] = _syncLogs[i].message;
-        doc["ts"]  = _syncLogs[i].timeStr;
-        serializeJson(doc, f);
-        f.println();
-    }
-    f.close();
+    s_syncLogsDirty = true;
+    s_syncLogsDirtyTime = millis();
 }
 
 void DataManager::loadSyncLogs() {
@@ -601,7 +717,7 @@ void DataManager::loadSyncLogs() {
         SyncLogEntry& e = _syncLogs[_syncLogCount++];
         e.message   = msg;
         e.timeStr   = doc["ts"] | "";
-        e.timestamp = 0; // 0 = historical — UI will show timeStr instead of relative time
+        e.timestamp = 0;
     }
     f.close();
     if (Serial) Serial.printf("[FS] Loaded %d sync log entries.\n", _syncLogCount);
@@ -610,7 +726,6 @@ void DataManager::loadSyncLogs() {
 void DataManager::addSyncLog(const String& message) {
     String ts = getCurrentTimeStr(); // "MM-DD HH:MM" or "" if RTC not set
 
-    // If the same message already exists, move it to the end with a refreshed timestamp.
     for (int i = 0; i < _syncLogCount; i++) {
         if (_syncLogs[i].message == message) {
             for (int j = i; j < _syncLogCount - 1; j++) _syncLogs[j] = _syncLogs[j + 1];
@@ -628,24 +743,27 @@ void DataManager::addSyncLog(const String& message) {
     entry.message   = message;
     entry.timestamp = millis();
     entry.timeStr   = ts;
-
+    if (s_syncLogMutex) xSemaphoreTake(s_syncLogMutex, portMAX_DELAY);
     if (_syncLogCount < MAX_SYNC_LOGS) {
-        _syncLogs[_syncLogCount++] = entry;
+        _syncLogs[_syncLogCount].message = message;
+        _syncLogs[_syncLogCount].timestamp = millis();
+        _syncLogs[_syncLogCount].timeStr = getCurrentTimeStr();
+        _syncLogCount++;
     } else {
-        memmove(&_syncLogs[0], &_syncLogs[1], sizeof(SyncLogEntry) * (MAX_SYNC_LOGS - 1));
-        _syncLogs[MAX_SYNC_LOGS - 1] = entry;
+        for (int i = 0; i < MAX_SYNC_LOGS - 1; i++) {
+            _syncLogs[i] = _syncLogs[i + 1];
+        }
+        _syncLogs[MAX_SYNC_LOGS - 1].message = message;
+        _syncLogs[MAX_SYNC_LOGS - 1].timestamp = millis();
+        _syncLogs[MAX_SYNC_LOGS - 1].timeStr = getCurrentTimeStr();
     }
+    if (s_syncLogMutex) xSemaphoreGive(s_syncLogMutex);
     saveSyncLogs();
     uiSyncStatusRefreshLogs();
 }
 
-const DataManager::SyncLogEntry* DataManager::getSyncLogs() {
-    return _syncLogs;
-}
-
-int DataManager::getSyncLogCount() {
-    return _syncLogCount;
-}
+const DataManager::SyncLogEntry* DataManager::getSyncLogs() { return _syncLogs; }
+int DataManager::getSyncLogCount() { return _syncLogCount; }
 
 unsigned long DataManager::getWifiDropTime() {
     return _wifiDropTime;
@@ -666,10 +784,9 @@ void DataManager::applySyncBuffer(const uint8_t* buffer, size_t len) {
         return;
     }
 
-    // If a JSON-based sync is mid-flight, abort it cleanly before we overwrite empDB.
     if (s_empSyncActive) {
         Serial.println("[DATA] applySyncBuffer: aborting in-flight JSON sync to apply binary buffer.");
-        syncAbort(); // clears s_empSyncActive and restores oldDB
+        syncAbort();
     }
 
     int count = len / sizeof(EmployeeSync);
@@ -691,31 +808,23 @@ void DataManager::applySyncBuffer(const uint8_t* buffer, size_t len) {
         }
     }
 
-    // Full atomic replace: overwrite empDB with the incoming records.
-    // fp_enrolled / enrolled_finger are NOT carried from the old DB here —
-    // those fields live in fp_state.json (a separate slot-keyed side-table) and
-    // are re-applied by loadFpState() after this call.  See updateEmployeeFpEnrolled()
-    // and the comment at the top of this file for the rationale.
+    if (s_empDataMutex) xSemaphoreTake(s_empDataMutex, portMAX_DELAY);
     empCount = count;
     for (int i = 0; i < count; i++) {
-        // IMPORTANT: this id is positional (array index + 1), NOT a stable server ID.
-        // It is used only for UI row identification within a single session.
-        // It will shift under employees if the API changes employee ordering between
-        // syncs — nothing outside this session should treat it as stable.
-        // The only stable key CrowPanel owns is the AS608 slot number, stored in
-        // enrolled_finger and in fp_state.json.
         empDB[i].id            = String(i + 1);
         empDB[i].name          = String(incoming[i].name);
         empDB[i].dept          = String(incoming[i].department);
         empDB[i].job_title     = String(incoming[i].role);
         empDB[i].branch        = String(incoming[i].branch);
-        empDB[i].fp_enrolled   = false;    // cleared; loadFpState() will re-populate
+        empDB[i].fp_enrolled   = false;
         empDB[i].enrolled_fingers = 0;
+        empDB[i].last_action_type = 0;
     }
+    if (s_empDataMutex) xSemaphoreGive(s_empDataMutex);
 
     _lastSyncTimestamp = millis();
     saveEmployees();
-    loadFpState(); // re-apply fingerprint enrollment status from the stable side-table
+    loadFpState();
 
     if (!changed) {
         addSyncLog("Employee data is latest");
@@ -726,76 +835,62 @@ void DataManager::applySyncBuffer(const uint8_t* buffer, size_t len) {
     if (Serial) Serial.printf("[DATA] applySyncBuffer: replaced %d records.\n", count);
 }
 
-// ── Fingerprint-state side-table ──────────────────────────────────────────────
-// fp_state.json stores fingerprint enrollment status keyed by AS608 slot number.
-// It is written only by updateEmployeeFpEnrolled() and never touched by payroll
-// sync, so it survives full employee-list replacements intact.
-//
-// Format: { "slots": [ {"emp_id":"1","finger_index":9,"enrolled":true}, ... ] }
-//
-// At load time loadFpState() scans empDB for an emp_id match and sets fp_enrolled.
-// If an emp_id was removed between syncs, the entry is simply ignored.
+static const char* FP_STATE_FILE = "/fp_state.jsonl";
 
-static const char* FP_STATE_FILE = "/fp_state.json";
-
-// Writes/updates an entry into fp_state.json for a given employee.
-// finger_index == -1 with enrolled == false clears all bits (wipe).
-static void writeFpStateEntry(const String& emp_id, int finger_index, bool enrolled) {
-    DynamicJsonDocument doc(8192); // 150 employees × ~2 fields each needs ~5-6 KB
-
-    if (LittleFS.exists(FP_STATE_FILE)) {
-        File f = LittleFS.open(FP_STATE_FILE, "r");
-        if (f) { deserializeJson(doc, f); f.close(); }
+static void writeFpStateEntry(const String& emp_id, int finger_index, bool enrolled, uint16_t updated_bits) {
+    if (g_lvglMutex) xSemaphoreTakeRecursive(g_lvglMutex, portMAX_DELAY);
+    File f = LittleFS.open(FP_STATE_FILE, "a");
+    if (f) {
+        StaticJsonDocument<128> doc;
+        doc["emp_id"] = emp_id;
+        doc["enrolled_fingers"] = updated_bits;
+        serializeJson(doc, f);
+        f.println();
+        f.close();
     }
+    if (g_lvglMutex) xSemaphoreGiveRecursive(g_lvglMutex);
+}
 
-    if (!doc.containsKey("slots")) doc.createNestedArray("slots");
-    JsonArray arr = doc["slots"].as<JsonArray>();
-
-    // Find existing entry and update bitmask in-place
-    for (JsonObject entry : arr) {
-        if (entry["emp_id"] == emp_id) {
-            uint16_t bits = (uint16_t)(entry["enrolled_fingers"] | 0);
-            if (enrolled && finger_index >= 0 && finger_index < 10) {
-                bits |= (uint16_t)(1 << finger_index);
-            } else if (!enrolled && finger_index >= 0 && finger_index < 10) {
-                bits &= (uint16_t)~(1 << finger_index);
-            } else if (!enrolled) {
-                bits = 0; // wipe all
+void DataManager::loadFpState() {
+    if (LittleFS.exists("/fp_state.json")) {
+        File oldF = LittleFS.open("/fp_state.json", "r");
+        if (oldF) {
+            DynamicJsonDocument doc(8192);
+            if (deserializeJson(doc, oldF) == DeserializationError::Ok) {
+                File newF = LittleFS.open(FP_STATE_FILE, "a");
+                if (newF) {
+                    JsonArray arr = doc["slots"].as<JsonArray>();
+                    for (JsonObject entry : arr) {
+                        StaticJsonDocument<128> ldoc;
+                        ldoc["emp_id"] = entry["emp_id"];
+                        ldoc["enrolled_fingers"] = entry["enrolled_fingers"];
+                        serializeJson(ldoc, newF);
+                        newF.println();
+                    }
+                    newF.close();
+                }
             }
-            entry["enrolled_fingers"] = bits;
-            File f = LittleFS.open(FP_STATE_FILE, "w");
-            if (f) { serializeJson(doc, f); f.close(); }
-            return;
+            oldF.close();
+            LittleFS.remove("/fp_state.json");
         }
     }
 
-    // New entry — build initial bitmask
-    uint16_t bits = 0;
-    if (enrolled && finger_index >= 0 && finger_index < 10)
-        bits = (uint16_t)(1 << finger_index);
-    JsonObject entry = arr.createNestedObject();
-    entry["emp_id"]           = emp_id;
-    entry["enrolled_fingers"] = bits;
-
-    File f = LittleFS.open(FP_STATE_FILE, "w");
-    if (f) { serializeJson(doc, f); f.close(); }
-}
-
-// Re-applies enrolled_fingers bitmask to empDB from fp_state.json after a sync.
-// The match key is emp_id, which is stable across payroll syncs.
-void DataManager::loadFpState() {
     if (!LittleFS.exists(FP_STATE_FILE)) return;
     File f = LittleFS.open(FP_STATE_FILE, "r");
     if (!f) return;
 
-    DynamicJsonDocument doc(8192); // 150 employees × ~2 fields each needs ~5-6 KB
-    if (deserializeJson(doc, f) != DeserializationError::Ok) { f.close(); return; }
-    f.close();
-
-    JsonArray arr = doc["slots"].as<JsonArray>();
-    for (JsonObject entry : arr) {
-        String   emp_id   = entry["emp_id"] | "";
-        uint16_t bits     = (uint16_t)(entry["enrolled_fingers"] | 0);
+    if (s_empDataMutex) xSemaphoreTake(s_empDataMutex, portMAX_DELAY);
+    int lineCount = 0;
+    while (f.available()) {
+        String line = f.readStringUntil('\n');
+        line.trim();
+        if (line.length() == 0) continue;
+        
+        StaticJsonDocument<128> doc;
+        if (deserializeJson(doc, line) != DeserializationError::Ok) continue;
+        
+        String emp_id = doc["emp_id"] | "";
+        uint16_t bits = (uint16_t)(doc["enrolled_fingers"] | 0);
         if (emp_id.length() == 0) continue;
 
         for (int i = 0; i < empCount; i++) {
@@ -804,6 +899,44 @@ void DataManager::loadFpState() {
                 empDB[i].fp_enrolled      = (bits != 0);
                 break;
             }
+        }
+        
+        lineCount++;
+        if (lineCount % 2 == 0) {
+            vTaskDelay(pdMS_TO_TICKS(5));
+        }
+    }
+    if (s_empDataMutex) xSemaphoreGive(s_empDataMutex);
+    f.close();
+
+    if (lineCount > empCount + 10) {
+        File fOut = LittleFS.open("/fp_state_tmp.jsonl", "w");
+        if (fOut) {
+            if (s_empDataMutex) xSemaphoreTake(s_empDataMutex, portMAX_DELAY);
+            for (int i = 0; i < empCount; i++) {
+                if (empDB[i].enrolled_fingers != 0) {
+                    StaticJsonDocument<128> ldoc;
+                    ldoc["emp_id"] = empDB[i].id;
+                    ldoc["enrolled_fingers"] = empDB[i].enrolled_fingers;
+                    serializeJson(ldoc, fOut);
+                    fOut.println();
+                }
+            }
+            if (s_empDataMutex) xSemaphoreGive(s_empDataMutex);
+            
+            uint16_t admin_bits = getEnrolledMask("ADMIN");
+            if (admin_bits != 0) {
+                StaticJsonDocument<128> ldoc;
+                ldoc["emp_id"] = "ADMIN";
+                ldoc["enrolled_fingers"] = admin_bits;
+                serializeJson(ldoc, fOut);
+                fOut.println();
+            }
+            
+            fOut.close();
+            LittleFS.remove(FP_STATE_FILE);
+            LittleFS.rename("/fp_state_tmp.jsonl", FP_STATE_FILE);
+            if (Serial) Serial.println("[FS] fp_state.jsonl compacted.");
         }
     }
 }
@@ -834,8 +967,12 @@ void DataManager::loadWifiCredentials() {
 }
 
 void DataManager::saveWifiCredentialsToFs() {
+    if (g_lvglMutex) xSemaphoreTakeRecursive(g_lvglMutex, portMAX_DELAY);
     File f = LittleFS.open("/wifi_creds.json", "w");
-    if (!f) return;
+    if (!f) {
+        if (g_lvglMutex) xSemaphoreGiveRecursive(g_lvglMutex);
+        return;
+    }
     StaticJsonDocument<1024> doc;
     JsonArray arr = doc.createNestedArray("networks");
     for (int i = 0; i < _wifiCount; i++) {
@@ -845,15 +982,12 @@ void DataManager::saveWifiCredentialsToFs() {
     }
     serializeJson(doc, f);
     f.close();
+    if (g_lvglMutex) xSemaphoreGiveRecursive(g_lvglMutex);
 }
 
 void DataManager::saveWifiCredentials(const String& ssid, const String& pass) {
     if (ssid.length() == 0) return;
 
-    // VERY IMPORTANT FIX:
-    // If the network is already at the top of the list and the password matches, do nothing.
-    // This prevents LittleFS from triggering a Flash Write on every Wi-Fi status update,
-    // which disables the CPU cache, blocks the PSRAM bus, and violently starves the RGB DMA!
     if (_wifiCount > 0 && _wifiSsid[0] == ssid && _wifiPass[0] == pass) {
         return; 
     }
@@ -863,13 +997,11 @@ void DataManager::saveWifiCredentials(const String& ssid, const String& pass) {
     }
 
     if (existing_idx != -1) {
-        // Existing network: rotate it to front, preserving order of others.
         for (int i = existing_idx; i > 0; i--) {
             _wifiSsid[i] = _wifiSsid[i - 1];
             _wifiPass[i] = _wifiPass[i - 1];
         }
     } else {
-        // New network: shift everything down, dropping the oldest if full.
         int top = (_wifiCount < 5) ? _wifiCount : 4;
         for (int i = top; i > 0; i--) {
             _wifiSsid[i] = _wifiSsid[i - 1];
@@ -885,9 +1017,11 @@ void DataManager::saveWifiCredentials(const String& ssid, const String& pass) {
 
 void DataManager::clearWifiCredentials() {
     _wifiCount = 0;
+    if (g_lvglMutex) xSemaphoreTakeRecursive(g_lvglMutex, portMAX_DELAY);
     if (LittleFS.exists("/wifi_creds.json")) {
         LittleFS.remove("/wifi_creds.json");
     }
+    if (g_lvglMutex) xSemaphoreGiveRecursive(g_lvglMutex);
 }
 
 String DataManager::getWifiSsid(int index) { return (index >= 0 && index < _wifiCount) ? _wifiSsid[index] : ""; }
@@ -898,10 +1032,10 @@ bool   DataManager::hasSavedWifi() { return _wifiCount > 0; }
 void DataManager::setWifiConnected(bool connected) { 
     if (_wifiConnected && !connected) {
         _wifiDropTime = millis();
-        addSyncLog("Connection lost");
+        if (isActivated()) addSyncLog("Connection lost");
     } else if (!_wifiConnected && connected) {
-        _wifiDropTime = 0; // reset
-        addSyncLog("Connection restored");
+        _wifiDropTime = 0;
+        if (isActivated()) addSyncLog("Connection restored");
     }
     _wifiConnected = connected; 
 }
@@ -911,6 +1045,7 @@ bool DataManager::isActivated() { return _isActivated; }
 String DataManager::getHardwareCode() { return _hwCode; }
 
 String DataManager::getDeviceId() {
+    if (_hwCode.length() > 0) return _hwCode;
     return String(DEVICE_ID_HARDCODED);
 }
 
@@ -939,6 +1074,14 @@ bool DataManager::isLockedOut() {
 int DataManager::getFailedAttempts() { return _failedAttempts; }
 unsigned long DataManager::getLockoutStartTime() { return _lockoutStartTime; }
 
+void DataManager::setFailedAttempts(int attempts) {
+    _failedAttempts = attempts;
+}
+
+void DataManager::setLockoutStartTime(unsigned long time) {
+    _lockoutStartTime = time;
+}
+
 bool DataManager::activate(const String& code) {
     if (isLockedOut()) return false;
 
@@ -948,10 +1091,6 @@ bool DataManager::activate(const String& code) {
     }
     
     if (valid) {
-        // BUG-12 fix: do NOT set _isActivated = true here.
-        // Only store the code so it can be forwarded to the server.
-        // _isActivated is set to true exclusively by setActivatedByServer(true)
-        // when the server returns a successful ACTIVATION_RESULT.
         _activationCode = code;
         _failedAttempts = 0;
         return true;
@@ -968,18 +1107,18 @@ void DataManager::factoryReset() {
     _isActivated      = false;
     _isWifiConfigured = false;
     _activationCode   = "";
-    _adminPin         = "0000"; // Reset admin PIN to default
+    _adminPin         = "0000";
     saveConfig();
     clearWifiCredentials();
 
-    // Clear employee data
     nukeDatabase();
 
-    // Clear attendance logs locally
+    if (g_lvglMutex) xSemaphoreTakeRecursive(g_lvglMutex, portMAX_DELAY);
     if (s_logMutex) xSemaphoreTake(s_logMutex, portMAX_DELAY);
     liveLogCount = 0;
     LittleFS.remove("/attendance.jsonl");
     if (s_logMutex) xSemaphoreGive(s_logMutex);
+    if (g_lvglMutex) xSemaphoreGiveRecursive(g_lvglMutex);
 }
 
 String DataManager::getActivationCode() {
@@ -1016,6 +1155,17 @@ void DataManager::setScreenTimeout(int val) {
     saveConfig();
 }
 
+int DataManager::getVolume() {
+    return _volume;
+}
+
+void DataManager::setVolume(int val) {
+    if (val < 0) val = 0;
+    if (val > 30) val = 30;
+    _volume = val;
+    saveConfig();
+}
+
 String DataManager::getAdminPin() {
     return _adminPin;
 }
@@ -1028,19 +1178,15 @@ void DataManager::setAdminPin(const String& pin) {
 static Employee oldDB[150];
 static int oldEmpCount = 0;
 
-
-
 void DataManager::syncStart() {
-    if (s_empSyncActive) {
-        Serial.println("[DATA] syncStart: JSON sync already in progress — ignoring duplicate.");
-        return;
-    }
+    if (s_empDataMutex) xSemaphoreTake(s_empDataMutex, portMAX_DELAY);
     s_empSyncActive = true;
-    oldEmpCount = empCount;
     for (int i = 0; i < empCount; i++) {
         oldDB[i] = empDB[i];
     }
+    oldEmpCount = empCount;
     empCount = 0;
+    if (s_empDataMutex) xSemaphoreGive(s_empDataMutex);
 }
 
 static String sanitizeUTF8(const String& input) {
@@ -1050,72 +1196,60 @@ static String sanitizeUTF8(const String& input) {
         uint8_t c = (uint8_t)input[i];
         if (c < 128) {
             out += (char)c;
-        } else if (c == 0xC3) {
-            // Guard: only consume the next byte if it exists (EDGE-10 fix)
-            if (i + 1 < (int)input.length()) {
-                uint8_t next = (uint8_t)input[++i];
-                if      (next == 0xB1) out += "n";       // ñ
-                else if (next == 0x91) out += "N";       // Ñ
-                else if (next == 0xA1) out += "a";       // á
-                else if (next == 0x81) out += "A";       // Á
-                else if (next == 0xA9) out += "e";       // é
-                else if (next == 0x89) out += "E";       // É
-                else if (next == 0xAD) out += "i";       // í
-                else if (next == 0x8D) out += "I";       // Í
-                else if (next == 0xB3) out += "o";       // ó
-                else if (next == 0x93) out += "O";       // Ó
-                else if (next == 0xBA) out += "u";       // ú
-                else if (next == 0x9A) out += "U";       // Ú
-                // else: unknown 0xC3+X combo — skip both bytes
-            }
-            // else: lone 0xC3 at end of string — skip it
-        } else if ((c & 0xE0) == 0xC0) {
-            i++; // skip unknown 2-byte
-        } else if ((c & 0xF0) == 0xE0) {
-            i += 2; // skip unknown 3-byte
-        } else if ((c & 0xF8) == 0xF0) {
-            i += 3; // skip unknown 4-byte
         }
     }
     return out;
 }
 
 void DataManager::syncAddEmployee(const String& id, const String& name, const String& dept, const String& job, const String& branch) {
-    if (empCount >= 150) return;
-    empDB[empCount].id = id;
-    empDB[empCount].name = sanitizeUTF8(name);
-    empDB[empCount].dept = sanitizeUTF8(dept);
-    empDB[empCount].job_title = sanitizeUTF8(job);
-    empDB[empCount].branch = sanitizeUTF8(branch);
-    
-    empDB[empCount].fp_enrolled = false;
-    empDB[empCount].enrolled_fingers = 0;
-    
-    for (int j = 0; j < oldEmpCount; j++) {
-        if (oldDB[j].id == id) {
-            empDB[empCount].fp_enrolled = oldDB[j].fp_enrolled;
-            empDB[empCount].enrolled_fingers = oldDB[j].enrolled_fingers;
-            break;
+    if (s_empDataMutex) xSemaphoreTake(s_empDataMutex, portMAX_DELAY);
+    if (empCount < 150) {
+        empDB[empCount].id = id;
+        empDB[empCount].name = sanitizeUTF8(name);
+        empDB[empCount].dept = sanitizeUTF8(dept);
+        empDB[empCount].job_title = sanitizeUTF8(job);
+        empDB[empCount].branch = sanitizeUTF8(branch);
+        
+        empDB[empCount].fp_enrolled = false;
+        empDB[empCount].enrolled_fingers = 0;
+        
+        for (int j = 0; j < oldEmpCount; j++) {
+            if (oldDB[j].id == id) {
+                empDB[empCount].fp_enrolled = oldDB[j].fp_enrolled;
+                empDB[empCount].enrolled_fingers = oldDB[j].enrolled_fingers;
+                break;
+            }
         }
+        empCount++;
     }
-    empCount++;
+    if (s_empDataMutex) xSemaphoreGive(s_empDataMutex);
 }
 
 void DataManager::syncDone() {
+    if (s_empDataMutex) xSemaphoreTake(s_empDataMutex, portMAX_DELAY);
     s_empSyncActive = false;
+    _lastSyncTimestamp = millis();
+    if (s_empDataMutex) xSemaphoreGive(s_empDataMutex);
+    
     saveEmployees();
+    loadFpState();
 }
 
 void DataManager::syncAbort() {
+    if (s_empDataMutex) xSemaphoreTake(s_empDataMutex, portMAX_DELAY);
     s_empSyncActive = false;
     empCount = oldEmpCount;
     for (int i = 0; i < empCount; i++) {
         empDB[i] = oldDB[i];
     }
-    loadFpState(); // re-apply fp enrollment state that was lost during the aborted sync
+    if (s_empDataMutex) xSemaphoreGive(s_empDataMutex);
+    
+    loadFpState();
 }
 
 void DataManager::nukeDatabase() {
+    if (g_lvglMutex) xSemaphoreTakeRecursive(g_lvglMutex, portMAX_DELAY);
+    if (s_empDataMutex) xSemaphoreTake(s_empDataMutex, portMAX_DELAY);
     empCount = 0;
     oldEmpCount = 0;
     s_empSyncActive = false;
@@ -1127,49 +1261,53 @@ void DataManager::nukeDatabase() {
         empDB[i].branch = "";
         empDB[i].fp_enrolled = false;
         empDB[i].enrolled_fingers = 0;
+        empDB[i].last_action_type = 0;
     }
+
     LittleFS.remove("/employees.jsonl");
     
-    // Preserve Admin slots (1-5) in fp_state.json, wipe the rest
     if (LittleFS.exists(FP_STATE_FILE)) {
         File f = LittleFS.open(FP_STATE_FILE, "r");
-        DynamicJsonDocument doc(4096);
-        DynamicJsonDocument newDoc(4096);
-        JsonArray newArr = newDoc.createNestedArray("slots");
+        uint16_t admin_bits = 0;
+        bool has_admin = false;
         
-        if (f && deserializeJson(doc, f) == DeserializationError::Ok) {
-            JsonArray arr = doc["slots"].as<JsonArray>();
-            for (JsonObject entry : arr) {
-                int slot = entry["slot"] | -1;
-                if (slot >= 1 && slot <= 5) {
-                    JsonObject newEntry = newArr.createNestedObject();
-                    newEntry["slot"] = entry["slot"];
-                    newEntry["name"] = entry["name"];
-                    newEntry["enrolled"] = entry["enrolled"];
+        if (f) {
+            while (f.available()) {
+                String line = f.readStringUntil('\n');
+                line.trim();
+                if (line.length() == 0) continue;
+                StaticJsonDocument<128> doc;
+                if (deserializeJson(doc, line) != DeserializationError::Ok) continue;
+                if (String(doc["emp_id"] | "") == "ADMIN") {
+                    admin_bits = (uint16_t)(doc["enrolled_fingers"] | 0);
+                    has_admin = true;
                 }
             }
+            f.close();
         }
-        if (f) f.close();
         
-        File fOut = LittleFS.open(FP_STATE_FILE, "w");
-        if (fOut) {
-            serializeJson(newDoc, fOut);
-            fOut.close();
+        LittleFS.remove(FP_STATE_FILE);
+        if (has_admin && admin_bits != 0) {
+            writeFpStateEntry("ADMIN", -1, true, admin_bits);
         }
     }
+    if (g_lvglMutex) xSemaphoreGiveRecursive(g_lvglMutex);
+    if (s_empDataMutex) xSemaphoreGive(s_empDataMutex);
 }
-
-// ── Internal Flash Deep Storage ──────────────────────────────────────────────────────
 
 bool DataManager::saveTemplate(const String& empId, int fingerIndex, const uint8_t* data, size_t len) {
     String path = "/templates/" + empId + "_" + String(fingerIndex) + ".bin";
+    if (g_lvglMutex) xSemaphoreTakeRecursive(g_lvglMutex, portMAX_DELAY);
     File f = LittleFS.open(path, "w");
     if (!f) {
+        if (g_lvglMutex) xSemaphoreGiveRecursive(g_lvglMutex);
         if (Serial) Serial.println("[FS] Failed to open " + path + " for writing");
         return false;
     }
     size_t written = f.write(data, len);
     f.close();
+    if (g_lvglMutex) xSemaphoreGiveRecursive(g_lvglMutex);
+    
     if (written == len) {
         if (Serial) Serial.println("[FS] Saved template: " + path);
         return true;
@@ -1206,14 +1344,17 @@ bool DataManager::templateExists(const String& empId, int fingerIndex) {
 
 bool DataManager::deleteTemplate(const String& empId, int fingerIndex) {
     String path = "/templates/" + empId + "_" + String(fingerIndex) + ".bin";
-    if (LittleFS.exists(path)) {
-        return LittleFS.remove(path);
+    if (g_lvglMutex) xSemaphoreTakeRecursive(g_lvglMutex, portMAX_DELAY);
+    bool exists = LittleFS.exists(path);
+    bool success = false;
+    if (exists) {
+        success = LittleFS.remove(path);
     }
-    return false;
+    if (g_lvglMutex) xSemaphoreGiveRecursive(g_lvglMutex);
+    return success;
 }
 
 bool DataManager::adminTemplateExists() {
-    // Admin can enroll any finger index 0-9. Check all of them.
     for (int f = 0; f < 10; f++) {
         if (templateExists("ADMIN", f)) return true;
     }
@@ -1221,22 +1362,24 @@ bool DataManager::adminTemplateExists() {
 }
 
 uint16_t DataManager::getEnrolledMask(const String& empId) {
-    // Fast path: regular employees are in RAM.
     for (int i = 0; i < empCount; i++) {
         if (empDB[i].id == empId) return empDB[i].enrolled_fingers;
     }
-    // Slow path: "ADMIN" (and any future out-of-empDB identity) live in fp_state.json.
     if (!LittleFS.exists(FP_STATE_FILE)) return 0;
     File f = LittleFS.open(FP_STATE_FILE, "r");
     if (!f) return 0;
-    DynamicJsonDocument doc(8192);
-    if (deserializeJson(doc, f) != DeserializationError::Ok) { f.close(); return 0; }
-    f.close();
-    JsonArray arr = doc["slots"].as<JsonArray>();
-    for (JsonObject entry : arr) {
-        if (String(entry["emp_id"] | "") == empId) {
-            return (uint16_t)(entry["enrolled_fingers"] | 0);
+    
+    uint16_t latest_bits = 0;
+    while (f.available()) {
+        String line = f.readStringUntil('\n');
+        line.trim();
+        if (line.length() == 0) continue;
+        StaticJsonDocument<128> doc;
+        if (deserializeJson(doc, line) != DeserializationError::Ok) continue;
+        if (String(doc["emp_id"] | "") == empId) {
+            latest_bits = (uint16_t)(doc["enrolled_fingers"] | 0);
         }
     }
-    return 0;
+    f.close();
+    return latest_bits;
 }

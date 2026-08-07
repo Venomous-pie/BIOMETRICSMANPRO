@@ -50,7 +50,7 @@ void buildMainMenuScreen() {
     lv_obj_clear_flag(cards_cont, LV_OBJ_FLAG_SCROLLABLE);
 
     // Helper lambda to create a card
-    auto create_card = [](lv_obj_t *parent, const lv_img_dsc_t *icon, const char *title, const char *subtitle, lv_event_cb_t cb) -> lv_obj_t* {
+    auto create_card = [](lv_obj_t *parent, const lv_img_dsc_t *icon, const char *title, const char *subtitle, lv_event_cb_t cb, lv_obj_t **out_lbl = NULL) -> lv_obj_t* {
         lv_obj_t *card = lv_obj_create(parent);
         lv_obj_set_size(card, 220, 260);
         lv_obj_set_style_bg_color(card, UIManager::rgb(COLOR_GREEN_MAIN), 0);
@@ -76,11 +76,13 @@ void buildMainMenuScreen() {
         UIManager::styleLabel(lbl_sub, 0xFFFFFF, &lv_font_montserrat_14, LV_TEXT_ALIGN_CENTER);
         lv_obj_align(lbl_sub, LV_ALIGN_TOP_MID, 0, 195);
 
+        if (out_lbl) {
+            *out_lbl = lbl_sub;
+        }
         return card;
     };
 
-    lv_obj_t *emp_card = create_card(cards_cont, &icon_employees, "EMPLOYEES", "", btn_emp_cb);
-    lbl_emp_subtitle = lv_obj_get_child(emp_card, 2);
+    lv_obj_t *emp_card = create_card(cards_cont, &icon_employees, "EMPLOYEES", "", btn_emp_cb, &lbl_emp_subtitle);
     create_card(cards_cont, &icon_attendance, "ATTENDANCE LOGS", "Search logs", btn_att_cb);
     create_card(cards_cont, &icon_settings_gear, "DEVICE SETTINGS", "Wi-Fi, server, and clock", btn_set_cb);
 }
@@ -95,7 +97,7 @@ void uiShowMainMenu() {
 
     if (lbl_emp_subtitle) {
         int displayCount = DataManager::getEmployeeCount();
-        String subtitle = String(displayCount) + " employees";
+        String subtitle = String(displayCount) + (displayCount == 1 ? " employee" : " employees");
         lv_label_set_text(lbl_emp_subtitle, subtitle.c_str());
     }
 

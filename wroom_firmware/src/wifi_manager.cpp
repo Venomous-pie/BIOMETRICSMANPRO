@@ -113,9 +113,11 @@ void wifiProcess() {
       resp["connected"] = true;
       resp["ip"]        = WiFi.localIP().toString();
       sendDoc(resp);
+      
+      esp_wifi_set_ps(WIFI_PS_NONE); // Force disable power saving now that we are connected
       syncNTP();
 
-    } else if (millis() - wifiConnectStart > 20000) {
+    } else if (millis() - wifiConnectStart > 35000) {
       // Timed out. Do NOT call handleWifiDisconnect() because that clears credentials.
       // Instead, we clear the suppression window and disconnect, so the STA_DISCONNECTED
       // event sees this as an unexpected drop and arms auto-reconnect.
@@ -230,7 +232,6 @@ void handleWifiConnect(const String &ssidStr, const String &passStr) {
   } else {
     WiFi.begin(ssidStr.c_str(), passStr.c_str());
   }
-  esp_wifi_set_ps(WIFI_PS_NONE); // Force disable power saving again after begin()
 
   wifiConnecting   = true;
   wifiConnectStart = millis();

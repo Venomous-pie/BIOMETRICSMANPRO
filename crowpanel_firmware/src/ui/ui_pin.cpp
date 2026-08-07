@@ -46,12 +46,22 @@ static unsigned long lockout_start = 0;
 static const int MAX_ATTEMPTS = 5;
 static const unsigned long LOCKOUT_DURATION_MS = 60000; // 60 seconds
 
+static lv_timer_t *defer_nav_timer = NULL;
+static void deferred_nav_cb(lv_timer_t *t) {
+    int target = (int)(intptr_t)t->user_data;
+    if (target == 1) UIManager::showMainMenu();
+    else if (target == 2) UIManager::showSettings();
+    defer_nav_timer = NULL;
+}
+
 static void process_pin_submission() {
     if (current_mode == PIN_MODE_AUTH) {
         if (input_pin == DataManager::getAdminPin()) {
             failed_attempts = 0; // Reset on success
             input_pin = "";
-            UIManager::showMainMenu();
+            if (defer_nav_timer) lv_timer_del(defer_nav_timer);
+            defer_nav_timer = lv_timer_create(deferred_nav_cb, 30, (void*)(intptr_t)1);
+            lv_timer_set_repeat_count(defer_nav_timer, 1);
         } else {
             failed_attempts++;
             if (failed_attempts >= MAX_ATTEMPTS) {
@@ -88,7 +98,9 @@ static void process_pin_submission() {
                 first_pin  = "";
                 setup_step = 0;
                 input_pin  = "";
-                UIManager::showSettings();
+                if (defer_nav_timer) lv_timer_del(defer_nav_timer);
+                defer_nav_timer = lv_timer_create(deferred_nav_cb, 30, (void*)(intptr_t)2);
+                lv_timer_set_repeat_count(defer_nav_timer, 1);
             } else {
                 UIManager::showToast("PINs don\'t match! Try again.", true);
                 // Reset — user must start over from step 0

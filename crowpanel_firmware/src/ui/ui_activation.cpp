@@ -2,8 +2,7 @@
 #include "ui_manager.h"
 #include "../core/data_manager.h"
 #include "../core/comm_manager.h"
-
-static lv_obj_t *scr_activation = NULL;
+lv_obj_t *scr_activation = NULL;
 
 extern const lv_img_dsc_t icon_charging;
 
@@ -136,7 +135,7 @@ static void ta_event_cb(lv_event_t * e) {
                 lv_event_send(ta_code3, LV_EVENT_CANCEL, NULL);
             }
         }
-    } else if (code == LV_EVENT_CANCEL) {
+    } else if (code == LV_EVENT_CANCEL || code == LV_EVENT_READY) {
         lv_obj_add_flag(kb_code, LV_OBJ_FLAG_HIDDEN);
         lv_obj_clear_state(ta, LV_STATE_FOCUSED);
     }
@@ -379,13 +378,11 @@ void uiShowActivation() {
     if (scr_activation == NULL) {
         buildActivationScreen();
     }
-    lv_scr_load(scr_activation);
-    
-    if (!lockout_timer) {
-        lockout_timer = lv_timer_create(lockout_timer_cb, 1000, NULL);
-    }
 
-    // Reset to Step 2 (hardware code view)
+    // Set all state BEFORE loading the screen. LVGL objects can be freely mutated
+    // while off-screen. Doing this first means LVGL sees the final correct layout on
+    // its very first render — no intermediate keyboard-scroll-offset or layout delta
+    // leaks through to the user as a visible position shift.
     lv_obj_add_flag(view_enter_code, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(btn_activate, LV_OBJ_FLAG_HIDDEN);
     lv_obj_add_flag(kb_code, LV_OBJ_FLAG_HIDDEN);
@@ -393,13 +390,24 @@ void uiShowActivation() {
     lv_obj_clear_flag(btn_have_code, LV_OBJ_FLAG_HIDDEN);
     lv_label_set_text(lbl_title, "Register this Device");
     lv_label_set_text(lbl_step, ". . Step 2 of 3");
-    
     lv_textarea_set_text(ta_code1, "");
     lv_textarea_set_text(ta_code2, "");
     lv_textarea_set_text(ta_code3, "");
     if (lbl_checking) lv_label_set_text(lbl_checking, "");
     update_lockout_ui();
+
+    // Reset any scroll offset left over from the previous visit (e.g. keyboard was
+    // open, screen was scrolled). Must be done before load so no scroll animation fires.
+    lv_obj_scroll_to(scr_activation, 0, 0, LV_ANIM_OFF);
+
+    // Load screen only after state is fully prepared
+    lv_scr_load(scr_activation);
+
+    if (!lockout_timer) {
+        lockout_timer = lv_timer_create(lockout_timer_cb, 1000, NULL);
+    }
 }
+
 
 // Called by CommManager when ACTIVATION_RESULT arrives from WROOM.
 void uiActivationResult(bool success, const char* err) {
@@ -409,16 +417,30 @@ void uiActivationResult(bool success, const char* err) {
     lv_label_set_text(lbl_checking, "");
 
     if (success) {
+        DataManager::setFailedAttempts(0);
+        DataManager::setLockoutStartTime(0);
         if (lockout_timer) { lv_timer_del(lockout_timer); lockout_timer = NULL; }
         // CommManager already called uiShowIdle() — nothing more to do here
     } else {
-        // Re-enable inputs so the user can correct and retry
-        lv_obj_clear_state(btn_activate, LV_STATE_DISABLED);
-        lv_obj_clear_state(ta_code1, LV_STATE_DISABLED);
-        lv_obj_clear_state(ta_code2, LV_STATE_DISABLED);
-        lv_obj_clear_state(ta_code3, LV_STATE_DISABLED);
-        // Show the server's error reason
-        const char* msg = (err && strlen(err) > 0) ? err : "Invalid activation code. Please try again.";
-        lv_label_set_text(lbl_err, msg);
+        DataManager::setFailedAttempts(DataManager::getFailedAttempts() + 1);
+        if (DataManager::getFailedAttempts() >= 5) {
+            DataManager::setLockoutStartTime(millis());
+        }
+        
+        // Re-enable inputs so the user can correct and retry (if not locked out)
+        if (!DataManager::isLockedOut()) {
+            lv_obj_clear_state(btn_activate, LV_STATE_DISABLED);
+            lv_obj_clear_state(ta_code1, LV_STATE_DISABLED);
+            lv_obj_clear_state(ta_code2, LV_STATE_DISABLED);
+            lv_obj_clear_state(ta_code3, LV_STATE_DISABLED);
+            
+            // Show the server's error reason or remaining attempts
+            char buf[128];
+            const char* msg = (err && strlen(err) > 0) ? err : "Invalid activation code.";
+            snprintf(buf, sizeof(buf), "%s %d tries left.", msg, 5 - DataManager::getFailedAttempts());
+            lv_label_set_text(lbl_err, buf);
+        } else {
+            update_lockout_ui(); // applies the 10-minute lockout state
+        }
     }
 }

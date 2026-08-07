@@ -12,6 +12,8 @@
 #include "sync_receiver.h"
 #include "sync_protocol.h"
 
+extern LGFX lcd;
+
 // UI forward declarations
 extern void uiShowIdle();
 extern void uiUpdateClock(const char* ts);
@@ -144,6 +146,12 @@ void CommManager::begin() {
     const char* req = "{\"cmd\":\"GET_WIFI_STATUS\"}";
     esp_now_send(WROOM_MAC, (const uint8_t*)req, strlen(req));
     if (Serial) Serial.println("[BOOT] Sent GET_WIFI_STATUS to WROOM");
+
+    if (DataManager::isActivated()) {
+        String actCmd = "{\"cmd\":\"DEVICE_ACTIVATED\",\"token\":\"" + DataManager::getActivationCode() + "\"}";
+        esp_now_send(WROOM_MAC, (const uint8_t*)actCmd.c_str(), actCmd.length());
+        if (Serial) Serial.println("[BOOT] Sent DEVICE_ACTIVATED to WROOM");
+    }
 
     // Record startup time for the channel scanner
     s_beginMs = millis();
@@ -373,19 +381,37 @@ void CommManager::dispatchJson(const String& line) {
         const char* token   = doc["device_token"] | "";
         if (Serial) Serial.printf("[ACTIVATION] Result from server: success=%d err=%s token=%s\n", success, err, token);
 
+        // 1. Turn off backlight to hide LittleFS flash write glitch
+        int currentBrightness = DataManager::getBrightness();
+        lcd.setBrightness(0);
         if (success) {
+            // 2. Perform blocking flash writes
             DataManager::setDeviceToken(String(token));
             DataManager::setActivatedByServer(true);
-            String actCmd = "{\"cmd\":\"DEVICE_ACTIVATED\",\"token\":\"" + DataManager::getActivationCode() + "\"}";
-            sendCommand(actCmd);  // unlock WROOM scanner
-            uiShowIdle();
-            if (Serial) Serial.println("[ACTIVATION] Device activated. Scanner unlocked.");
+            
+            if (Serial) Serial.println("[ACTIVATION] Device activated. Rebooting...");
+            
+            // Force synchronous layout resolution, then render and restore.
+            lv_timer_handler(); 
+            
+            // We just registered successfully. A fresh boot prevents any
+            // obscure UI freezes or memory leaks on the first run.
+            UIManager::showToast("Registration Successful! Rebooting...", false);
+            lv_timer_handler(); // Render toast
+            delay(2000);
+            ESP.restart();
+            
         } else {
             // Server rejected the code — ensure the device stays deactivated (BUG-12 fix)
             DataManager::setActivatedByServer(false);
+            uiActivationResult(false, err);
+            
+            // Force synchronous layout resolution, then render and restore.
+            // This is safe because we are called sequentially in loop(), NOT from an ISR.
+            lv_timer_handler(); // process the idle screen transition
+            delay(50);
+            lcd.setBrightness(currentBrightness);
         }
-        // Update activation UI
-        uiActivationResult(success, err);
 
     } else if (strcmp(type, "TEST_RESULT") == 0) {
         bool success = doc["success"] | false;
@@ -399,6 +425,10 @@ void CommManager::dispatchJson(const String& line) {
 
     } else if (strcmp(type, "WROOM_BOOT") == 0) {
         if (Serial) Serial.println("[UART] WROOM booted. Checking activation state.");
+        
+        String volCmd = "{\"cmd\":\"SET_VOLUME\",\"vol\":" + String(DataManager::getVolume()) + "}";
+        sendCommand(volCmd.c_str());
+
         if (DataManager::isActivated()) {
             String actCmd = "{\"cmd\":\"DEVICE_ACTIVATED\",\"token\":\"" + DataManager::getActivationCode() + "\"}";
             sendCommand(actCmd.c_str());
@@ -429,12 +459,22 @@ void CommManager::dispatchJson(const String& line) {
         if (Serial) Serial.printf("[ACTIVATION] Server says activated=%d for device_id=%s\n", activated, devId);
 
         if (activated) {
+            int currentBrightness = DataManager::getBrightness();
+            lcd.setBrightness(0);
+
             // Save activation state and unlock scanner
             DataManager::setActivatedByServer(true);
+            
             String actCmd = "{\"cmd\":\"DEVICE_ACTIVATED\",\"token\":\"" + DataManager::getActivationCode() + "\"}";
             sendCommand(actCmd);
             uiShowIdle();
             if (Serial) Serial.println("[ACTIVATION] Device activated by server. Fingerprint scanner unlocked.");
+
+            lv_obj_update_layout(lv_scr_act());
+            lv_timer_handler();
+            lv_timer_handler();
+            delay(100);
+            lcd.setBrightness(currentBrightness);
         } else {
             // Not activated — log it; UI stays on activation screen
             if (Serial) Serial.println("[ACTIVATION] Server says device is NOT activated.");
@@ -442,20 +482,11 @@ void CommManager::dispatchJson(const String& line) {
     } else if (strcmp(type, "WIFI_STATUS") == 0) {
         bool connected = doc["connected"] | false;
         String ssid = doc["ssid"] | "";
-        
+
         DataManager::setWifiConnected(connected);
         
-        // Save the current SSID
-        if (connected && ssid.length() > 0) {
-            String existingPass = "";
-            for (int i = 0; i < DataManager::getSavedWifiCount(); i++) {
-                if (DataManager::getWifiSsid(i) == ssid) {
-                    existingPass = DataManager::getWifiPass(i);
-                    break;
-                }
-            }
-            DataManager::saveWifiCredentials(ssid, existingPass);
-        }
+        // (Credentials are now exclusively saved in the 'Continue' button callback 
+        // to prevent SPI starvation and screen tearing during the connection phase)
 
         UIManager::updateHeaderWifi(connected);
         uiWifiUpdateStatus(connected);
@@ -470,6 +501,7 @@ void CommManager::dispatchJson(const String& line) {
             UIManager::showToast("Wi-Fi Disconnected", true);
         }
         lastConnected = connected;
+
 
         if (!connected && DataManager::hasSavedWifi()) {
             if (!s_autoReconnectAttempted) {
@@ -515,9 +547,9 @@ void CommManager::dispatchJson(const String& line) {
         if (ok && strlen(ts) > 0) {
             // Sync the CrowPanel's own RTC so getCurrentTimeStr() works for log timestamps
             DataManager::setNtpTime(String(ts));
-            DataManager::addSyncLog("Time synced via NTP");
+            if (DataManager::isActivated()) DataManager::addSyncLog("Time synced via NTP");
         } else {
-            DataManager::addSyncLog("NTP time sync failed");
+            if (DataManager::isActivated()) DataManager::addSyncLog("NTP time sync failed");
         }
         uiSettingsUpdateNtpStatus(ok, ts, err);
     } else if (strcmp(type, "WIFI_SCAN_RESULT") == 0) {

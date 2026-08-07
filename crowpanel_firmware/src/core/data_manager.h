@@ -7,7 +7,7 @@
 // ── Hardcoded Device ID ───────────────────────────────────────────
 // This must match the DEVICE_ID defined in wroom_firmware.ino.
 // It is sent to the backend API to verify if this unit is activated.
-#define DEVICE_ID_HARDCODED "F001-2608-6AEC-ON92"
+#define DEVICE_ID_HARDCODED "F001-2608-6AEC-ON92" // Make this dynamic, get the versioning pattern from senior the dev
 
 struct Employee {
     String id;
@@ -17,6 +17,7 @@ struct Employee {
     String branch;
     bool     fp_enrolled;       // true if ANY finger is enrolled
     uint16_t enrolled_fingers;  // bitmask: bit i set = finger index i is enrolled
+    uint8_t  last_action_type;  // 0=NONE, 1=IN, 2=OUT, 3=OT_IN, 4=OT_OUT
 };
 
 struct AttendanceLog {
@@ -74,6 +75,8 @@ public:
     static void setBrightness(int val);
     static int getScreenTimeout();
     static void setScreenTimeout(int val);
+    static int getVolume();
+    static void setVolume(int val);
 
     static String getAdminPin();
     static void setAdminPin(const String& pin);
@@ -147,6 +150,7 @@ private:
     static String _deviceName;
     static int _brightness;
     static int _screenTimeout;
+    static int _volume;
     static String _adminPin;
     static bool _wifiConnected;
     static unsigned long _lastSyncTimestamp;

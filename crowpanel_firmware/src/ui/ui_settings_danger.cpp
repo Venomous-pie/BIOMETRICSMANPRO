@@ -2,6 +2,9 @@
 #include "ui_manager.h"
 #include "../core/data_manager.h"
 #include "../core/comm_manager.h"
+#include "../core/display_driver.h"
+
+extern LGFX lcd;
 
 static lv_obj_t *scr = NULL;
 static lv_obj_t *modal_overlay = NULL;
@@ -63,37 +66,15 @@ static void btn_modal_cancel_cb(lv_event_t * e) {
 
 static void btn_modal_confirm_cb(lv_event_t * e) {
     if (Serial) Serial.println("UI Danger: Factory Reset Confirmed!");
+    
+    // Turn off screen immediately to prevent tearing during the wipe
+    lcd.setBrightness(0);
+    delay(50);
+    
     CommManager::sendCommand("{\"cmd\":\"FACTORY_RESET\"}");
     DataManager::factoryReset();
     
-    if (modal_overlay) {
-        // Instead of deleting the modal and leaving the screen looking frozen,
-        // clear its contents and show a loading spinner while WROOM wipes the DB.
-        lv_obj_clean(modal_overlay);
-        
-        lv_obj_t *loading_card = lv_obj_create(modal_overlay);
-        lv_obj_set_size(loading_card, 400, 260); // Dramatically increased height
-        lv_obj_align(loading_card, LV_ALIGN_CENTER, 0, 0);
-        lv_obj_set_style_bg_color(loading_card, lv_color_white(), 0);
-        lv_obj_set_style_radius(loading_card, 16, 0);
-        lv_obj_set_style_border_width(loading_card, 0, 0);
-        lv_obj_clear_flag(loading_card, LV_OBJ_FLAG_SCROLLABLE);
-
-#if LVGL_VERSION_MAJOR >= 9
-        lv_obj_t *spinner = lv_spinner_create(loading_card);
-#else
-        lv_obj_t *spinner = lv_spinner_create(loading_card, 1000, 60);
-#endif
-        lv_obj_set_size(spinner, 60, 60);
-        lv_obj_align(spinner, LV_ALIGN_TOP_MID, 0, 30); // Pushed further down from top
-        lv_obj_set_style_arc_color(spinner, UIManager::rgb(COLOR_DANGER), LV_PART_INDICATOR);
-        lv_obj_set_style_arc_color(spinner, UIManager::rgb(0xeeeeee), LV_PART_MAIN);
-
-        lv_obj_t *lbl = lv_label_create(loading_card);
-        lv_label_set_text(lbl, "Wiping fingerprint databases\nand system settings...\n(This can take up to 10 seconds)");
-        UIManager::styleLabel(lbl, 0x333333, &lv_font_montserrat_16, LV_TEXT_ALIGN_CENTER);
-        lv_obj_align(lbl, LV_ALIGN_BOTTOM_MID, 0, -30); // Pushed further up from bottom
-    }
+    ESP.restart();
 }
 
 
