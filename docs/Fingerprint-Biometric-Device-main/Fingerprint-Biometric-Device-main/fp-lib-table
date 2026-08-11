@@ -1,0 +1,5 @@
+(fp_lib_table
+	(version 7)
+	(lib (name "Components-for-manpro-footprint") (type "KiCad") (uri "${KIPRJMOD}/Components-for-manpro-footprint.pretty") (options "") (descr ""))
+	(lib (name "ESP32_Footprints") (type "KiCad") (uri "C:/ESP32_Footprints.pretty") (options "") (descr ""))
+)

@@ -1,0 +1,94 @@
+(footprint "MT3608-BOOST-MODULE"
+	(version 20260206)
+	(generator "pcbnew")
+	(generator_version "10.0")
+	(layer "F.Cu")
+	(property "Reference" "REF**"
+		(at 0.508 -0.992 0)
+		(unlocked yes)
+		(layer "F.SilkS")
+		(uuid "7ffd9cee-a66d-4fa3-9ee6-48f962e7dd6f")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.1)
+			)
+		)
+	)
+	(property "Value" "MT3608-BOOST-MODULE"
+		(at 0.508 0.508 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(uuid "2e5ea436-7d6a-49e3-951b-97bff4bd1dba")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Datasheet" ""
+		(at 0 0 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "15ec94f0-9fc3-429f-8a5d-48a18683242f")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Description" ""
+		(at 0 0 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "ee1b4679-0fcc-4319-9f74-37bbe7748656")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(attr smd)
+	(duplicate_pad_numbers_are_jumpers no)
+	(fp_rect
+		(start 0 7.112)
+		(end 38 24.892)
+		(stroke
+			(width 0.1)
+			(type default)
+		)
+		(fill no)
+		(layer "F.SilkS")
+		(uuid "3de3f5ed-520e-4d3c-a1c3-a945945e79b2")
+	)
+	(fp_text user "${REFERENCE}"
+		(at 0.508 2.008 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(uuid "8f8ae9f4-72c4-448f-804f-a15d7dcf462d")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(embedded_fonts no)
+	(model "C:/3dmodel/MT3608 Converter.STEP"
+		(opacity 0.2500)
+		(offset
+			(xyz 19.5 -16 0)
+		)
+		(scale
+			(xyz 1 1 1)
+		)
+		(rotate
+			(xyz 90 -180 -180)
+		)
+	)
+)
